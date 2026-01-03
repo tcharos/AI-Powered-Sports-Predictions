@@ -1,0 +1,100 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<h2>Live Match Analysis</h2>
+<p class="text-muted">Experimental: Real-time adjustments based on stats (xG, Shots, Possession).</p>
+
+<div class="alert alert-info">
+    <strong>Note:</strong> This feature requires the scraper to fetch live data. Currently showing mock/pre-loaded data
+    structure.
+</div>
+
+<div class="row">
+    {% if not matches %}
+    <div class="col-12 text-center">
+        <div class="alert alert-warning">No live data available. Click "Refresh Data" to fetch adjustments.</div>
+    </div>
+    {% endif %}
+
+    {% for item in matches %}
+    <div class="col-md-6 mb-4">
+        <div class="card h-100 border-primary">
+            <div class="card-header bg-dark text-white d-flex justify-content-between">
+                <span>{{ item.match }}</span>
+                <span class="badge bg-danger">LIVE</span>
+            </div>
+            <div class="card-body">
+                <h5 class="card-title text-center mb-4">{{ item.score }} <small class="text-muted">(Min {{ item.minute
+                        }})</small></h5>
+
+                <div class="row text-center mb-3">
+                    <div class="col-4">
+                        <h6>Home Stats</h6>
+                        <ul class="list-unstyled small">
+                            <li>xG: <strong>{{ item.stats.get('xg_home', '-') }}</strong></li>
+                            <li>Shots: {{ item.stats.get('shots_home', '-') }}</li>
+                            <li>Poss: {{ item.stats.get('possession_home', '-') }}%</li>
+                        </ul>
+                    </div>
+                    <div class="col-4 d-flex align-items-center justify-content-center">
+                        <span class="text-muted">vs</span>
+                    </div>
+                    <div class="col-4">
+                        <h6>Away Stats</h6>
+                        <ul class="list-unstyled small">
+                            <li>xG: <strong>{{ item.stats.get('xg_away', '-') }}</strong></li>
+                            <li>Shots: {{ item.stats.get('shots_away', '-') }}</li>
+                            <li>Poss: {{ item.stats.get('possession_away', '-') }}%</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h6 class="border-bottom pb-2">Prediction Adjustment</h6>
+                <table class="table table-sm table-bordered text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Outcome</th>
+                            <th>Pre-Game</th>
+                            <th>Live Adjusted</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Home</td>
+                            <td>{{ (item.pre_probs.home * 100)|round(1) }}%</td>
+                            <td
+                                class="{{ 'table-success fw-bold' if item.adj_probs.home > item.pre_probs.home else '' }}">
+                                {{ (item.adj_probs.home * 100)|round(1) }}%
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Draw</td>
+                            <td>{{ (item.pre_probs.draw * 100)|round(1) }}%</td>
+                            <td
+                                class="{{ 'table-success fw-bold' if item.adj_probs.draw > item.pre_probs.draw else '' }}">
+                                {{ (item.adj_probs.draw * 100)|round(1) }}%
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Away</td>
+                            <td>{{ (item.pre_probs.away * 100)|round(1) }}%</td>
+                            <td
+                                class="{{ 'table-success fw-bold' if item.adj_probs.away > item.pre_probs.away else '' }}">
+                                {{ (item.adj_probs.away * 100)|round(1) }}%
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="d-grid gap-2 mt-4">
+    <form action="/refresh_live" method="post">
+        <button type="submit" class="btn btn-outline-primary btn-lg w-100">Refresh Data (Run Scraper)</button>
+    </form>
+</div>
+{% endblock %}

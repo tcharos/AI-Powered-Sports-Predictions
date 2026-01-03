@@ -1,0 +1,263 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card border-warning mb-4">
+            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                <h3>💰 Betting Strategy Execution</h3>
+                <span class="badge bg-dark">Virtual Mode</span>
+            </div>
+            <div class="card-body">
+                <p class="lead">Generate a high-confidence virtual betting slip based on the <strong>Kelly
+                        Criterion</strong> strategy.</p>
+
+                <div class="card bg-light mb-3">
+                    <div class="card-body">
+                        <h5>Strategy Configuration</h5>
+                        <ul class="mb-3">
+                            <li><strong>Model:</strong> Flashscore ML Predictor</li>
+                            <li><strong>Staking:</strong> Quarter-Kelly (0.25x)</li>
+                            <li><strong>EV Threshold:</strong> > 0.0</li>
+                            <li><strong>Min Confidence:</strong> 55%</li>
+                        </ul>
+
+                        <div class="form-group">
+                            <label for="customBankroll" class="form-label fw-bold">Session Bankroll (Base for
+                                Kelly)</label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" id="customBankroll"
+                                    placeholder="Enter amount (e.g. 1000)" step="any">
+                                <button class="btn btn-outline-secondary" type="button"
+                                    onclick="loadConfigBankroll()">Load Max</button>
+                            </div>
+                            <div class="form-text">Define the bankroll amount to use for this slip generation. Leave
+                                empty to use saved bankroll.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-dark btn-lg" onclick="generateSlip()">🎰 Generate High Confidence Auto-Wager
+                        Slip</button>
+                </div>
+
+                <div id="wagerResult" class="mt-4" style="display:none;">
+                    <div class="card border-secondary">
+                        <div class="card-header bg-secondary text-white">
+                            Virtual Slip Result
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <h5 class="alert-heading">Slip Summary</h5>
+                                <p class="mb-0"><strong>File:</strong> <span id="slipFilename"></span></p>
+                                <p class="mb-0"><strong>Total Recommended Stake:</strong> <span id="totalStake"
+                                        class="fs-4 fw-bold"></span> Units</p>
+                                <hr>
+                                <small>(Based on <span id="bankrollDisplay">Loading...</span> Unit Bankroll)</small>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Match</th>
+                                            <th>Type</th>
+                                            <th>Selection</th>
+                                            <th>Odds</th>
+                                            <th>Kelly %</th>
+                                            <th>Stake (Units)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="slipBody"></tbody>
+                                </table>
+                            </div>
+
+                            <div class="d-grid gap-2 mt-3">
+                                <button class="btn btn-success btn-lg" id="placeBetsBtn" onclick="placeVirtualBets()">🚀
+                                    Place Bets (Virtual)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTORY SECTION -->
+        <h3 class="mt-4 mb-3 border-bottom pb-2">📜 Betting History</h3>
+
+        {% if history %}
+        {% for slip in history %}
+        <div
+            class="card mb-3 border-{{ 'success' if slip.status == 'CLOSED' and slip.pnl > 0 else ('danger' if slip.status == 'CLOSED' and slip.pnl < 0 else 'secondary') }}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ slip.date }}</strong>
+                    <span class="badge bg-{{ 'primary' if slip.status == 'OPEN' else 'dark' }} ms-2 me-3">{{ slip.status
+                        }}</span>
+
+                    <!-- Daily Summary -->
+                    <span class="text-muted small">
+                        Played: <strong>{{ slip.get('total_stake', 0)|round(2) }}</strong>
+                        <span class="mx-1">|</span>
+                        Outcome:
+                        {% if slip.status == 'CLOSED' %}
+                        <strong
+                            class="{{ 'text-success' if slip.get('pnl', 0) > 0 else ('text-danger' if slip.get('pnl', 0) < 0 else 'text-muted') }}">
+                            {{ '+' if slip.get('pnl', 0) > 0 else '' }}{{ slip.get('pnl', 0)|round(2) }}
+                        </strong>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Match</th>
+                                <th>Type</th>
+                                <th>Selection</th>
+                                <th>Odds</th>
+                                <th>Stake</th>
+                                <th>Result</th>
+                                <th>P/L</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for bet in slip.bets %}
+                            <tr
+                                class="{{ 'table-success' if bet.result == 'WON' else ('table-danger' if bet.result == 'LOST' else '') }}">
+                                <td>{{ bet.match }}</td>
+                                <td>{{ bet.type }}</td>
+                                <td class="fw-bold">{{ bet.selection }}</td>
+                                <td>{{ bet.odds }}</td>
+                                <td>{{ bet.stake_units|round(2) }}</td>
+                                <td>
+                                    {% if bet.result == 'WON' %}
+                                    <span class="badge bg-success">WON</span>
+                                    {% elif bet.result == 'LOST' %}
+                                    <span class="badge bg-danger">LOST</span>
+                                    {% elif bet.status == 'VOID' %}
+                                    <span class="badge bg-warning text-dark">VOID</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">OPEN</span>
+                                    {% endif %}
+                                </td>
+                                <td class="fw-bold">
+                                    {% if bet.pnl is defined %}
+                                    {{ '+' if bet.pnl > 0 else '' }}{{ bet.pnl|round(2) }}
+                                    {% else %}
+                                    -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="alert alert-light text-center">No betting history found. Start by generating a slip!</div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    let currentBets = [];
+    let currentFilename = "";
+
+    // Helper to auto-fill max bankroll if needed (optional)
+    function loadConfigBankroll() {
+        // We could fetch it, or just let the backend handle it if empty.
+        // For UI nicety, let's just clear it to imply "Default"
+        document.getElementById('customBankroll').value = '';
+        alert("Cleared. System will use the full saved bankroll.");
+    }
+
+    function generateSlip() {
+        const resultDiv = document.getElementById('wagerResult');
+        const tbody = document.getElementById('slipBody');
+        const filenameSpan = document.getElementById('slipFilename');
+        const stakeSpan = document.getElementById('totalStake');
+
+        const customBankroll = document.getElementById('customBankroll').value;
+
+        // Reset view
+        resultDiv.style.display = 'none';
+        tbody.innerHTML = '';
+        currentBets = [];
+
+        let url = '/auto_wager';
+        if (customBankroll) {
+            url += `?bankroll=${encodeURIComponent(customBankroll)}`;
+        }
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                filenameSpan.innerText = data.filename;
+                stakeSpan.innerText = data.total_stake.toFixed(2);
+                if (data.bankroll) {
+                    document.getElementById('bankrollDisplay').innerText = data.bankroll.toFixed(2);
+                }
+                currentFilename = data.filename;
+                currentBets = data.bets;
+
+                if (data.bets.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-3 text-muted">No positive value bets found for this file.</td></tr>';
+                    document.getElementById('placeBetsBtn').disabled = true;
+                } else {
+                    document.getElementById('placeBetsBtn').disabled = false;
+                    data.bets.forEach(bet => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${bet.match}</td>
+                            <td><span class="badge ${bet.type === '1X2' ? 'bg-primary' : 'bg-info text-dark'}">${bet.type}</span></td>
+                            <td class="fw-bold">${bet.selection}</td>
+                            <td>${bet.odds}</td>
+                            <td>${bet.kelly}</td>
+                            <td class="fw-bold text-success">${bet.stake_units.toFixed(2)}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                resultDiv.style.display = 'block';
+            })
+            .catch(err => alert("Error fetching wager data: " + err));
+    }
+
+    function placeVirtualBets() {
+        if (!currentBets.length) return;
+
+        if (!confirm(`Confirm placing ${currentBets.length} virtual bets? This will save your slip.`)) return;
+
+        fetch('/place_bets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bets: currentBets, filename: currentFilename })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    alert("Error: " + data.error);
+                } else {
+                    alert(data.message);
+                    location.reload(); // Reload to update bankroll if we implement that logic immediately, though here it just clears state
+                }
+            })
+            .catch(err => alert("Connection error: " + err));
+    }
+</script>
+{% endblock %}

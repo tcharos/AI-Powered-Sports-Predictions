@@ -1,0 +1,66 @@
+[
+  {
+    "matchup": "Charlotte Hornets vs Cleveland Cavaliers",
+    "home_team": "Cleveland Cavaliers",
+    "away_team": "Charlotte Hornets",
+    "raw_odds": "+11.5 -102 | o232.5 -112 | +455 | -11.5 -118 | u232.5 -108 | -625",
+    "date_header": "Sunday, December 14",
+    "source": "espn"
+  },
+  {
+    "matchup": "Philadelphia 76ers vs Atlanta Hawks",
+    "home_team": "Atlanta Hawks",
+    "away_team": "Philadelphia 76ers",
+    "raw_odds": "+4.5 -102 | o224.5 -110 | +170 | -4.5 -118 | u224.5 -110 | -205",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  },
+  {
+    "matchup": "Milwaukee Bucks vs Brooklyn Nets",
+    "home_team": "Brooklyn Nets",
+    "away_team": "Milwaukee Bucks",
+    "raw_odds": "-1.5 -112 | o215.5 -115 | -125 | +1.5 -108 | u215.5 -105 | +105",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  },
+  {
+    "matchup": "Sacramento Kings vs Minnesota Timberwolves",
+    "home_team": "Minnesota Timberwolves",
+    "away_team": "Sacramento Kings",
+    "raw_odds": "+10.5 -110 | o235.5 -110 | +370 | -10.5 -110 | u235.5 -110 | -485",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  },
+  {
+    "matchup": "New Orleans Pelicans vs Chicago Bulls",
+    "home_team": "Chicago Bulls",
+    "away_team": "New Orleans Pelicans",
+    "raw_odds": "+4.5 -118 | o246.5 -110 | +154 | -4.5 -102 | u246.5 -110 | -185",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  },
+  {
+    "matchup": "Los Angeles Lakers vs Phoenix Suns",
+    "home_team": "Phoenix Suns",
+    "away_team": "Los Angeles Lakers",
+    "raw_odds": "-1.5 -105 | o230.5 -110 | -118 | +1.5 -115 | u230.5 -110 | -102",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  },
+  {
+    "matchup": "Golden State Warriors vs Portland Trail Blazers",
+    "home_team": "Portland Trail Blazers",
+    "away_team": "Golden State Warriors",
+    "raw_odds": "-4.5 -115 | o236.5 -108 | -198 | +4.5 -105 | u236.5 -112 | +164",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  },
+  {
+    "matchup": "San Antonio Spurs vs New York Knicks",
+    "home_team": "New York Knicks",
+    "away_team": "San Antonio Spurs",
+    "raw_odds": "+2.5 -110 | o228.5 -110 | +114 | -2.5 -110 | u228.5 -110 | -135",
+    "date_header": "Monday, December 15",
+    "source": "espn"
+  }
+]

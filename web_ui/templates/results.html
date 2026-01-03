@@ -1,0 +1,146 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Result: {{ filename }} ({{ count }} matches)</h2>
+    <a href="/" class="btn btn-outline-secondary">&larr; Back to Dashboard</a>
+</div>
+
+<style>
+    /* Sticky Header for Table */
+    .table-responsive {
+        max-height: 80vh;
+        /* Adjust height as needed to enable vertical scroll on large tables */
+        overflow-y: auto;
+    }
+
+    thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        /* Ensure background is opaque so scrolling content doesn't show through */
+        /* Inherit from table-dark or set explicitly */
+        background-color: #212529 !important;
+        color: white;
+        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.4);
+    }
+</style>
+
+
+
+<div class="table-responsive">
+    <table class="table table-bordered table-hover">
+        <thead class="table-dark">
+            <tr>
+                {% for col in columns %}
+                <th>{{ col }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data %}
+            <tr>
+                {% for col in columns %}
+                {% set val = row[col] %}
+                {% set is_conf = False %}
+                {% set bg_class = "" %}
+
+                {# Highlight high confidence cells - 1X2 (>= 55%) #}
+                {% if col in ['Conf 1X2', 'Home Win %', 'Away Win %', 'Draw %'] %}
+                {% set fval = val|to_float %}
+                {% if fval >= 0.55 %}
+                {% set bg_class = "table-success" %}
+                {% endif %}
+                {% endif %}
+
+                {# Highlight high confidence cells - O/U (>= 55%) #}
+                {% if col in ['Conf O/U', 'Over %', 'Under %'] %}
+                {% set fval = val|to_float %}
+                {% if fval >= 0.55 %}
+                {% set bg_class = "table-success" %}
+                {% endif %}
+                {% endif %}
+
+                {# Highlight EV & Kelly (Positive Value) #}
+                {% if col in ['EV 1X2', 'EV O/U'] %}
+                {% set fval = val|to_float %}
+                {% if fval > 0.0 %}
+                {% set bg_class = "table-warning fw-bold text-dark" %}
+                {% endif %}
+                {% endif %}
+
+                {% if col in ['Kelly 1X2', 'Kelly O/U'] %}
+                {% if val and val != "0.00%" and val != "0.0%" %}
+                {% set bg_class = "table-warning fw-bold text-dark" %}
+                {% endif %}
+                {% endif %}
+
+                {# Highlight Prediction Text based on confidence #}
+                {% if col == 'Prediction 1X2' and row.get('Conf 1X2')|to_float >= 0.55 %}
+                {% set bg_class = "table-success fw-bold" %}
+                {% endif %}
+                {% if col == 'Prediction O/U' and row.get('Conf O/U')|to_float >= 0.55 %}
+                {% set bg_class = "table-success fw-bold" %}
+                {% endif %}
+                {% if col == 'Prediction O/U Odd' and row.get('Conf O/U')|to_float >= 0.55 %}
+                {% set bg_class = "table-success" %}
+                {% endif %}
+
+                {% if col == 'Prediction 1X2 Odd' and row.get('Conf 1X2')|to_float >= 0.55 %}
+                {% set bg_class = "table-success" %}
+                {% endif %}
+
+                {# Verification Highlighting #}
+                {% if col in ['Correct 1X2', 'Correct O/U', 'Correct 1X2 Label', 'Correct O/U Label'] %}
+                {% if val == True or val == 'True' or val == '✅' %}
+                {% set bg_class = "table-success" %}
+                {% elif val == False or val == 'False' or val == '❌' %}
+                {% set bg_class = "table-danger" %}
+                {% endif %}
+                {% endif %}
+
+                {# Highlight Prediction Cells based on Verification Result #}
+                {% if col in ['Prediction 1X2', 'Pred 1X2'] %}
+                {% if row.get('Correct 1X2') == True or row.get('Correct 1X2') == 'True' or row.get('Correct 1X2 Label')
+                == '✅' %}
+                {% set bg_class = "table-success fw-bold" %}
+                {% elif row.get('Correct 1X2') == False or row.get('Correct 1X2') == 'False' or row.get('Correct 1X2
+                Label') == '❌' %}
+                {% set bg_class = "table-danger fw-bold" %}
+                {% endif %}
+                {% endif %}
+
+                {% if col in ['Prediction O/U', 'Pred O/U'] %}
+                {% if row.get('Correct O/U') == True or row.get('Correct O/U') == 'True' or row.get('Correct O/U Label')
+                == '✅' %}
+                {% set bg_class = "table-success fw-bold" %}
+                {% elif row.get('Correct O/U') == False or row.get('Correct O/U') == 'False' or row.get('Correct O/U
+                Label') == '❌' %}
+                {% set bg_class = "table-danger fw-bold" %}
+                {% endif %}
+                {% endif %}
+
+                <td class="{{ bg_class }}">
+                    {% if col in ['Home Form', 'Away Form'] and val %}
+                    {% for res in val.split(',') %}
+                    {% if res == 'W' %}
+                    <span class="badge bg-success" style="margin-right:2px;">W</span>
+                    {% elif res == 'D' %}
+                    <span class="badge bg-warning text-dark" style="margin-right:2px;">D</span>
+                    {% elif res == 'L' %}
+                    <span class="badge bg-danger" style="margin-right:2px;">L</span>
+                    {% else %}
+                    <small class="text-muted">{{ res }}</small>
+                    {% endif %}
+                    {% endfor %}
+                    {% else %}
+                    {{ val }}
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

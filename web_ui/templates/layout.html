@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Betting AI Dashboard</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+
+        .navbar {
+            margin-bottom: 20px;
+        }
+
+        .card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .high-confidence {
+            background-color: #d4edda !important;
+        }
+
+        /* Green */
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">⚽ AI Powered Sports Predictions</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/nba/">🏀 NBA</a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="dataDropdown" role="button"
+                            data-bs-toggle="dropdown" aria-expanded="false">
+                            💾 Data
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dataDropdown">
+                            <li>
+                                <form action="/update_data" method="post"
+                                    onsubmit="return confirm('Update historical data? This will download the latest match results.');">
+                                    <button class="dropdown-item" type="submit">Update Current Season (Results)</button>
+                                </form>
+                            </li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li>
+                                <form action="/update_leagues" method="post"
+                                    onsubmit="return confirm('Update League Standings & Form? This might take a few minutes.');">
+                                    <button class="dropdown-item" type="submit">Update Standings & Form</button>
+                                </form>
+                            </li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li>
+                                <form action="/retrain_model" method="post"
+                                    onsubmit="return confirm('Full Pipeline: Update Data + Form + Retrain Model. This will take several minutes.');">
+                                    <button class="dropdown-item fw-bold text-primary" type="submit">🔄 Retrain Model
+                                        (Full Pipeline)</button>
+                                </form>
+                            </li>
+                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/betting">💸 Betting</a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button"
+                            data-bs-toggle="dropdown" aria-expanded="false">
+                            ⚙️ Server
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
+                            <li>
+                                <form action="/server/restart" method="post"
+                                    onsubmit="return confirm('Restart Server? The page will reload in 5s.');">
+                                    <button class="dropdown-item" type="submit">Restart Server</button>
+                                </form>
+                            </li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li>
+                                <form action="/server/stop" method="post"
+                                    onsubmit="return confirm('Stop Server? The UI will become unreachable.');">
+                                    <button class="dropdown-item text-danger" type="submit">Stop Server</button>
+                                </form>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+                <span class="navbar-text ms-3 text-warning fw-bold">
+                    💰 Bankroll: €{{ bankroll|default(1000.0)|round(2) }}
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mb-3" id="globalProgressContainer" style="display: none;">
+        <div class="card border-info">
+            <div class="card-body">
+                <h5 class="card-title text-info" id="globalProgressTitle">Task Running...</h5>
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar"
+                        style="width: 100%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global Task Poller
+        function checkGlobalTasks() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('globalProgressContainer');
+                    const title = document.getElementById('globalProgressTitle');
+                    let active = false;
+
+                    // Check for specific long-running tasks
+                    if (data.leagues && data.leagues.state === 'running') {
+                        active = true;
+                        title.innerText = "🔄 Updating Standings & Form... (This may take a few minutes)";
+                        container.style.display = 'block';
+                    } else if (data.update && data.update.state === 'running') { // Historical data update (key is 'update')
+                        active = true;
+                        title.innerText = "🔄 Updating Season Results...";
+                        container.style.display = 'block';
+                    } else if (data.retrain && data.retrain.state === 'running') {
+                        active = true;
+                        title.innerText = "🤖 Retraining Model Pipeline... (Grab a coffee ☕)";
+                        container.style.display = 'block';
+                    } else if (data.nba_retrain && data.nba_retrain.state === 'running') {
+                        active = true;
+                        title.innerText = "🏀 NBA Full Pipeline: Fetching Data, Engineering Features & Retraining...";
+                        container.style.display = 'block';
+                    } else if (data.nba_verify && data.nba_verify.state === 'running') {
+                        active = true;
+                        title.innerText = "✅ NBA Validation in Progress...";
+                        container.style.display = 'block';
+                    }
+
+                    // If no active tasks but container is visible, it means a task just finished
+                    if (!active && container.style.display === 'block') {
+                        container.style.display = 'none';
+                        // Reload to show results/flash messages
+                        window.location.reload();
+                    }
+                })
+                .catch(err => console.error("Error polling status:", err));
+        }
+
+        // Poll every 2 seconds
+        setInterval(checkGlobalTasks, 2000);
+        // Check immediately on load
+        checkGlobalTasks(); 
+    </script>
+</body>
+
+</html>

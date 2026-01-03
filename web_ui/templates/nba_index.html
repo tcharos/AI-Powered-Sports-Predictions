@@ -1,0 +1,180 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="mb-3">🏀 NBA Expansion Center</h1>
+        <div class="alert alert-info">
+            <strong>Status:</strong> Validated Pipeline. Hybrid Data (Flashscore Stats + ESPN Odds).
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Metrics Cards -->
+    <!-- Actions & Stats -->
+    <div class="col-md-3">
+        <div class="card p-3 mb-4 border-primary">
+            <h6 class="text-primary">Historical Games</h6>
+            <div class="fs-2 fw-bold">{{ game_count }}</div>
+            <small class="text-muted">Since 2019</small>
+        </div>
+    </div>
+
+    <!-- All-Time Performance -->
+    <div class="col-md-3">
+        <div class="card p-3 mb-4 border-info">
+            <h6 class="text-info">All-Time Accuracy</h6>
+            {% if analytics %}
+            <div class="d-flex justify-content-between mb-1">
+                <span>Winner:</span>
+                <span class="fw-bold">{{ analytics.get('winner_accuracy', 0) }}%</span>
+            </div>
+            <div class="d-flex justify-content-between">
+                <span>Totals:</span>
+                <span class="fw-bold">{{ analytics.get('total_accuracy', 0) }}%</span>
+            </div>
+            <small class="text-muted mt-2 d-block">Based on {{ analytics.get('total_matches', 0) }} verified
+                games</small>
+            {% else %}
+            <div class="text-muted">No data yet</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="col-md-3">
+        <div class="card p-3 mb-4 border-warning">
+            <h6 class="text-warning">Actions</h6>
+            <form action="/nba/verify" method="post">
+                <button type="submit" class="btn btn-sm btn-outline-warning w-100">
+                    ✅ Run Validation (Yesterday)
+                </button>
+            </form>
+            <div class="mt-2 text-center text-muted small">
+                Checks ESPN Results vs Predictions
+            </div>
+
+            <hr>
+
+            <form action="/nba/retrain" method="post"
+                onsubmit="return confirm('Ensure no other training is running. This will take a few minutes.');">
+                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                    🔄 Retrain Model (Full Pipeline)
+                </button>
+            </form>
+            <div class="mt-2 text-center text-muted small">
+                Update Data + Features + Train
+            </div>
+
+            <hr>
+
+            <form action="/nba/predict" method="post"
+                onsubmit="return confirm('This will scrape fresh data for tomorrow. Continue?');">
+                <button type="submit" class="btn btn-sm btn-outline-success w-100">
+                    🔮 Run Prediction (Tomorrow)
+                </button>
+            </form>
+            <div class="mt-2 text-center text-muted small">
+                Scrape + Predict
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card p-3 mb-4 border-success">
+            <h6 class="text-success">Latest Predictions</h6>
+            <div class="fs-2 fw-bold">
+                {% if predictions %}{{ predictions|length }}{% else %}0{% endif %}
+            </div>
+            <small class="text-muted">{{ pred_file if pred_file else "None" }}</small>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-white">
+        <h5 class="mb-0">Upcoming Match Predictions</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-striped mb-0 align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Matchup</th>
+                        <th class="text-center">Home Win %</th>
+                        <th class="text-center">Spread (Home)</th>
+                        <th class="text-center">Totals (Mkt vs Mdl)</th>
+                        <th class="text-center">O/U Pick</th>
+                        <th class="text-center">Conf.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if predictions %}
+                    {% for row in predictions %}
+                    <tr>
+                        <td>{{ row['Date'] }}</td>
+                        <td>
+                            <div class="fw-bold">{{ row['Home Team'] }}</div>
+                            <small class="text-muted">vs {{ row['Away Team'] }}</small>
+                            {% if row['Score'] %}
+                            <div class="badge bg-dark mt-1">{{ row['Score'] }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% set win_prob = row['Home Win %']|float %}
+                            <span
+                                class="badge {% if win_prob > 60 %}bg-success{% elif win_prob < 40 %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ win_prob }}%
+                            </span>
+
+                            <!-- Validation Indicator -->
+                            {% if row['Correct Winner'] == True %}
+                            <span class="ms-1 text-success fw-bold" title="Correct Winner">✅</span>
+                            {% elif row['Correct Winner'] == False %}
+                            <span class="ms-1 text-danger fw-bold" title="Wrong Winner">❌</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {{ row['Spread (Home)'] if row['Spread (Home)'] else '-' }}
+                        </td>
+                        <td class="text-center">
+                            <div>Mkt: {{ row['Total (Market)'] }}</div>
+                            <small class="text-primary">Est: {{ row['Total (Model)'] }}</small>
+                        </td>
+                        <td class="text-center">
+                            {% set pick = row['O/U Pick'] %}
+                            {% if pick == 'OVER' %}
+                            <span class="badge bg-success">OVER</span>
+                            {% elif pick == 'UNDER' %}
+                            <span class="badge bg-warning text-dark">UNDER</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark border">Pass</span>
+                            {% endif %}
+
+                            <!-- Validation Indicator -->
+                            {% if row['Correct Total'] == True %}
+                            <span class="ms-1 text-success fw-bold" title="Correct Pick">✅</span>
+                            {% elif row['Correct Total'] == False %}
+                            <span class="ms-1 text-danger fw-bold" title="Wrong Pick">❌</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {{ row['Confidence'] }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            No predictions found. Run the prediction pipeline first.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

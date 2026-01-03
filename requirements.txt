@@ -1,0 +1,21 @@
+# Scraping
+scrapy
+scrapy-playwright
+beautifulsoup4
+requests
+
+# Data Science & ML
+pandas
+numpy
+xgboost
+scikit-learn
+rapidfuzz
+thefuzz
+
+# Web UI
+flask
+
+# Utilities
+python-dateutil
+# NBA
+pbpstats

@@ -1,0 +1,9 @@
+.vscode/
+data_sets/
+logs/
+output/
+models/
+tests/
+venv/
+__pycache__/
+*.pyc

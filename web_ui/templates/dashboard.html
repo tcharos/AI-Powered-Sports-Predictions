@@ -1,0 +1,412 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<!-- Row 1: Actions & Reports -->
+<div class="row mb-4">
+    <!-- Actions Card -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-primary text-white">Actions</div>
+            <div class="card-body">
+                <p>Run the scraping and prediction pipeline for the upcoming matches.</p>
+                <form action="/predict" method="post" class="d-inline" id="predictForm">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="force" id="forceScrape">
+                        <label class="form-check-label" for="forceScrape">
+                            Force Scrape (Overwrite Data)
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100 mb-2" id="predictBtn">🚀 Run Prediction (Next
+                        Day)</button>
+                </form>
+                <div id="predictStatus" style="display: none;" class="mt-2">
+                    <small>Status: <span id="predictState">Running...</span></small>
+                    <div class="progress mb-2">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                            role="progressbar" style="width: 100%"></div>
+                    </div>
+                    <button class="btn btn-danger btn-sm w-100" onclick="stopTask('predict')">🛑 Stop
+                        Prediction</button>
+                    <form id="stopPredictForm" action="/stop/predict" method="post" style="display:none;"></form>
+                </div>
+                <hr>
+                <p>Verify yesterday's predictions against actual results.</p>
+                <form action="/verify" method="post" class="d-inline" id="verifyForm">
+                    <button type="submit" class="btn btn-warning w-100" id="verifyBtn">✅ Run Verification
+                        (Yesterday)</button>
+                </form>
+                <div id="verifyStatus" style="display: none;" class="mt-2">
+                    <small>Status: <span id="verifyState">Running...</span></small>
+                    <div class="progress mb-2">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+                            role="progressbar" style="width: 100%"></div>
+                    </div>
+                    <button class="btn btn-danger btn-sm w-100" onclick="stopTask('verify')">🛑 Stop
+                        Verification</button>
+                    <form id="stopVerifyForm" action="/stop/verify" method="post" style="display:none;"></form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reports Card -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-dark text-white">Recent Reports</div>
+            <div class="card-body">
+                {% if predictions %}
+                <div class="list-group">
+                    {% for item in predictions %}
+                    <a href="/view/{{ item.filename }}"
+                        class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ item.date }}</strong> <small class="text-muted">({{ item.count }}
+                                matches)</small>
+                            <span class="badge bg-info text-dark">{{ item.type }}</span>
+                        </div>
+                        <small>View Report &rang;</small>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">No prediction reports found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Row 2: Live Matches Section -->
+{% if live_matches %}
+<div class="card mb-4 border-danger">
+    <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+        <span>⚡ Live Match Analysis & Adjustments</span>
+        <div class="btn-group">
+            <form action="/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
+                <button type="submit" class="btn btn-sm btn-light text-danger fw-bold" id="refreshLiveBtn">Refresh
+                    Once</button>
+            </form>
+            <!-- Auto Loop Form -->
+            <form action="/live_analysis" method="post" class="d-inline ms-2">
+                <button type="submit" class="btn btn-sm btn-success fw-bold" id="startLiveBtn">Start Auto-Loop
+                    (10m)</button>
+            </form>
+            <button class="btn btn-sm btn-danger fw-bold ms-2" onclick="stopTask('live')" id="stopLiveBtn">Stop
+                Loop</button>
+            <form id="stopLiveForm" action="/stop/live" method="post" style="display:none;"></form>
+
+            <form action="/clear_live" method="post" class="d-inline ms-2">
+                <button type="submit" class="btn btn-sm btn-warning fw-bold text-dark" title="Clear Data">🗑️ Clear
+                    Data</button>
+            </form>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for item in live_matches %}
+            {% if item.message %}
+            <div class="col-12">
+                <div class="alert alert-info text-center mb-0">
+                    <i class="bi bi-info-circle"></i> {{ item.message }}
+                </div>
+            </div>
+            {% else %}
+            <div class="col-md-4 mb-3">
+                <div class="card h-100 border-secondary">
+                    <div class="card-header py-1 bg-light text-center small fw-bold">
+                        {{ item.match }}
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="text-center mb-2">
+                            <h6 class="mb-0">{{ item.score }} <small class="text-muted">({{ item.minute }}')</small>
+                            </h6>
+                        </div>
+
+                        <!-- Mini Stats -->
+                        <div class="d-flex justify-content-between small mb-2 text-muted">
+                            <span>xG: <b>{{ item.stats.get('xg_home', '-') }}</b></span>
+                            <span>Poss: {{ item.stats.get('possession_home', '-') }}%</span>
+                        </div>
+                        <div class="d-flex justify-content-between small mb-2 text-muted">
+                            <span>xG: <b>{{ item.stats.get('xg_away', '-') }}</b></span>
+                            <span>Poss: {{ item.stats.get('possession_away', '-') }}%</span>
+                        </div>
+
+                        <!-- Adjustment Table -->
+                        <table class="table table-bordered table-sm text-center small mb-0">
+                            <thead>
+                                <tr class="bg-light">
+                                    <th>1X2</th>
+                                    <th>Pre</th>
+                                    <th>Live</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>1</td>
+                                    <td>{{ (item.pre_probs.home * 100)|round(0)|int }}%</td>
+                                    <td
+                                        class="{{ 'table-success fw-bold' if item.adj_probs.home > item.pre_probs.home else '' }}">
+                                        {{ (item.adj_probs.home * 100)|round(0)|int }}%
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>X</td>
+                                    <td>{{ (item.pre_probs.draw * 100)|round(0)|int }}%</td>
+                                    <td
+                                        class="{{ 'table-success fw-bold' if item.adj_probs.draw > item.pre_probs.draw else '' }}">
+                                        {{ (item.adj_probs.draw * 100)|round(0)|int }}%
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>2</td>
+                                    <td>{{ (item.pre_probs.away * 100)|round(0)|int }}%</td>
+                                    <td
+                                        class="{{ 'table-success fw-bold' if item.adj_probs.away > item.pre_probs.away else '' }}">
+                                        {{ (item.adj_probs.away * 100)|round(0)|int }}%
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card mb-4 border-secondary">
+    <div class="card-body d-flex justify-content-between align-items-center">
+        <span>No Live Data loaded.</span>
+        <div>
+            <form action="/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
+                <button type="submit" class="btn btn-outline-danger" id="triggerLiveBtn">⚡ Run Once</button>
+            </form>
+            <form action="/live_analysis" method="post" class="d-inline ms-2">
+                <button type="submit" class="btn btn-outline-success" id="startLiveBtnEmpty">Start Auto-Loop
+                    (10m)</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Row 3: Cumulative Stats -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <span>Cumulative League Performance (All-Time)</span>
+        <form action="/reset_stats" method="post"
+            onsubmit="return confirm('Are you sure you want to completely RESET all cumulative league statistics?');">
+            <button type="submit" class="btn btn-sm btn-danger py-0">Reset Logic</button>
+        </form>
+    </div>
+    <div class="card-body p-0">
+        {% if league_stats %}
+        <table class="table table-sm table-striped m-0">
+            <thead>
+                <tr>
+                    <th>League</th>
+                    <th>Count</th>
+                    <th>Accuracy 1X2 (%)</th>
+                    <th>Accuracy O/U (%)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in league_stats %}
+                <tr>
+                    <td>{{ stat['League'] }}</td>
+                    <td>{{ stat['Count'] }}</td>
+                    <td>
+                        <span class="badge {{ 'bg-success' if stat['Acc_1X2'] > 50 else 'bg-warning' }}">
+                            {{ stat['Acc_1X2'] }}%
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge {{ 'bg-success' if stat['Acc_OU'] > 50 else 'bg-warning' }}">
+                            {{ stat['Acc_OU'] }}%
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-3 text-center text-muted">
+            <p class="mb-0">No statistics available yet. Run a verification task to populate this data.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Row 3.5: Scraper Data -->
+<div class="card mb-4 border-info">
+    <div class="card-header bg-info text-dark">Available Scraped Data</div>
+    <div class="card-body p-0">
+        {% if scraped_data %}
+        <table class="table table-sm table-hover m-0">
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Match Count</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in scraped_data %}
+                <tr>
+                    <td>{{ item.filename }}</td>
+                    <td>{{ item.count }}</td>
+                    <td><span class="badge bg-success">Ready</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-3 text-center text-muted">
+            <p class="mb-0">No scraped data found. Run the pipeline to generate data.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+</div>
+</div>
+
+<!-- Row 4: Files Table -->
+<h3>All Files</h3>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Filename</th>
+            <th>Type</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in predictions %}
+        <tr>
+            <td>{{ item.filename }} <small class="text-muted">({{ item.count }} matches)</small></td>
+            <td><span class="badge bg-primary">Prediction</span></td>
+            <td><a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a></td>
+        </tr>
+        {% endfor %}
+        {% for item in verifications %}
+        <tr>
+            <td>{{ item.filename }}</td>
+            <td><span class="badge bg-secondary">Verification</span></td>
+            <td><a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+
+
+    function stopTask(taskName) {
+        if (confirm('Are you sure you want to stop the ' + taskName + ' task?')) {
+            if (taskName === 'predict') {
+                document.getElementById('stopPredictForm').submit();
+            } else if (taskName === 'verify') {
+                document.getElementById('stopVerifyForm').submit();
+            } else if (taskName === 'live') {
+                document.getElementById('stopLiveForm').submit();
+            }
+        }
+    }
+
+    let liveTaskRunning = false;
+
+    function triggerLive(event) {
+        event.preventDefault();
+        fetch('/refresh_live', { method: 'POST' })
+            .then(response => {
+                if (response.ok) {
+                    const form = event.target;
+                    const btn = form.querySelector('button[type="submit"]');
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
+                    }
+                } else {
+                    alert("Failed to trigger live analysis.");
+                }
+            })
+            .catch(err => console.error(err));
+    }
+
+    function updateStatus() {
+        fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                // Predict
+                const pState = data.predict.state;
+                if (pState === 'running') {
+                    document.getElementById('predictStatus').style.display = 'block';
+                    document.getElementById('predictBtn').disabled = true;
+                    document.getElementById('predictState').innerText = 'Running...';
+                } else if (pState === 'error') {
+                    document.getElementById('predictStatus').style.display = 'none';
+                    document.getElementById('predictBtn').disabled = false;
+                    alert("Prediction Error: " + data.predict.msg);
+                } else {
+                    document.getElementById('predictStatus').style.display = 'none';
+                    document.getElementById('predictBtn').disabled = false;
+                }
+
+                // Verify
+                const vState = data.verify.state;
+                if (vState === 'running') {
+                    document.getElementById('verifyStatus').style.display = 'block';
+                    document.getElementById('verifyBtn').disabled = true;
+                    document.getElementById('verifyState').innerText = 'Running...';
+                } else if (vState === 'error') {
+                    document.getElementById('verifyStatus').style.display = 'none';
+                    document.getElementById('verifyBtn').disabled = false;
+                    alert("Verification Error: " + data.verify.msg);
+                } else {
+                    document.getElementById('verifyStatus').style.display = 'none';
+                    document.getElementById('verifyBtn').disabled = false;
+                }
+
+                // Live
+                if (data.live) {
+                    const lState = data.live.state;
+                    if (lState === 'running') {
+                        liveTaskRunning = true;
+                        const refreshBtn = document.getElementById('refreshLiveBtn');
+                        if (refreshBtn) {
+                            refreshBtn.disabled = true;
+                            refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
+                        }
+                        const triggerBtn = document.getElementById('triggerLiveBtn');
+                        if (triggerBtn) {
+                            triggerBtn.disabled = true;
+                            triggerBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
+                        }
+                    } else if (lState === 'completed' && liveTaskRunning) {
+                        liveTaskRunning = false;
+                        location.reload();
+                    } else {
+                        liveTaskRunning = false;
+                        const refreshBtn = document.getElementById('refreshLiveBtn');
+                        if (refreshBtn) {
+                            refreshBtn.disabled = false;
+                            refreshBtn.innerText = 'Refresh Once';
+                        }
+                        const triggerBtn = document.getElementById('triggerLiveBtn');
+                        if (triggerBtn) {
+                            triggerBtn.disabled = false;
+                            triggerBtn.innerText = '⚡ Run Live Analysis';
+                        }
+                    }
+                }
+            });
+    }
+
+    setInterval(updateStatus, 2000);
+    updateStatus();
+</script>
+{% endblock %}
