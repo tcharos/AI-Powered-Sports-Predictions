@@ -28,6 +28,55 @@ class HeuristicAdjuster:
         self.form_away_lookup = self._build_lookup(self.form_away)
         
         self.form_lookup_10 = self._build_lookup(self.form_overall_10)
+        
+        # Calibration Data
+        self.league_stats = self._calculate_league_stats(self.standings)
+
+    def _calculate_league_stats(self, standings_data):
+        """
+        Calculates average stats per league (e.g. Draw Rate).
+        Returns: { "Country|League": { "draw_rate": 0.25, ... } }
+        """
+        stats = {}
+        # Group by league
+        leagues = {}
+        for entry in standings_data:
+            c = entry.get('country', '').upper()
+            l = entry.get('league', '')
+            key = f"{c}|{l}"
+            
+            if key not in leagues: leagues[key] = []
+            leagues[key].append(entry)
+            
+        for key, entries in leagues.items():
+            total_matches = 0
+            total_draws = 0
+            
+            for t in entries:
+                try:
+                    # 'draw' field in standings
+                    d = int(t.get('draw', 0))
+                    # 'matches_played' or w+d+l
+                    mp = int(t.get('matches_played', 0))
+                    
+                    # We sum up all teams. Note: Each draw is counted twice (once for home, once for away team standing)
+                    # And matches are counted twice.
+                    # Ratio TotalDraws / TotalMatches is still valid.
+                    total_draws += d
+                    total_matches += mp
+                except: pass
+                
+            draw_rate = (total_draws / total_matches) if total_matches > 0 else 0.26 # Default ~26%
+            
+            # Clip outlier rates (e.g. if early season)
+            if draw_rate < 0.10: draw_rate = 0.15
+            if draw_rate > 0.40: draw_rate = 0.35
+            
+            stats[key] = {
+                'draw_rate': draw_rate
+            }
+            
+        return stats
 
     def _load_json(self, filename):
         path = os.path.join(self.data_dir, filename)
@@ -114,8 +163,6 @@ class HeuristicAdjuster:
             
         return None
 
-        return adj_1x2, adj_ou, logs
-
     def adjust_probabilities(self, match_info, probs_1x2, probs_ou):
         """
         match_info: dict with 'League', 'Home Team', 'Away Team'
@@ -133,6 +180,94 @@ class HeuristicAdjuster:
         adj_1x2 = list(probs_1x2)
         adj_ou = list(probs_ou)
         
+        # --- CALIBRATION (Step 3: League-Aware Shrinkage) ---
+        # Apply before heuristics
+        if ":" in league:
+            try:
+                parts = league.split(":")
+                c_in = parts[0].strip().upper()
+                l_in = parts[1].strip()
+                key = f"{c_in}|{l_in}"
+                
+                league_stat = self.league_stats.get(key)
+                if not league_stat:
+                    # Fuzzy find key
+                    for k in self.league_stats.keys():
+                        if c_in in k and l_in in k:
+                            league_stat = self.league_stats[k]
+                            break
+                            
+                if league_stat:
+                    target_draw = league_stat.get('draw_rate', 0.26)
+                    current_draw = adj_1x2[1]
+                    
+                    # Soft Normalization (Alpha = 0.15)
+                    # Moves current draw prob 15% towards the league average
+                    alpha = 0.15
+                    new_draw = (1 - alpha) * current_draw + alpha * target_draw
+                    
+                    # Adjust H/A proportionally
+                    prob_not_draw = 1.0 - new_draw
+                    old_not_draw = 1.0 - current_draw
+                    if old_not_draw < 0.001: old_not_draw = 1.0 # Safety
+                    
+                    ratio = prob_not_draw / old_not_draw
+                    
+                    adj_1x2[0] *= ratio
+                    adj_1x2[1] = new_draw
+                    adj_1x2[2] *= ratio
+                    
+                    # Re-normalize just in case
+                    scaler = sum(adj_1x2)
+                    adj_1x2 = [x/scaler for x in adj_1x2]
+                    
+                    logs.append(f"Calibration: Draw {current_draw:.2f}->{new_draw:.2f} (Target {target_draw:.2f})")
+            except Exception as e:
+                # logs.append(f"Calib Error: {e}") 
+                pass
+        
+        # --- NEW: SOFT CAP ON DRAW PROBABILITY ---
+        # p_draw = min(p_draw, league_draw_cap) where cap = historical + 5%
+        if ":" in league:
+             try:
+                parts = league.split(":")
+                c_in = parts[0].strip().upper()
+                l_in = parts[1].strip()
+                key = f"{c_in}|{l_in}"
+                
+                league_stat = self.league_stats.get(key)
+                if not league_stat:
+                    for k in self.league_stats.keys():
+                        if c_in in k and l_in in k:
+                            league_stat = self.league_stats[k]
+                            break
+                            
+                if league_stat:
+                    base_draw_rate = league_stat.get('draw_rate', 0.26)
+                    draw_cap = base_draw_rate + 0.05
+                    
+                    if adj_1x2[1] > draw_cap:
+                        old_draw = adj_1x2[1]
+                        diff = old_draw - draw_cap
+                        
+                        adj_1x2[1] = draw_cap
+                        # Distribute the shaved probability to Home/Away proportionally
+                        # or evenly? Proportionally is safer.
+                        prob_not_draw = adj_1x2[0] + adj_1x2[2]
+                        if prob_not_draw > 0:
+                             ratio_h = adj_1x2[0] / prob_not_draw
+                             ratio_a = adj_1x2[2] / prob_not_draw
+                             adj_1x2[0] += diff * ratio_h
+                             adj_1x2[2] += diff * ratio_a
+                        else:
+                             # Edge case, split even
+                             adj_1x2[0] += diff / 2
+                             adj_1x2[2] += diff / 2
+                             
+                        logs.append(f"Draw Cap: {old_draw:.2f}->{draw_cap:.2f} (Base {base_draw_rate:.2f})")
+             except: pass
+
+
         # Get Stats
         s_home = self.find_team_stats(self.standings_lookup, "", league, home)
         s_away = self.find_team_stats(self.standings_lookup, "", league, away)
@@ -149,7 +284,7 @@ class HeuristicAdjuster:
         
         if not s_home or not s_away:
             # We can continue if specific stats exist? Usually implying missing league data
-            return adj_1x2, adj_ou, ["No Standings Data"]
+            return adj_1x2, adj_ou, logs + ["No Standings Data"]
 
         # --- HEURISTIC 1: Standings Differential (Overall) ---
         try:

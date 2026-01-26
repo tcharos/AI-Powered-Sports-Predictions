@@ -8,6 +8,8 @@ import os
 import gc
 from data_loader import DataLoader
 from feature_engineering import FeatureEngineer
+import feature_engineering
+print(f"DEBUG: Loaded feature_engineering from {feature_engineering.__file__}")
 
 class ModelTrainer:
     def __init__(self, data_dir: str):
@@ -34,11 +36,9 @@ class ModelTrainer:
             # Implied Probabilities
             'IP_H', 'IP_D', 'IP_A',
 
-            # NEW: Advanced Features (All Removed)
-            # 'ppg_diff',
-            # 'H_att', 'H_def',
-            # 'A_att', 'A_def',
-            # 'H_ppg', 'A_ppg'
+            # NEW: Advanced Features (Re-enabled/Added for Draw Detection)
+            'abs_elo_diff', 'abs_ppg_diff', 'abs_form_pts_diff',
+            'elo_diff', # Re-added for context
         ]
 
     def prepare_data(self):
@@ -100,13 +100,70 @@ class ModelTrainer:
         
         # Targets
         df_train['target_1x2'] = df_train['FTR'].map({'H': 0, 'D': 1, 'A': 2})
-        df_train['target_ou'] = df_train.apply(lambda x: 1 if (x['FTHG'] + x['FTAG']) > 2.5 else 0, axis=1)
+        df_train['target_draw'] = (df_train['FTR'] == 'D').astype(int)
+        df_train['total_goals'] = df_train['FTHG'] + df_train['FTAG']
+        df_train['target_ou'] = df_train.apply(lambda x: 1 if (x['FTHG'] + x['FTAG']) > 2.5 else 0, axis=1) # Keep for legacy check if needed
         
         return df_train
 
+    def train_draw(self, df):
+        print("\n--- Training Binary Draw Model (Stage A) ---")
+        features = ['B365D', 'abs_elo_diff', 'abs_ppg_diff', 'abs_form_pts_diff'] + self.common_features
+        features = list(dict.fromkeys(features)) # Remove duplicates while preserving order
+        
+        # We focus on features relevant to balance/uncertainty
+        df_train = df.dropna(subset=features + ['target_draw']).copy()
+        df_train = df_train.sort_values('date')
+
+        if 'league_cat' in df_train.columns:
+            df_train['league_cat'] = df_train['league_cat'].astype('category')
+            
+        params = {
+            'objective': 'binary:logistic',
+            'n_estimators': 100,
+            'learning_rate': 0.05, # Lower LR for stability
+            'max_depth': 4, # Shallower trees
+            'eval_metric': 'logloss',
+            'scale_pos_weight': 3.5, # Draws are rare
+            'tree_method': 'hist',
+            'enable_categorical': True
+        }
+        
+        # Quick Train (Validation split)
+        split_idx = int(len(df_train) * 0.90)
+        train_data = df_train.iloc[:split_idx]
+        valid_data = df_train.iloc[split_idx:]
+        
+        model = xgb.XGBClassifier(**params)
+        model.fit(
+            train_data[features], train_data['target_draw'],
+            eval_set=[(valid_data[features], valid_data['target_draw'])],
+            verbose=False
+        )
+        
+        # Metrics
+        probs = model.predict_proba(valid_data[features])[:, 1]
+        preds = (probs > 0.5).astype(int)
+        acc = accuracy_score(valid_data['target_draw'], preds)
+        
+        # Specific Recall (Did we catch the draws?)
+        from sklearn.metrics import recall_score, precision_score
+        rec = recall_score(valid_data['target_draw'], preds)
+        prec = precision_score(valid_data['target_draw'], preds)
+        
+        print(f"Draw Model | Acc: {acc:.4f} | Recall (Draws): {rec:.4f} | Precision: {prec:.4f}")
+        
+        model.save_model("models/xgb_model_draw.json")
+        with open("models/features_draw.json", "w") as f:
+            json.dump(features, f)
+        print("Saved Draw model.")
+
     def train_1x2(self, df):
         print("\n--- Training 1X2 Model ---")
+        # Ensure unique features
         features = ['B365H', 'B365D', 'B365A'] + self.common_features
+        features = list(dict.fromkeys(features))
+        
         df_train = df.dropna(subset=features + ['target_1x2']).copy()
         df_train = df_train.sort_values('date')
 
@@ -214,6 +271,7 @@ class ModelTrainer:
     def train_ou(self, df):
         print("\n--- Training O/U 2.5 Model (Poisson Regression) ---")
         features = ['B365H', 'B365D', 'B365A', 'H_form_ou', 'A_form_ou'] + self.common_features
+        features = list(dict.fromkeys(features))
         
         # Target: Total Goals
         df['total_goals'] = df['FTHG'] + df['FTAG']
@@ -326,4 +384,5 @@ if __name__ == "__main__":
     trainer = ModelTrainer("data_sets/MatchHistory")
     data = trainer.prepare_data()
     trainer.train_1x2(data)
+    trainer.train_draw(data)
     trainer.train_ou(data)

@@ -148,11 +148,22 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
             except: continue
             
             # Outcome
+            bet['final_score'] = f"{h_score}-{a_score}"
+            
+            # Calculate and store 1X2 result
+            res_1x2 = "X"
+            if h_score > a_score: res_1x2 = "1"
+            elif a_score > h_score: res_1x2 = "2"
+            bet['result_1x2'] = res_1x2
+
+            # Calculate and store OU result
+            total_goals = h_score + a_score
+            res_ou = "OVER" if total_goals > 2.5 else "UNDER"
+            bet['result_ou'] = res_ou
+
             won = False
             if bet_type == '1X2':
-                outcome = "X"
-                if h_score > a_score: outcome = "1"
-                elif a_score > h_score: outcome = "2"
+                outcome = res_1x2
                 
                 sel = str(selection).upper()
                 if sel in ["HOME", "1"]: sel = "1"
@@ -161,8 +172,7 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
                 if sel == outcome: won = True
                 
             elif bet_type == 'O/U' or bet_type == 'OU2.5':
-                goals = h_score + a_score
-                outcome = "OVER" if goals > 2.5 else "UNDER"
+                outcome = res_ou
                 sel = str(selection).upper()
                 if "OVER" in sel: sel = "OVER"
                 elif "UNDER" in sel: sel = "UNDER"

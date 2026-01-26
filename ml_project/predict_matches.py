@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import time
 import xgboost as xgb
 import json
@@ -18,14 +19,27 @@ class MatchPredictor:
         self.model_1x2.load_model("models/xgb_model_1x2.json")
         
         # Load O/U Model (Regressor now)
-        self.model_ou = xgb.XGBRegressor() # Changed from Classifier
+        self.model_ou = xgb.XGBRegressor() 
         self.model_ou.load_model("models/xgb_model_ou.json")
+        
+        # Load Draw Model (Stage A)
+        self.model_draw = xgb.XGBClassifier()
+        if os.path.exists("models/xgb_model_draw.json"):
+            self.model_draw.load_model("models/xgb_model_draw.json")
+        else:
+            print("Warning: Draw model not found. Drawing detection will be disabled.")
+            self.model_draw = None
         
         # Load Features
         with open("models/features_1x2.json", 'r') as f:
             self.features_1x2 = json.load(f)
         with open("models/features_ou.json", 'r') as f:
             self.features_ou = json.load(f)
+        if os.path.exists("models/features_draw.json"):
+            with open("models/features_draw.json", 'r') as f:
+                self.features_draw = json.load(f)
+        else:
+             self.features_draw = []
             
         self.output_file = scraper_output
         self.fe = FeatureEngineer()
@@ -252,6 +266,23 @@ class MatchPredictor:
                 b365_a = float(b365_a_str.replace(',', '.'))
             except: continue
                 
+            # --- CALCULATE BALANCE FEATURES ON THE FLY ---
+            # Needed for Draw Model
+            elo_diff = home_elo - away_elo
+            abs_elo_diff = abs(elo_diff)
+            
+            # Simple PPG approx from form if not available
+            # H_ppg usually comes from `add_rolling_features` accumulation logic. 
+            # In live prediction, we might not have 'season-to-date' PPG easily without full replay.
+            # Approximation: Use form_pts * 3? Or just use form_pts diff?
+            # Let's use that.
+            h_ppg_approx = h_stats['form_pts']
+            a_ppg_approx = a_stats['form_pts']
+            ppg_diff = h_ppg_approx - a_ppg_approx
+            abs_ppg_diff = abs(ppg_diff) # Using form pts as proxy
+            
+            abs_form_pts_diff = abs(h_stats['form_pts'] - a_stats['form_pts']) # Same as above essentially
+
             # Construct Input Vector
             input_row = {
                 'B365H': b365_h, 'B365D': b365_d, 'B365A': b365_a,
@@ -268,21 +299,52 @@ class MatchPredictor:
                 'A_form_sf': a_stats['form_sf'], 'A_form_sa': a_stats['form_sa'],
                 'A_form_cf': a_stats['form_cf'], 'A_form_ca': a_stats['form_ca'],
                 'league_cat': league_name, # Feature 11
-                'match_id': match.get('match_id', '') # Save ID for verification
+                'match_id': match.get('match_id', ''), # Save ID for verification
+                # NEW Features
+                'elo_diff': elo_diff,
+                'abs_elo_diff': abs_elo_diff,
+                'abs_ppg_diff': abs_ppg_diff,
+                'abs_form_pts_diff': abs_form_pts_diff
             }
             
             # Generate DF for prediction
             input_df = pd.DataFrame([input_row])
             input_df['league_cat'] = input_df['league_cat'].astype('category')
             
-            # Predict
-            # Ensure columns exist and order
-            valid_cols_1x2 = [c for c in self.features_1x2 if c in input_df.columns] 
-            # If missing cols (e.g. model has feature X but we didn't calc it?), fill 0
+            # --- 2-STAGE PREDICTION ---
+            
+            # 1. Standard 1X2 Probabilities (Conditional H/A source)
             for c in self.features_1x2:
                 if c not in input_df.columns: input_df[c] = 0
             
-            probs_1x2 = self.model_1x2.predict_proba(input_df[self.features_1x2])[0]
+            probs_1x2_raw = self.model_1x2.predict_proba(input_df[self.features_1x2])[0]
+            # [P(H), P(D), P(A)]
+            
+            # 2. Draw Probability from Stage A
+            if self.model_draw:
+                for c in self.features_draw:
+                    if c not in input_df.columns: input_df[c] = 0
+                prob_draw_binary = self.model_draw.predict_proba(input_df[self.features_draw])[0][1] # Class 1 = Draw
+            else:
+                prob_draw_binary = probs_1x2_raw[1] # Fallback
+            
+            # 3. Combine
+            # P(Draw) = P(Draw_Binary)
+            # P(Not Draw) = 1 - P(Draw)
+            # P(Home) = P(Not Draw) * (P(Home_Raw) / (P(Home_Raw) + P(Away_Raw)))
+            
+            prob_draw_final = prob_draw_binary
+            prob_not_draw = 1.0 - prob_draw_final
+            
+            sum_ha_raw = probs_1x2_raw[0] + probs_1x2_raw[2]
+            if sum_ha_raw < 0.001: sum_ha_raw = 1.0 # Avoid div/0
+            
+            prob_home_final = prob_not_draw * (probs_1x2_raw[0] / sum_ha_raw)
+            prob_away_final = prob_not_draw * (probs_1x2_raw[2] / sum_ha_raw)
+            
+            probs_1x2 = np.array([prob_home_final, prob_draw_final, prob_away_final])
+            
+            # Decision
             pred_1x2_idx = probs_1x2.argmax()
             pred_1x2_label = ['Home', 'Draw', 'Away'][pred_1x2_idx]
             conf_1x2 = probs_1x2[pred_1x2_idx]
@@ -302,7 +364,7 @@ class MatchPredictor:
             
             # Convert lambda to Prob(> 2.5) using Poisson
             # P(X<=2) = e^-lam * (1 + lam + lam^2/2)
-            import numpy as np
+
             prob_le_2 = np.exp(-pred_lam) * (1 + pred_lam + (pred_lam**2 / 2))
             prob_over = 1.0 - prob_le_2
             prob_under = 1.0 - prob_over
@@ -338,9 +400,23 @@ class MatchPredictor:
             # 1X2
             pred_1x2_idx = adj_1x2.index(max(adj_1x2))
             # Use ADJUSTED probs for final decision
-            pred_1x2_idx = adj_1x2.index(max(adj_1x2))
-            pred_1x2_label = ['1', 'X', '2'][pred_1x2_idx]
-            conf_1x2 = adj_1x2[pred_1x2_idx]
+            # Use ADJUSTED probs for final decision
+            # NEW RULE: Pick Draw only if P(D) > max(P(H), P(A)) + margin
+            p_h, p_d, p_a = adj_1x2
+            margin = 0.05 # Conservative margin (User suggested 0.03-0.06)
+            
+            if p_d > (max(p_h, p_a) + margin):
+                pred_1x2_label = 'X'
+                conf_1x2 = p_d
+            else:
+                # If Draw is not confident enough, pick the max of Home or Away
+                if p_h >= p_a:
+                    pred_1x2_label = '1'
+                    conf_1x2 = p_h
+                else:
+                    pred_1x2_label = '2'
+                    conf_1x2 = p_a
+
             
             # OU
             pred_ou_idx = adj_ou.index(max(adj_ou))
@@ -432,6 +508,20 @@ class MatchPredictor:
              print(res_df[existing].to_string(index=False))
              res_df[existing].to_csv(filename, index=False)
              print(f"Saved to {filename}")
+             
+             # --- DIAGNOSTICS ---
+             print("\n--- DRAW DIAGNOSTICS ---")
+             try:
+                 avg_draw_prob = pd.to_numeric(res_df['Draw %']).mean()
+                 print(f"Mean Draw Probability: {avg_draw_prob:.4f} (Target < 0.35)")
+                 
+                 total_preds = len(res_df)
+                 draw_preds = len(res_df[res_df['Prediction 1X2'] == 'X'])
+                 draw_percentage = (draw_preds / total_preds) * 100
+                 print(f"Predicted Draw %: {draw_percentage:.2f}% ({draw_preds}/{total_preds})")
+             except Exception as e:
+                 print(f"Could not calculate diagnostics: {e}")
+
         else:
             print("No valid predictions generated.")
             

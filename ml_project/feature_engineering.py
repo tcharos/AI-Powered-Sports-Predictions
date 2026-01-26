@@ -143,7 +143,20 @@ class FeatureEngineer:
         # 2. League Encoding
         df = self.add_league_encoding(df)
         
-        # 3. Specific Home/Away Form
+        # 3. Elo Diffs
+        df = self.add_elo_features(df)
+        if 'elo_diff' in df.columns:
+            df['abs_elo_diff'] = df['elo_diff'].abs()
+            
+        # 4. Form Diffs
+        if 'H_form_pts' in df.columns and 'A_form_pts' in df.columns:
+            df['form_pts_diff'] = df['H_form_pts'] - df['A_form_pts']
+            df['abs_form_pts_diff'] = df['form_pts_diff'].abs()
+            
+            # Proxy for PPG Diff (since we don't have full season PPG easily available without complex logic)
+            df['abs_ppg_diff'] = df['abs_form_pts_diff'] 
+
+        # 5. Specific Home/Away Form
         df = self._calculate_specific_home_away(df)
         
         return df
@@ -524,12 +537,24 @@ class FeatureEngineer:
         # Calc Differences
         df_enriched['ppg_diff'] = df_enriched['H_ppg'] - df_enriched['A_ppg']
         
+        # --- NEW: Explicit Match Balance Features (for Draw Detection) ---
+        # Absolute differences help identify "close" games regardless of who is better
+        df_enriched['abs_ppg_diff'] = df_enriched['ppg_diff'].abs()
+        
+        # Form Points Difference
+        if 'H_form_pts' in df_enriched.columns and 'A_form_pts' in df_enriched.columns:
+            df_enriched['form_pts_diff'] = df_enriched['H_form_pts'] - df_enriched['A_form_pts']
+            df_enriched['abs_form_pts_diff'] = df_enriched['form_pts_diff'].abs()
+        
         # Re-calc Elo Diff (if not done)
         if 'H_elo' in df_enriched.columns and 'A_elo' in df_enriched.columns:
             df_enriched['elo_diff'] = df_enriched['H_elo'] - df_enriched['A_elo']
+            df_enriched['abs_elo_diff'] = df_enriched['elo_diff'].abs()
             
         # Re-add League Encoding
         df_enriched = self.add_league_encoding(df_enriched)
+        
+        # --- Specific Home/Away Form (unchanged logic) ---
 
         # --- Specific Home/Away Form (unchanged logic) ---
         # 1. Home Form (Only Home Games)

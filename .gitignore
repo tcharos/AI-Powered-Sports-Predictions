@@ -2,6 +2,7 @@
 data_sets/
 logs/
 output/
+output_basketball/
 models/
 tests/
 venv/
