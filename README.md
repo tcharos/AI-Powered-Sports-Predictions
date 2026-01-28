@@ -104,3 +104,17 @@ If you choose to bet, please gamble responsibly. If you or someone you know has 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Citation
+If you use this project in your research or development, please cite it as follows:
+
+```bibtex
+@misc{charos2026flashscore,
+  author = {Charos, Thodoris},
+  title = {AI-Powered Sports Predictions},
+  year = {2026},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/tcharos/AI-Powered-Sports-Predictions}}
+}
+```
+
