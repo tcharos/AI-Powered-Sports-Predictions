@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
 # Wrapper to run the data setup script
 
 echo "Activate VENV?"

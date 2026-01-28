@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
+
 echo "========================================"
 echo "      NBA Full Retraining Pipeline      "
 echo "========================================"

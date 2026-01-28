@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
+
 # Default to Yesterday
 if [ -z "$1" ]; then
     TARGET_DATE=$(date -v-1d +%Y-%m-%d)

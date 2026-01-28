@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
+
 # Configuration
 VENV_PATH="venv/bin/activate"
 # Spider defaults to tomorrow, so we match that date for the filename

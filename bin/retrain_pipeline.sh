@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
+
 # Configuration
 VENV_PATH="venv/bin/activate"
 
@@ -30,8 +33,8 @@ fi
 # 3. Update Standings & Form
 echo ""
 echo "[*] Step 2/3: Updating Standings & Form..."
-chmod +x update_leagues_data.sh
-./update_leagues_data.sh
+chmod +x bin/update_leagues_data.sh
+bin/update_leagues_data.sh
 if [ $? -ne 0 ]; then
     echo "[-] Error updating standings/form. Continuing..."
 fi

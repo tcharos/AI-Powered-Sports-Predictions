@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to project root (one level up from bin/)
+cd "$(dirname "$0")/.." || exit
+
 # Configuration
 VENV_PATH="venv/bin/activate"
 # Check for --force flag and Date Arg

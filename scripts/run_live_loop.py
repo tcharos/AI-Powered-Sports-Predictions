@@ -7,7 +7,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # Assumes this script is in project root or scripts/ ? 
 # Let's put it in project root for simplicity or scripts/
 # If in root:
-CMD = ["venv/bin/python", "run_live_analysis.py"]
+CMD = ["venv/bin/python", "scripts/run_live_analysis.py"]
 
 def main():
     print("Starting Live Analysis Loop (Interval: 600s)...")

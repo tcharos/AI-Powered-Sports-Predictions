@@ -106,7 +106,7 @@ def verify_nba():
         
     try:
         project_root = os.path.dirname(current_app.root_path)
-        script_path = os.path.join(project_root, 'run_nba_verification.sh')
+        script_path = os.path.join(project_root, 'bin', 'run_nba_verification.sh')
         
         # Determine Date (Default Yesterday, or from Form)
         # For now, default to Yesterday
@@ -130,7 +130,7 @@ def retrain_nba():
         
     try:
         project_root = os.path.dirname(current_app.root_path)
-        script_path = os.path.join(project_root, 'retrain_nba_pipeline.sh')
+        script_path = os.path.join(project_root, 'bin', 'retrain_nba_pipeline.sh')
         
         log_file = open(os.path.join(project_root, 'logs', 'nba_retrain.log'), 'w')
         
@@ -152,7 +152,7 @@ def predict_nba():
         
     try:
         project_root = os.path.dirname(current_app.root_path)
-        script_path = os.path.join(project_root, 'run_nba_predictions.sh')
+        script_path = os.path.join(project_root, 'bin', 'run_nba_predictions.sh')
         
         log_file = open(os.path.join(project_root, 'logs', 'nba_predict.log'), 'w')
         

@@ -334,7 +334,7 @@ def run_prediction():
 
     try:
         # Execute run_predictions.sh from project root
-        script_path = os.path.join(PROJECT_ROOT, 'run_predictions.sh')
+        script_path = os.path.join(PROJECT_ROOT, 'bin', 'run_predictions.sh')
         log_file = open(os.path.join(LOG_DIR, 'predict.log'), 'w')
         
         cmd = ['/bin/bash', script_path]
@@ -381,7 +381,7 @@ def run_verification():
         return redirect(url_for('index'))
 
     try:
-        script_path = os.path.join(PROJECT_ROOT, 'run_verification.sh')
+        script_path = os.path.join(PROJECT_ROOT, 'bin', 'run_verification.sh')
         log_file = open(os.path.join(LOG_DIR, 'verify.log'), 'w')
         
         cmd = ['/bin/bash', script_path]
@@ -533,7 +533,7 @@ def live_analysis():
 @app.route('/refresh_live', methods=['POST'])
 def refresh_live():
     # Trigger the script
-    script_path = os.path.join(PROJECT_ROOT, 'run_live_analysis.py')
+    script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_live_analysis.py')
     try:
         # Run in background or wait?
         # User said "UI takes too long", so background is better, but then we need polling.
@@ -588,7 +588,7 @@ def reset_stats():
 
 @app.route('/update_leagues', methods=['POST'])
 def update_leagues():
-    script_path = os.path.join(PROJECT_ROOT, 'update_leagues_data.sh')
+    script_path = os.path.join(PROJECT_ROOT, 'bin', 'update_leagues_data.sh')
     try:
         if TASKS.get('leagues') and TASKS['leagues']['process'] and TASKS['leagues']['process'].poll() is None:
              flash('Leagues update is already running!', 'warning')
@@ -614,7 +614,7 @@ def server_control(action):
     try:
         # Use nohup to ensure the script survives the server killing itself
         # We need to detach properly.
-        script = os.path.join(PROJECT_ROOT, 'manage_server.sh')
+        script = os.path.join(PROJECT_ROOT, 'bin', 'manage_server.sh')
         cmd = ['nohup', '/bin/bash', script, action]
         
         # Popen with start_new_session=True is key
@@ -742,7 +742,7 @@ def run_live_analysis():
         flash('Live Analysis Loop is already running!', 'warning')
         return redirect(url_for('index'))
 
-    cmd = [sys.executable, 'run_live_loop.py']
+    cmd = [sys.executable, 'scripts/run_live_loop.py']
     log_file = open(os.path.join(LOG_DIR, TASKS[task_name]['log']), 'w')
     
     # Start process
@@ -782,7 +782,7 @@ def retrain_model():
          return redirect(url_for('index'))
 
     try:
-        script_path = os.path.join(PROJECT_ROOT, 'retrain_pipeline.sh')
+        script_path = os.path.join(PROJECT_ROOT, 'bin', 'retrain_pipeline.sh')
         log_file = open(os.path.join(LOG_DIR, 'retrain.log'), 'w')
         # Using bash directly
         proc = subprocess.Popen(['/bin/bash', script_path], cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)

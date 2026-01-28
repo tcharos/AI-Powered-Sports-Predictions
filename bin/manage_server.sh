@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
+
 APP_PATH="web_ui/app.py"
 LOG_FILE="logs/ui.log"
 VENV_PYTHON="venv/bin/python"

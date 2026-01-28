@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# Change directory to project root
+cd "$(dirname "$0")/.." || exit
 # Activate virtual environment
 source venv/bin/activate
 
