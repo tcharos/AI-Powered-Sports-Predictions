@@ -2,7 +2,33 @@
 
 # Configuration
 VENV_PATH="venv/bin/activate"
-DATE=$(date -v+1d +%Y-%m-%d)
+# Check for --force flag and Date Arg
+FORCE_SCRAPE=false
+TARGET_DATE=""
+
+for arg in "$@"; do
+    if [ "$arg" == "--force" ] || [ "$arg" == "-f" ]; then
+        FORCE_SCRAPE=true
+    elif [[ "$arg" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        TARGET_DATE="$arg"
+    fi
+done
+
+# Date Logic
+if [ -z "$TARGET_DATE" ]; then
+    # Default: Tomorrow
+    if date -v+1d >/dev/null 2>&1; then
+        # MacOS
+        DATE=$(date -v+1d +%Y-%m-%d)
+    else
+        # Linux
+        DATE=$(date -d "tomorrow" +%Y-%m-%d)
+    fi
+else
+    DATE="$TARGET_DATE"
+    echo "[*] Using Custom Date: $DATE"
+fi
+
 OUTPUT_JSON="output/matches_$DATE.json"
 
 echo "========================================"
@@ -11,7 +37,26 @@ echo "========================================"
 echo "Date: $DATE"
 echo "Pipeline Started: $(date "+%Y-%m-%d %H:%M:%S")"
 
-# 1. Activate Virtual Environment
+# Calculate Day Difference (for Spiderman)
+# CURRENT - TARGET ?? No, we want TARGET - CURRENT.
+# If Target is tomorrow, Diff = +1.
+CURRENT_SEC=$(date +%s)
+# Need portable date to sec? MacOS `date -j -f ...` vs Linux `date -d ...`
+if date -j -f "%Y-%m-%d" "$DATE" +%s >/dev/null 2>&1; then
+    # MacOS
+    TARGET_SEC=$(date -j -f "%Y-%m-%d" "$DATE" +%s)
+else
+    # Linux
+    TARGET_SEC=$(date -d "$DATE" +%s)
+fi
+
+DIFF_SEC=$((TARGET_SEC - CURRENT_SEC))
+# Rounding
+DAY_DIFF=$(( (DIFF_SEC + 43200) / 86400 ))
+
+echo "[*] Target Offset: $DAY_DIFF days from today."
+
+
 # 1. Activate Virtual Environment
 if [ -f "$VENV_PATH" ]; then
     source $VENV_PATH
@@ -27,26 +72,33 @@ mkdir -p logs
 # Redirect all output to log file (and stdout) - Overwrite mode
 exec > >(tee logs/pipeline_output.log) 2>&1
 
-# Check for --force flag
-FORCE_SCRAPE=false
-for arg in "$@"; do
-    if [ "$arg" == "--force" ] || [ "$arg" == "-f" ]; then
-        FORCE_SCRAPE=true
-    fi
-done
-
 # 2. Run Scraper or Skip
-if [ -f "$OUTPUT_JSON" ] && [ "$FORCE_SCRAPE" == "false" ]; then
-    echo "[*] Output file $OUTPUT_JSON already exists. Skipping Scraper."
-    echo "[*] Use --force or -f to overwrite."
-    # Log the skip?
+NEED_SCRAPE=false
+
+# Check if we should scrape
+if [ "$FORCE_SCRAPE" == "true" ]; then
+    NEED_SCRAPE=true
+elif [ ! -s "$OUTPUT_JSON" ]; then
+    echo "[*] Output file missing or empty."
+    NEED_SCRAPE=true
 else
+    # File exists and size > 0. Check for JSON Corruption.
+    if ! python3 -c "import json; json.load(open('$OUTPUT_JSON'))" > /dev/null 2>&1; then
+        echo "[!] Output file exists but contains corrupt JSON. Forcing re-scrape."
+        NEED_SCRAPE=true
+    else
+        echo "[*] valid Output file found. Skipping Scraper."
+    fi
+fi
+
+if [ "$NEED_SCRAPE" == "true" ]; then
     echo "[*] Starting Scraper..."
     start_ts=$(date +%s)
     start_date=$(date "+%Y-%m-%d %H:%M:%S")
     echo "[$start_date] Status: Started" >> logs/scraper_status.log
 
-    scrapy crawl flashscore -O $OUTPUT_JSON -L WARNING -a filter_leagues=true
+    # Pass day_diff
+    scrapy crawl flashscore -O $OUTPUT_JSON -L WARNING -a filter_leagues=true -a day_diff=$DAY_DIFF
 
     end_ts=$(date +%s)
     end_date=$(date "+%Y-%m-%d %H:%M:%S")

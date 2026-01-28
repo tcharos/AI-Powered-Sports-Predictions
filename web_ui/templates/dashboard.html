@@ -17,8 +17,11 @@
                             Force Scrape (Overwrite Data)
                         </label>
                     </div>
-                    <button type="submit" class="btn btn-success w-100 mb-2" id="predictBtn">🚀 Run Prediction (Next
-                        Day)</button>
+                    <div class="mb-2">
+                        <label for="predictDate" class="form-label">Target Date (Optional)</label>
+                        <input type="date" class="form-control" name="date" id="predictDate">
+                    </div>
+                    <button type="submit" class="btn btn-success w-100 mb-2" id="predictBtn">🚀 Run Prediction</button>
                 </form>
                 <div id="predictStatus" style="display: none;" class="mt-2">
                     <small>Status: <span id="predictState">Running...</span></small>
@@ -33,8 +36,11 @@
                 <hr>
                 <p>Verify yesterday's predictions against actual results.</p>
                 <form action="/verify" method="post" class="d-inline" id="verifyForm">
-                    <button type="submit" class="btn btn-warning w-100" id="verifyBtn">✅ Run Verification
-                        (Yesterday)</button>
+                    <div class="mb-2">
+                        <label for="verifyDate" class="form-label">Target Date (Optional)</label>
+                        <input type="date" class="form-control" name="date" id="verifyDate">
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100" id="verifyBtn">✅ Run Verification</button>
                 </form>
                 <div id="verifyStatus" style="display: none;" class="mt-2">
                     <small>Status: <span id="verifyState">Running...</span></small>
@@ -55,22 +61,59 @@
         <div class="card h-100">
             <div class="card-header bg-dark text-white">Recent Reports</div>
             <div class="card-body">
+                <h6 class="mt-2 border-bottom pb-1">Prediction Reports</h6>
                 {% if predictions %}
                 <div class="list-group">
                     {% for item in predictions %}
-                    <a href="/view/{{ item.filename }}"
-                        class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong>{{ item.date }}</strong> <small class="text-muted">({{ item.count }}
-                                matches)</small>
-                            <span class="badge bg-info text-dark">{{ item.type }}</span>
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
+                            <div>
+                                <strong>{{ item.date }}</strong> <small class="text-muted">({{ item.count }}
+                                    matches)</small>
+                                <span class="badge bg-info text-dark">{{ item.type }}</span>
+                            </div>
+                        </a>
+                        <div class="d-flex align-items-center gap-2">
+                            <a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a>
+                            <form action="/delete_file/{{ item.filename }}" method="post"
+                                onsubmit="return confirm('Are you sure you want to delete {{ item.filename }}?');"
+                                class="m-0">
+                                <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                                    title="Delete">🗑️</button>
+                            </form>
                         </div>
-                        <small>View Report &rang;</small>
-                    </a>
+                    </div>
                     {% endfor %}
                 </div>
                 {% else %}
                 <p class="text-muted">No prediction reports found.</p>
+                {% endif %}
+
+                <h6 class="mt-2 border-bottom pb-1">Verification Reports</h6>
+                {% if verifications %}
+                <div class="list-group">
+                    {% for item in verifications %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
+                            <div>
+                                <strong>{{ item.date }}</strong>
+                                <span class="badge bg-warning text-dark">{{ item.type }}</span>
+                            </div>
+                        </a>
+                        <div class="d-flex align-items-center gap-2">
+                            <a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a>
+                            <form action="/delete_file/{{ item.filename }}" method="post"
+                                onsubmit="return confirm('Are you sure you want to delete {{ item.filename }}?');"
+                                class="m-0">
+                                <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                                    title="Delete">🗑️</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">No verification reports found.</p>
                 {% endif %}
             </div>
         </div>

@@ -10,9 +10,20 @@ class FlashscoreSpider(scrapy.Spider):
     allowed_domains = ["flashscore.com"]
     start_urls = ["https://www.flashscore.com/"]
 
-    def __init__(self, days_back=0, filter_leagues='false', mode='prediction', live_match_id=None, live_list='false', live_ids=None, *args, **kwargs):
+    def __init__(self, day_diff=None, days_back=None, filter_leagues='false', mode='prediction', live_match_id=None, live_list='false', live_ids=None, *args, **kwargs):
         super(FlashscoreSpider, self).__init__(*args, **kwargs)
-        self.days_back = int(days_back)
+        
+        # Resolve Date Offset (day_diff)
+        # day_diff: 0 (Today), >0 (Future), <0 (Past)
+        if day_diff is not None:
+             self.day_diff = int(day_diff)
+        elif days_back is not None:
+             # Legacy support: days_back=1 means 1 day ago (-1)
+             self.day_diff = -1 * int(days_back)
+        else:
+             # Default behavior if nothing specified: Tomorrow (+1)
+             self.day_diff = 1
+             
         self.filter_leagues_enabled = filter_leagues.lower() == 'true'
         self.mode = mode.lower()
         self.live_match_id = live_match_id
@@ -156,57 +167,60 @@ class FlashscoreSpider(scrapy.Spider):
         except Exception as e:
             self.logger.warning(f"Cookie banner handling: {e}")
 
+
         # 2. Navigate to Target Date
         try:
-            # Wait for navigation to be stable (relaxed from networkidle)
+            # Wait for navigation to be stable
             await page.wait_for_load_state("domcontentloaded")
             
-            if self.days_back > 0:
-                self.logger.info(f"Navigating back {self.days_back} days...")
-                for i in range(self.days_back):
-                    # Click "Previous Day"
-                    # Updated Selector verified by browser: button[aria-label='Previous day']
+            # self.day_diff: 0 (Today), >0 (Future), <0 (Past)
+            self.logger.info(f"Navigating to target date (Offset: {self.day_diff} days)...")
+            
+            if self.day_diff == 0:
+                self.logger.info("Target is Today. No navigation needed.")
+                
+            elif self.day_diff < 0:
+                # PAST (Click Previous Day)
+                days_to_go_back = abs(self.day_diff)
+                for i in range(days_to_go_back):
                     clicked_prev = False
                     if await page.locator("button[aria-label='Previous day']").count() > 0:
                          await page.locator("button[aria-label='Previous day']").click()
-                         self.logger.info(f"Clicked previous day ({i+1}/{self.days_back}) using aria-label")
+                         self.logger.info(f"Clicked previous day ({i+1}/{days_to_go_back})")
                          clicked_prev = True
                     elif await page.locator(".calendar__navigation--yesterday").count() > 0:
                          await page.locator(".calendar__navigation--yesterday").click()
-                         self.logger.info(f"Clicked previous day ({i+1}/{self.days_back}) using legacy class")
+                         self.logger.info(f"Clicked previous day legacy ({i+1}/{days_to_go_back})")
                          clicked_prev = True
                     
                     if clicked_prev:
-                        await page.wait_for_timeout(1000) # Small wait between clicks
+                        await page.wait_for_timeout(1000)
                     else:
                         self.logger.warning("Previous day button not found!")
                         break
-                # Wait after final navigation
-                await page.wait_for_timeout(2000)
-            else:
-                # Default behavior: Go to Next Day (Tomorrow) for predictions
-                clicked = False
-                # Try aria-label first (consistency)
-                if await page.locator("button[aria-label='Next day']").count() > 0:
-                     await page.locator("button[aria-label='Next day']").click()
-                     clicked = True
-                     self.logger.info("Clicked Next day using aria-label.")
-                elif await page.locator(".calendar__navigation--tomorrow").count() > 0:
-                     await page.locator(".calendar__navigation--tomorrow").click()
-                     clicked = True
-                     self.logger.info("Clicked tomorrow arrow (legacy class).")
-                elif await page.get_by_role("button", name="Next day").count() > 0:
-                    await page.get_by_role("button", name="Next day").click()
-                    clicked = True
-                    self.logger.info("Clicked Next day button (role).")
-                else:
-                     if await page.locator("button[title='Next day']").count() > 0:
-                         await page.locator("button[title='Next day']").click()
-                         clicked = True
-                         self.logger.info("Clicked Next day by title.")
-                
-                if not clicked:
-                    self.logger.error("Could not find Next Day button.")
+                        
+            elif self.day_diff > 0:
+                # FUTURE (Click Next Day)
+                days_to_go_fwd = self.day_diff
+                for i in range(days_to_go_fwd):
+                    clicked_next = False
+                    if await page.locator("button[aria-label='Next day']").count() > 0:
+                         await page.locator("button[aria-label='Next day']").click()
+                         self.logger.info(f"Clicked next day ({i+1}/{days_to_go_fwd})")
+                         clicked_next = True
+                    elif await page.locator(".calendar__navigation--tomorrow").count() > 0:
+                         await page.locator(".calendar__navigation--tomorrow").click()
+                         self.logger.info(f"Clicked next day legacy ({i+1}/{days_to_go_fwd})")
+                         clicked_next = True
+                    
+                    if clicked_next:
+                        await page.wait_for_timeout(1000)
+                    else:
+                        self.logger.warning("Next day button not found!")
+                        break
+            
+            # Wait after final navigation
+            await page.wait_for_timeout(2000)
             
             # 2a. Click ODDS tab for better listing (Verification Mode)
             # DISABLED: Verification needs SCORES, which are best visible on the main ALL tab.

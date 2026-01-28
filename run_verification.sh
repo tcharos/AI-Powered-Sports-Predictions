@@ -35,14 +35,22 @@ if [ ! -f "$PREDICTIONS_CSV" ]; then
     exit 1
 fi
 
-# 3. Calculate Days Back for Scraper
+# 3. Calculate Day Offset for Scraper
 # Current Date - Target Date
-CURRENT_DATE_SEC=$(date +%s)
-TARGET_DATE_SEC=$(date -j -f "%Y-%m-%d" "$TARGET_DATE" +%s)
-DIFF_SEC=$((CURRENT_DATE_SEC - TARGET_DATE_SEC))
-DAYS_BACK=$((DIFF_SEC / 86400))
+# We want day_diff which is Target - Current.
+# e.g. Yesterday - Today = -1.
 
-echo "[*] Target is $DAYS_BACK days ago. Running Scraper..."
+CURRENT_DATE_SEC=$(date +%s)
+# Assume MacOS date format for simplicity as environment is known
+TARGET_DATE_SEC=$(date -j -f "%Y-%m-%d" "$TARGET_DATE" +%s)
+
+DIFF_SEC=$((TARGET_DATE_SEC - CURRENT_DATE_SEC))
+# Rounding
+DAY_DIFF=$(( (DIFF_SEC - 43200) / 86400 )) 
+# Note: For verification, we usually look back.
+# If target is yesterday, diff is negative approx -86400. / 86400 = -1.
+
+echo "[*] Target is $DAY_DIFF days from today. Running Scraper..."
 
 # 4. Run Scraper to get Results
 
@@ -56,7 +64,8 @@ if [ ! -z "$LIVE_IDS" ]; then
     scrapy crawl flashscore -a live_ids="$LIVE_IDS" -a mode=verification -O $RESULTS_JSON -L WARNING
 else
     echo "[*] No Match IDs found. Using Date-based Scraper (Fallback)..."
-    scrapy crawl flashscore -a days_back=$DAYS_BACK -a mode=verification -O $RESULTS_JSON -L WARNING
+    # Pass day_diff instead of days_back
+    scrapy crawl flashscore -a day_diff=$DAY_DIFF -a mode=verification -O $RESULTS_JSON -L WARNING
 fi
 
 if [ $? -ne 0 ]; then

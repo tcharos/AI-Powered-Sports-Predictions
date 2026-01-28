@@ -124,7 +124,7 @@ class ModelTrainer:
             'learning_rate': 0.05, # Lower LR for stability
             'max_depth': 4, # Shallower trees
             'eval_metric': 'logloss',
-            'scale_pos_weight': 3.5, # Draws are rare
+            # 'scale_pos_weight': 3.5, # Removed to prevent overcalibration
             'tree_method': 'hist',
             'enable_categorical': True
         }

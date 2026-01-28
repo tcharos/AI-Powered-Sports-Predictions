@@ -329,11 +329,11 @@ class MatchPredictor:
                 prob_draw_binary = probs_1x2_raw[1] # Fallback
             
             # 3. Combine
-            # P(Draw) = P(Draw_Binary)
+            # P(Draw) = Average(P(Draw_Binary), P(Draw_Raw))
             # P(Not Draw) = 1 - P(Draw)
             # P(Home) = P(Not Draw) * (P(Home_Raw) / (P(Home_Raw) + P(Away_Raw)))
             
-            prob_draw_final = prob_draw_binary
+            prob_draw_final = (prob_draw_binary + probs_1x2_raw[1]) / 2.0
             prob_not_draw = 1.0 - prob_draw_final
             
             sum_ha_raw = probs_1x2_raw[0] + probs_1x2_raw[2]

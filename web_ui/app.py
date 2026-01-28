@@ -87,7 +87,14 @@ def index():
     verifications = []
     for f in verification_files:
         basename = os.path.basename(f)
-        verifications.append({'filename': basename, 'date': 'Unknown', 'type': 'Verification'})
+        # Extract date from verification_2025-01-20.csv
+        try:
+             date_str = basename.replace('verification_', '').replace('.csv', '')
+             verifications.append({'filename': basename, 'date': date_str, 'type': 'Verification'})
+        except Exception as e:
+             print(f"Error parsing verification filename {basename}: {e}")
+             verifications.append({'filename': basename, 'date': 'Unknown', 'type': 'Verification'})
+    verifications.sort(key=lambda x: x['date'], reverse=True)
         
     predictions.sort(key=lambda x: x['date'], reverse=True)
     
@@ -331,6 +338,12 @@ def run_prediction():
         log_file = open(os.path.join(LOG_DIR, 'predict.log'), 'w')
         
         cmd = ['/bin/bash', script_path]
+        
+        # Add Date Arg
+        date_arg = request.form.get('date')
+        if date_arg:
+            cmd.append(date_arg)
+            
         if request.form.get('force'):
             cmd.append('--force')
             
@@ -350,21 +363,32 @@ def run_verification():
          flash('Verification is already running!', 'warning')
          return redirect(url_for('index'))
 
-    # 1. Check for yesterday's prediction file immediately
-    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-    pred_file = os.path.join(OUTPUT_DIR, f"predictions_{yesterday}.csv")
+    # 1. Retrieve Date
+    date_arg = request.form.get('date')
+    if date_arg:
+        target_date = date_arg
+    else:
+        # Default to yesterday
+        target_date = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        
+    pred_file = os.path.join(OUTPUT_DIR, f"predictions_{target_date}.csv")
     
     # Simple check for the most likely target. 
     # If the user provides a custom date to the script, this check is bypassed, 
     # but the UI button is for "Yesterday".
     if not os.path.exists(pred_file):
-        flash(f'Error: Predictions file for yesterday ({yesterday}) not found. Cannot verify.', 'danger')
+        flash(f'Error: Predictions file for {target_date} not found. Cannot verify.', 'danger')
         return redirect(url_for('index'))
 
     try:
         script_path = os.path.join(PROJECT_ROOT, 'run_verification.sh')
         log_file = open(os.path.join(LOG_DIR, 'verify.log'), 'w')
-        proc = subprocess.Popen(['/bin/bash', script_path], cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
+        
+        cmd = ['/bin/bash', script_path]
+        if date_arg:
+            cmd.append(date_arg)
+            
+        proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
         
         TASKS['verify'] = {'process': proc, 'start_time': datetime.datetime.now()}
         
@@ -383,6 +407,29 @@ def view_log(filename):
         return f"<pre>{content}</pre>"
     else:
         return "Log file not found."
+
+@app.route('/delete_file/<filename>', methods=['POST'])
+def delete_file(filename):
+    # Security check: Ensure filename is just a basename and exists in OUTPUT_DIR
+    if os.path.sep in filename or '..' in filename:
+        flash('Invalid filename!', 'danger')
+        return redirect(url_for('index'))
+        
+    filepath = os.path.join(OUTPUT_DIR, filename)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            flash(f'File {filename} deleted successfully.', 'success')
+            
+            # Optional: If it's a prediction CSV, maybe ask to delete the JSON? 
+            # For now, just delete what was asked.
+            
+        except Exception as e:
+            flash(f'Error deleting file: {e}', 'danger')
+    else:
+        flash('File not found.', 'warning')
+        
+    return redirect(url_for('index'))
 
 @app.route('/view/<filename>')
 def view_file(filename):
