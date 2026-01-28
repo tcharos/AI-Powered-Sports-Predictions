@@ -16,6 +16,7 @@ thefuzz
 flask
 
 # Utilities
-python-dateutil
+
 # NBA
 pbpstats
+
