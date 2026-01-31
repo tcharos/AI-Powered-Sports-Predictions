@@ -138,8 +138,35 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
                 if match and match[1] >= 80:
                     result_data = results_map[match[0]]
             
-            if not result_data:
-                continue # Result not found (match hasn't happened yet?)
+                # Result not found -> Mark as VOID (Neutral)
+                # This assumes relevant results file is complete. Mismatches will be voided.
+                bet['status'] = 'VOID'
+                bet['result'] = 'VOID'
+                bet['profit'] = 0.0 # Return stake logic (net change 0 relative to wallet deduction? No wait.)
+                # If deducted on OPEN, then VOID means return STAKE.
+                # Profit field usually means PnL.
+                # If WON: profit = (stake*odd) - stake.
+                # If LOST: profit = -stake.
+                # If VOID: profit = 0. (You get stake back, no win, no loss).
+                
+                # Bankroll impact:
+                # WON: bankroll += stake + profit (total return)
+                # LOST: bankroll += 0
+                # VOID: bankroll += stake
+                
+                # But here we handle bankroll at line 190 and 196.
+                # Let's align with that logic below or handle it here.
+                # Since we are modifying the flow, we should probably set variables and let downstream handle it,
+                # BUT the downstream logic (lines 145+) assumes we have scores.
+                # So we must handle VOID here and `continue` or skip scoring logic.
+                
+                current_bankroll += stake
+                file_pnl += 0.0 # No PnL change for file
+                file_updated = True
+                total_settled_count += 1
+                
+                continue 
+
                 
             # Check Scores
             try:

@@ -429,7 +429,7 @@ def delete_file(filename):
     else:
         flash('File not found.', 'warning')
         
-    return redirect(url_for('index'))
+    return redirect(request.referrer or url_for('index'))
 
 @app.route('/view/<filename>')
 def view_file(filename):
