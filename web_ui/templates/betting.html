@@ -103,6 +103,9 @@
                         <span class="mx-1">|</span>
                         Outcome:
                         {% if slip.status == 'CLOSED' %}
+                        <strong>{{ slip.get('total_return', 0)|round(2) }}</strong>
+                        <span class="mx-1">|</span>
+                        Diff:
                         <strong
                             class="{{ 'text-success' if slip.get('pnl', 0) > 0 else ('text-danger' if slip.get('pnl', 0) < 0 else 'text-muted') }}">
                             {{ '+' if slip.get('pnl', 0) > 0 else '' }}{{ slip.get('pnl', 0)|round(2) }}
@@ -113,7 +116,8 @@
                     </span>
                 </div>
                 <div>
-                     <form action="{{ url_for('delete_file', filename=slip.filename) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this bet slip? This cannot be undone.');">
+                    <form action="{{ url_for('delete_file', filename=slip.filename) }}" method="post"
+                        onsubmit="return confirm('Are you sure you want to delete this bet slip? This cannot be undone.');">
                         <button type="submit" class="btn btn-outline-danger btn-sm">🗑 Delete</button>
                     </form>
                 </div>

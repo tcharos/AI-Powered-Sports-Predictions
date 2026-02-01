@@ -728,6 +728,14 @@ def betting_page():
                     stake_sum = sum(float(b.get('stake_units', 0)) for b in data.get('bets', []))
                     data['total_stake'] = stake_sum
                     
+                # Backfill total_return if missing
+                if 'total_return' not in data:
+                    # If settled, return = stake + pnl
+                    if data.get('status') == 'CLOSED':
+                        data['total_return'] = data.get('total_stake', 0) + data.get('pnl', 0)
+                    else:
+                         data['total_return'] = 0.0
+                    
                 history.append(data)
         except:
             pass
