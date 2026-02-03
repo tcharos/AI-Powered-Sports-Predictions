@@ -295,6 +295,7 @@
                     <th>Filename</th>
                     <th>Match Count</th>
                     <th>Status</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -303,6 +304,13 @@
                     <td>{{ item.filename }}</td>
                     <td>{{ item.count }}</td>
                     <td><span class="badge bg-success">Ready</span></td>
+                    <td>
+                        <form action="/delete_file/{{ item.filename }}" method="post"
+                            onsubmit="return confirm('Are you sure you want to delete {{ item.filename }}?');"
+                            class="m-0">
+                            <button type="submit" class="btn btn-sm btn-outline-danger px-2" title="Delete">🗑️</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

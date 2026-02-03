@@ -3,6 +3,7 @@ import os
 import argparse
 import pandas as pd
 import glob
+import re
 from rapidfuzz import process, fuzz
 
 def load_json(filepath):
@@ -14,6 +15,13 @@ def load_json(filepath):
 def save_json(filepath, data):
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=4)
+
+def extract_date_from_filename(filename):
+    # Extracts YYYY-MM-DD from string
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", os.path.basename(filename))
+    if match:
+        return match.group(1)
+    return None
 
 def normalize(name):
     return name.lower().strip() if name else ""
@@ -73,6 +81,13 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
         config = {"current_bankroll": 1000.0}
     current_bankroll = config.get('current_bankroll', 1000.0)
     
+    # Extract target date from results file if available
+    target_date = None
+    if results_file:
+        target_date = extract_date_from_filename(results_file)
+        if target_date:
+            print(f"Enforcing date check: Only resolving bets for {target_date}")
+    
     result_keys = list(results_map.keys())
     
     # 2. Find Bets Files
@@ -85,6 +100,12 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
     for b_file in bet_files:
         bets_data = load_json(b_file)
         if not bets_data: continue
+        
+        # Optimization: Skip entire file if its date (from filename) does not match target_date
+        # Assuming file name format dates match the content dates
+        file_date = extract_date_from_filename(b_file)
+        if target_date and file_date and file_date != target_date:
+             continue
         
         # Skip if already fully settled
         if bets_data.get('settled', False):
@@ -100,6 +121,10 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
                 bet['status'] = 'OPEN'
             
             if bet.get('status') != 'OPEN':
+                continue
+                
+            # Date Check at Bet Level (Double Safety)
+            if target_date and bet.get('date') and bet.get('date') != target_date:
                 continue
                 
             home = bet.get('home')
