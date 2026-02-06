@@ -124,7 +124,7 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
                 continue
                 
             # Date Check at Bet Level (Double Safety)
-            if target_date and bet.get('date') and bet.get('date') != target_date:
+            if target_date and bet.get('date') and not bet.get('date').startswith(target_date):
                 continue
                 
             home = bet.get('home')

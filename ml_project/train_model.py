@@ -1,6 +1,6 @@
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, recall_score
 from sklearn.model_selection import TimeSeriesSplit
 import numpy as np
 import json
@@ -148,8 +148,8 @@ class ModelTrainer:
         
         # Specific Recall (Did we catch the draws?)
         from sklearn.metrics import recall_score, precision_score
-        rec = recall_score(valid_data['target_draw'], preds)
-        prec = precision_score(valid_data['target_draw'], preds)
+        rec = recall_score(valid_data['target_draw'], preds, zero_division=0)
+        prec = precision_score(valid_data['target_draw'], preds, zero_division=0)
         
         print(f"Draw Model | Acc: {acc:.4f} | Recall (Draws): {rec:.4f} | Precision: {prec:.4f}")
         
@@ -175,6 +175,7 @@ class ModelTrainer:
         print("Running Time-Series Cross-Validation (5 Splits)...")
         tscv = TimeSeriesSplit(n_splits=5)
         accuracies = []
+        recalls = []
 
         # Load Best Params if available
         param_file = "models/best_params_1x2.json"
@@ -245,9 +246,13 @@ class ModelTrainer:
             profits = np.where(is_correct, pred_odds - 1.0, -1.0)
             roi = (np.sum(profits) / len(profits)) * 100.0 if len(profits) > 0 else 0.0
             
-            print(f"Fold {fold+1} | Acc: {acc:.4f} | LogLoss: {ll:.4f} | Brier: {brier_score:.4f} | ROI: {roi:.2f}% | CalibErr: {calibration_error:.4f}")
+            # Recall
+            rec = recall_score(cv_test['target_1x2'], preds_class, average='weighted', zero_division=0)
+            recalls.append(rec)
+
+            print(f"Fold {fold+1} | Acc: {acc:.4f} | Recall: {rec:.4f} | LogLoss: {ll:.4f} | Brier: {brier_score:.4f} | ROI: {roi:.2f}% | CalibErr: {calibration_error:.4f}")
         
-        print(f"Average CV Accuracy: {np.mean(accuracies):.4f}")
+        print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg Recall: {np.mean(recalls):.4f}")
         
         # 2. Final Training on Full Dataset (with small validation split for early stopping)
         print("Retraining Final Model on Full Dataset (2020-Present)...")
@@ -287,6 +292,7 @@ class ModelTrainer:
         print("Running Time-Series Cross-Validation (5 Splits)...")
         tscv = TimeSeriesSplit(n_splits=5)
         accuracies = []
+        recalls = []
         log_losses = []
         
         # Load Best Params if available
@@ -358,9 +364,13 @@ class ModelTrainer:
             # 3. Regression Error (RMSE)
             rmse = np.sqrt(np.mean((cv_test['total_goals'] - preds_lambda)**2))
 
-            print(f"Fold {fold+1} | Acc: {acc:.4f} | LogLoss: {ll:.4f} | RMSE: {rmse:.4f}")
+            # Recall (Binary because converting to Over/Under classes)
+            rec = recall_score(binary_target, preds_class, zero_division=0)
+            recalls.append(rec)
+
+            print(f"Fold {fold+1} | Acc: {acc:.4f} | Recall: {rec:.4f} | LogLoss: {ll:.4f} | RMSE: {rmse:.4f}")
             
-        print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg LogLoss: {np.mean(log_losses):.4f}")
+        print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg Recall: {np.mean(recalls):.4f} | Avg LogLoss: {np.mean(log_losses):.4f}")
         
         # 2. Final Training
         print("Retraining Final Model on Full Dataset (2020-Present)...")
