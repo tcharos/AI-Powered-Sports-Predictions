@@ -202,6 +202,14 @@ class MatchPredictor:
             scraper_away = match.get('away_team')
             league_name = match.get('league', 'Unknown')
             
+            # --- NORMALIZE EUROPEAN LEAGUES ---
+            if league_name.startswith("EUROPE: Champions League"):
+                league_name = "EUROPE: Champions League"
+            elif league_name.startswith("EUROPE: Europa League"):
+                league_name = "EUROPE: Europa League"
+            elif league_name.startswith("EUROPE: Conference League"):
+                league_name = "EUROPE: Conference League"
+                
             # --- LEAGUE FILTERING ---
             SUPPORTED_COUNTRIES = {
                 'ENGLAND', 'SPAIN', 'FRANCE', 'GERMANY', 'ITALY', 'NETHERLANDS', 'PORTUGAL', 'SCOTLAND', 
