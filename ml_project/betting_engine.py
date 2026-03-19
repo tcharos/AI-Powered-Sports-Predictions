@@ -4,9 +4,10 @@ import datetime
 import pandas as pd
 
 class BettingEngine:
-    def __init__(self, bets_file="data_sets/bets.json", config_file="data_sets/betting_config.json"):
+    def __init__(self, bets_file="data_sets/bets.json", config_file="data_sets/betting_config.json", league_stats_file="data_sets/league_analytics.json"):
         self.bets_file = bets_file
         self.config_file = config_file
+        self.league_stats_file = league_stats_file
         self.ensure_files()
         self.load_data()
         
@@ -20,6 +21,8 @@ class BettingEngine:
                  "base_unit": 10.0,
                  "confidence_threshold_1x2": 0.55,
                  "confidence_threshold_ou": 0.60,
+                 "league_performance_threshold": 0.50,
+                 "min_matches_for_stats": 10,
                  "initial_bankroll": 1000.0, # Not strictly needed if we just track P/L but good for "Available Units"
                  "current_bankroll": 1000.0
              }
@@ -31,6 +34,12 @@ class BettingEngine:
             self.bets = json.load(f)
         with open(self.config_file, 'r') as f:
             self.config = json.load(f)
+            
+        if os.path.exists(self.league_stats_file):
+            with open(self.league_stats_file, 'r') as f:
+                self.league_stats = json.load(f)
+        else:
+            self.league_stats = {}
 
     def save_data(self):
         with open(self.bets_file, 'w') as f:
@@ -58,21 +67,68 @@ class BettingEngine:
         base_unit = self.config.get('base_unit', 10)
         thresh_1x2 = self.config.get('confidence_threshold_1x2', 0.60)
         thresh_ou = self.config.get('confidence_threshold_ou', 0.60)
+        perf_thresh = self.config.get('league_performance_threshold', 0.50)
+        min_matches = self.config.get('min_matches_for_stats', 10)
         
         for _, row in df.iterrows():
             date = row['Date']
             home = row['Home Team']
             away = row['Away Team']
+            league = row.get('League', 'Unknown')
+            
+            l_stats = self.league_stats.get(league, {"total_matches": 0, "correct_1x2": 0, "correct_ou": 0})
+            total_m = l_stats.get("total_matches", 0)
+            
+            acc_1x2 = (l_stats.get("correct_1x2", 0) / total_m) if total_m > 0 else 0.0
+            acc_ou = (l_stats.get("correct_ou", 0) / total_m) if total_m > 0 else 0.0
             
             # 1X2 Bet
             conf_1x2 = float(row['Conf 1X2'])
             if conf_1x2 >= thresh_1x2:
-                bet_type = "1X2"
-                key = f"{date}_{home}_{away}_{bet_type}"
-                if key not in existing_keys:
-                    selection = row['Prediction 1X2']
-                    odd = float(row['Prediction 1X2 Odd'])
-                    if odd > 1.0: # Valid odd
+                if total_m >= min_matches and acc_1x2 <= perf_thresh:
+                    print(f"Skipping 1X2 bet for {home} vs {away} ({league}) due to low league accuracy: {acc_1x2:.1%} in {total_m} matches.")
+                else:
+                    bet_type = "1X2"
+                    key = f"{date}_{home}_{away}_{bet_type}"
+                    if key not in existing_keys:
+                        selection = row['Prediction 1X2']
+                        odd = float(row['Prediction 1X2 Odd'])
+                        if odd > 1.0: # Valid odd
+                            bet = {
+                                "id": len(self.bets) + len(placed) + 1,
+                                "date": date,
+                                "home": home,
+                                "away": away,
+                                "type": bet_type,
+                                "selection": selection,
+                                "odd": odd,
+                                "stake": base_unit,
+                                "status": "OPEN", # OPEN, WON, LOST, VOID
+                                "profit": 0.0,
+                                "confidence": conf_1x2
+                            }
+                            placed.append(bet)
+                            existing_keys.add(key)
+                        
+            # O/U Bet
+            conf_ou = float(row['Conf O/U'])
+            if conf_ou >= thresh_ou:
+                if total_m >= min_matches and acc_ou <= perf_thresh:
+                    print(f"Skipping O/U bet for {home} vs {away} ({league}) due to low league accuracy: {acc_ou:.1%} in {total_m} matches.")
+                else:
+                    bet_type = "OU2.5"
+                    key = f"{date}_{home}_{away}_{bet_type}"
+                    if key not in existing_keys:
+                        selection = row['Prediction O/U']
+                        # We usually don't have O/U odds in prediction output unless scraped (Prediction 1X2 Odd is there, but OU odd?)
+                        # Scraper 'output.json' usually has O/U odds?
+                        # My predict_matches.py doesn't currently output O/U odds properly!
+                        # It only outputs `Prediction 1X2 Odd`.
+                        # I need to fix predict_matches.py to output O/U odds if I want to track P/L accurately.
+                        # For now, let's assume 1.90 generic or skip O/U tracking p/l?
+                        # User asked for "odd".
+                        odd = 1.90 # Placeholder if missing
+                        
                         bet = {
                             "id": len(self.bets) + len(placed) + 1,
                             "date": date,
@@ -80,46 +136,14 @@ class BettingEngine:
                             "away": away,
                             "type": bet_type,
                             "selection": selection,
-                            "odd": odd,
+                            "odd": odd, 
                             "stake": base_unit,
-                            "status": "OPEN", # OPEN, WON, LOST, VOID
+                            "status": "OPEN",
                             "profit": 0.0,
-                            "confidence": conf_1x2
+                            "confidence": conf_ou
                         }
                         placed.append(bet)
-                        existing_keys.add(key)
-                        
-            # O/U Bet
-            conf_ou = float(row['Conf O/U'])
-            if conf_ou >= thresh_ou:
-                bet_type = "OU2.5"
-                key = f"{date}_{home}_{away}_{bet_type}"
-                if key not in existing_keys:
-                    selection = row['Prediction O/U']
-                    # We usually don't have O/U odds in prediction output unless scraped (Prediction 1X2 Odd is there, but OU odd?)
-                    # Scraper 'output.json' usually has O/U odds?
-                    # My predict_matches.py doesn't currently output O/U odds properly!
-                    # It only outputs `Prediction 1X2 Odd`.
-                    # I need to fix predict_matches.py to output O/U odds if I want to track P/L accurately.
-                    # For now, let's assume 1.90 generic or skip O/U tracking p/l?
-                    # User asked for "odd".
-                    odd = 1.90 # Placeholder if missing
-                    
-                    bet = {
-                        "id": len(self.bets) + len(placed) + 1,
-                        "date": date,
-                        "home": home,
-                        "away": away,
-                        "type": bet_type,
-                        "selection": selection,
-                        "odd": odd, 
-                        "stake": base_unit,
-                        "status": "OPEN",
-                        "profit": 0.0,
-                        "confidence": conf_ou
-                    }
-                    placed.append(bet)
-                    # existing_keys.add(key) # handled by append
+                        # existing_keys.add(key) # handled by append
 
         # Update balance (deduct stake?)
         # Paper trading: usually we deduct stake.
