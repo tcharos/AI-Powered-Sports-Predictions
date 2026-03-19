@@ -297,8 +297,8 @@ class FlashscoreSpider(scrapy.Spider):
                 # Check for Header
                 if 'headerLeague__wrapper' in classes or 'event__header' in classes:
                     # ... (header parsing logic same as before) ...
-                    country = child.css('.headerLeague__category-text::text').get() or ""
-                    league = child.css('.headerLeague__title-text::text').get() or ""
+                    country = child.css('.headerLeague__category-text::text').get() or child.css('.event__title--type::text').get() or ""
+                    league = child.css('.headerLeague__title-text::text').get() or child.css('.event__title--name::text').get() or ""
                     country = country.strip()
                     league = league.strip()
                     
