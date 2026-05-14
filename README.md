@@ -1,4 +1,4 @@
-# Flashscore Predictor
+# Sports Predictor
 
 A comprehensive Machine Learning pipeline to scrape soccer data, simulate betting strategies, and predict match outcomes using XGBoost and Heuristic Adjustments.
 
@@ -13,8 +13,8 @@ A comprehensive Machine Learning pipeline to scrape soccer data, simulate bettin
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/yourusername/flashscore-scraper.git
-    cd flashscore-scraper
+    git clone https://github.com/yourusername/flashscore-scraper.git sports_predictor
+    cd sports_predictor
     ```
 
 2.  **Create and Activate Virtual Environment**:
