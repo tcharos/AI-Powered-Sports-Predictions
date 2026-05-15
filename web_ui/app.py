@@ -9,6 +9,14 @@ import shutil
 import sys
 import time
 
+from sports_config import (
+    get_sport_config,
+    get_bankroll,
+    update_bankroll,
+    all_bankrolls,
+    total_bankroll,
+)
+
 # Sport blueprints — each sport's routes mount under /<sport>/.
 # Sport-agnostic routes (/, /status, /stop/<task>, /server/<action>) stay
 # on the app itself. Adding a new sport = create a blueprint, register it.
@@ -318,21 +326,11 @@ def process_bet_verification(verification_file_path):
                 bet['pnl'] = -stake
                 lost_bets += 1
         
-        # Update Bankroll (Credit Returns)
-        config_path = os.path.join(DATA_SETS_DIR, 'betting_config.json')
-        current_bankroll = 1000.0
-        config = {}
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                current_bankroll = config.get('current_bankroll', 1000.0)
-            
-        # Add the returns to the CURRENT (already deducted) bankroll
-        new_bankroll = current_bankroll + total_return
-        config['current_bankroll'] = new_bankroll
-        
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
+        # Settlement: credit returns back to football's bankroll. Stake was
+        # already deducted at /football/place_bets time, so total_return here
+        # is the gross payout (stake + winnings on wins, refunded stake on
+        # voids, 0 on losses).
+        new_bankroll = update_bankroll('football', total_return)
             
         # Update Bets File status
         bets_data['status'] = 'CLOSED'
@@ -704,29 +702,14 @@ def place_bets():
         if not bets:
             return jsonify({'error': 'No bets provided.'}), 400
             
-        # Calculate Total Stake
+        # Calculate total stake and debit football's bankroll.
         total_stake = sum(float(b.get('stake_units', 0)) for b in bets)
-        
-        # Load Bankroll
-        config_path = os.path.join(DATA_SETS_DIR, 'betting_config.json')
-        if not os.path.exists(config_path):
-             return jsonify({'error': 'Betting config not found. Cannot process transaction.'}), 500
-             
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-            
-        current_bankroll = config.get('current_bankroll', 0.0)
-        
-        # Check Funds
+
+        current_bankroll = get_bankroll('football')
         if total_stake > current_bankroll:
              return jsonify({'error': f"Insufficient funds. Total stake ({total_stake:.2f}) exceeds bankroll ({current_bankroll:.2f})."}), 400
-             
-        # Deduct Stake
-        new_bankroll = current_bankroll - total_stake
-        config['current_bankroll'] = new_bankroll
-        
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
+
+        new_bankroll = update_bankroll('football', -total_stake)
             
         # Save to output/bets_YYYY-MM-DD.json
         filename = f"bets_{date_str}.json"
@@ -982,27 +965,19 @@ def auto_wager():
             v = _to_float(k_str)
             return v / 100.0 if isinstance(k_str, str) and '%' in k_str else v
 
-        # Load config (bankroll + lane tunables)
-        config_path = os.path.join(DATA_SETS_DIR, 'betting_config.json')
-        config = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-            except (OSError, json.JSONDecodeError):
-                pass
-
-        config_bankroll          = config.get('current_bankroll', 100.0)
+        # Load football's bankroll + lane tunables.
+        config = get_sport_config('football')
+        config_bankroll          = config['current_bankroll']
         # Value lane (Option B)
-        min_confidence           = config.get('min_confidence', 0.45)
-        stake_multiplier         = config.get('stake_multiplier', 0.4)
-        min_stake_eur            = config.get('min_stake_eur', 2.0)
-        max_stake_pct            = config.get('max_stake_pct', 0.03)
-        max_daily_exposure       = config.get('max_daily_exposure_pct', 0.10)
+        min_confidence           = config['min_confidence']
+        stake_multiplier         = config['stake_multiplier']
+        min_stake_eur            = config['min_stake_eur']
+        max_stake_pct            = config['max_stake_pct']
+        max_daily_exposure       = config['max_daily_exposure_pct']
         # Conviction lane (parallel A/B)
-        conv_min_confidence      = config.get('conviction_min_confidence', 0.65)
-        conv_min_odds            = config.get('conviction_min_odds', 1.40)
-        conv_stake_pct           = config.get('conviction_stake_pct', 0.005)
+        conv_min_confidence      = config['conviction_min_confidence']
+        conv_min_odds            = config['conviction_min_odds']
+        conv_stake_pct           = config['conviction_stake_pct']
 
         # Override if user provided one
         custom_bankroll = request.args.get('bankroll')
@@ -1155,16 +1130,21 @@ def auto_wager():
 
 @app.context_processor
 def inject_bankroll():
-    config_path = os.path.join(DATA_SETS_DIR, 'betting_config.json')
-    bankroll = 1000.0
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                data = json.load(f)
-                bankroll = data.get('current_bankroll', 1000.0)
-        except:
-            pass
-    return dict(bankroll=bankroll)
+    """
+    Sport-aware navbar bankroll. On a sport page, show that sport's
+    balance; on the landing page (or any sport-agnostic page), show the
+    portfolio total. Templates also get `bankrolls` (per-sport map) so
+    they can render a breakdown if they want.
+    """
+    bankrolls = all_bankrolls()
+    bp = request.blueprint  # 'football', 'nba', or None
+    if bp and bp in bankrolls:
+        active = bankrolls[bp]
+        label = bp.capitalize()
+    else:
+        active = total_bankroll()
+        label = 'Total'
+    return dict(bankroll=active, bankroll_label=label, bankrolls=bankrolls)
 
 
 @app.context_processor

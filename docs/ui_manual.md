@@ -8,12 +8,14 @@ The UI is sport-aware. Each sport mounts under its own URL prefix:
 
 | URL | What lives there |
 | :--- | :--- |
-| `/` | **Sport-picker landing page**. Shows a card per sport (active or dormant). |
+| `/` | **Sport-picker landing page**. Shows a card per sport (active or dormant) with current bankroll. |
 | `/football/*` | All football routes — dashboard, betting, predict, verify, retrain, etc. |
 | `/nba/*` | NBA routes (currently dormant — returns 404 until reactivated next NBA season). |
 | `/status`, `/stop/*`, `/server/*` | Sport-agnostic infrastructure. |
 
-The navbar has a **🏟️ Sport ▾** dropdown to switch between sports, and a brand link (🏆 Sports Predictor) that returns to the landing page. Adding a new sport is a one-PR operation — see `CLAUDE.md` for the recipe.
+The navbar has a **🏟️ Sport ▾** dropdown to switch between sports, and a brand link (🏆 Sports Predictor) that returns to the landing page. The bankroll display in the navbar is **sport-aware**: on a football page it shows football's bankroll; on the landing or any sport-agnostic page it shows the portfolio total across all sports.
+
+**Each sport has its own bankroll and its own betting strategy tunables.** They're isolated — a losing week on NBA won't drain football's funds, and you can A/B compare each sport's Value-vs-Conviction lanes independently. Tunables live in `data_sets/betting_config.json` under `sports.<slug>`. Adding a new sport is a one-PR operation — see `CLAUDE.md` for the recipe.
 
 ## 1. Football Dashboard (`/football/`)
 The main page lists generated reports sorted by date (most recent first).

@@ -104,10 +104,25 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 - `/football/betting` page shows a per-lane Strategy Comparison table (aggregates from both `output/` and `output/history/`) plus the visible active slip list.
 - `/football/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
 
-**Tunables** live in `data_sets/betting_config.json`:
-- `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct` — value lane + shared.
-- `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct` — conviction lane.
-- Several legacy keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) are read only by the orphan `betting_engine.py` and have no effect on the active path.
+**Tunables** live in `data_sets/betting_config.json`, **sport-keyed**:
+
+```json
+{
+    "sports": {
+        "football": { "current_bankroll": ..., "min_confidence": ..., ... },
+        "nba":      { "current_bankroll": ..., ... }
+    }
+}
+```
+
+Per-sport keys: `current_bankroll`, `initial_bankroll`, `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct`, `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct`. Each sport has its **own bankroll** (no cross-contamination) and its **own tunables** (NBA's optimal `min_confidence` can differ from football's).
+
+**All bankroll/config access goes through `web_ui/sports_config.py`** — never read or mutate the JSON directly:
+- `get_sport_config(slug)` — full per-sport config dict (defaults merged with overrides).
+- `get_bankroll(slug)` / `update_bankroll(slug, delta)` — atomic bankroll mutations.
+- `all_bankrolls()` / `total_bankroll()` — for the landing-page portfolio view.
+
+The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) used to live at the root of this file for the orphan `betting_engine.py`; they were dropped in the per-sport migration. The orphan module is now fully dead.
 
 **Betting flow** (active path, all in `web_ui/app.py`):
 - `/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).
@@ -116,10 +131,25 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 - `/betting` page shows a per-lane Strategy Comparison table (aggregates from both `output/` and `output/history/`) plus the visible active slip list.
 - `/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. Used by all delete buttons across the UI (slips, predictions, verifications, scraped data). The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
 
-**Tunables** live in `data_sets/betting_config.json`:
-- `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct` — value lane + shared.
-- `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct` — conviction lane.
-- Several legacy keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) are read only by the orphan `betting_engine.py` and have no effect on the active path.
+**Tunables** live in `data_sets/betting_config.json`, **sport-keyed**:
+
+```json
+{
+    "sports": {
+        "football": { "current_bankroll": ..., "min_confidence": ..., ... },
+        "nba":      { "current_bankroll": ..., ... }
+    }
+}
+```
+
+Per-sport keys: `current_bankroll`, `initial_bankroll`, `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct`, `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct`. Each sport has its **own bankroll** (no cross-contamination) and its **own tunables** (NBA's optimal `min_confidence` can differ from football's).
+
+**All bankroll/config access goes through `web_ui/sports_config.py`** — never read or mutate the JSON directly:
+- `get_sport_config(slug)` — full per-sport config dict (defaults merged with overrides).
+- `get_bankroll(slug)` / `update_bankroll(slug, delta)` — atomic bankroll mutations.
+- `all_bankrolls()` / `total_bankroll()` — for the landing-page portfolio view.
+
+The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) used to live at the root of this file for the orphan `betting_engine.py`; they were dropped in the per-sport migration. The orphan module is now fully dead.
 
 ### Data layout cheatsheet
 

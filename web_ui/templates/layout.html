@@ -116,7 +116,7 @@
                     </li>
                 </ul>
                 <span class="navbar-text ms-3 text-warning fw-bold">
-                    💰 Bankroll: €{{ bankroll|default(1000.0)|round(2) }}
+                    💰 {{ bankroll_label|default('Bankroll') }}: €{{ bankroll|default(0.0)|round(2) }}
                 </span>
             </div>
         </div>
