@@ -8,12 +8,12 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score, classification_report, mean_absolute_error, r2_score
 
 DATA_PATH = "data_sets/NBA/training_data.csv"
-MODEL_DIR = "models"
-WINNER_MODEL_PATH = os.path.join(MODEL_DIR, "nba_winner_model.pkl")
-TOTAL_MODEL_PATH = os.path.join(MODEL_DIR, "nba_total_model.pkl")
+MODEL_DIR = "models/nba"
+WINNER_MODEL_PATH = os.path.join(MODEL_DIR, "winner_model.pkl")
+TOTAL_MODEL_PATH = os.path.join(MODEL_DIR, "total_model.pkl")
 
-WINNER_PARAMS_FILE = os.path.join(MODEL_DIR, "nba_best_params_winner.json")
-TOTAL_PARAMS_FILE = os.path.join(MODEL_DIR, "nba_best_params_total.json")
+WINNER_PARAMS_FILE = os.path.join(MODEL_DIR, "best_params_winner.json")
+TOTAL_PARAMS_FILE = os.path.join(MODEL_DIR, "best_params_total.json")
 
 def load_params(filepath):
     if os.path.exists(filepath):

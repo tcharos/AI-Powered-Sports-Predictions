@@ -7,7 +7,10 @@ import subprocess
 import datetime
 from datetime import timedelta
 
-nba_bp = Blueprint('nba', __name__, template_folder='templates')
+# Blueprint kept functional but NOT registered in app.py — NBA UI is currently
+# detached. To reactivate, re-add the import + register_blueprint call there.
+# Templates live at web_ui/templates/nba/ (use 'nba/index.html' in render_template).
+nba_bp = Blueprint('nba', __name__)
 
 NBA_TASKS = {}
 
@@ -92,7 +95,7 @@ def index():
     predictions, filename = load_latest_predictions()
     analytics = load_nba_analytics()
     
-    return render_template('nba_index.html', 
+    return render_template('nba/index.html', 
                            game_count=game_count, 
                            predictions=predictions,
                            pred_file=filename,

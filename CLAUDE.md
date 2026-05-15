@@ -73,7 +73,9 @@ Football flow (1X2 + Over/Under 2.5):
 7. `resolve_daily_bets.py` (called by `run_verification.sh:96`) settles open bet slips in `output/bets_*.json` against scraped results. **Note**: `ml_project/betting_engine.py` is legacy/reference code — the *active* bet-placement and settlement flow lives in `web_ui/app.py` (`/auto_wager`, `/place_bets`, `process_bet_verification`).
 8. `live_adjuster.py` applies in-play heuristics (shots/xG) on top of model output during the live loop.
 
-NBA flow mirrors football with separate modules: `fetch_nba_results.py`, `fetch_nba_history_stats.py`, `fetch_nba_stats_tables.py` (uses `pbpstats`), `nba_feature_engineering.py`, `train_nba_models.py`, `tune_nba_models.py`, `predict_nba.py`, `evaluate_nba_predictions.py`. Models live at `models/nba_*_model.pkl`.
+NBA pipeline lives entirely under `ml_project/nba/` (`fetch_nba_results.py`, `fetch_nba_history_stats.py`, `fetch_nba_stats_tables.py` (uses `pbpstats`), `fetch_espn_odds.py`, `nba_feature_engineering.py`, `nba_utils.py`, `train_nba_models.py`, `tune_nba_models.py`, `predict_nba.py`, `evaluate_nba_predictions.py`). Models at `models/nba/{winner,total}_model.pkl` + `best_params_*.json`. Outputs at `output_basketball/`. Bin scripts (`run_nba_*.sh`, `retrain_nba_pipeline.sh`) export `PYTHONPATH=...:ml_project/nba` so the in-package imports (`from nba_utils import ...`) keep resolving without prefixes.
+
+**NBA UI is currently DETACHED** — the blueprint code lives at `web_ui/nba/routes.py` (template at `web_ui/templates/nba/index.html`), but `app.py` does not register it. Old `output_basketball/` artifacts have been soft-archived to `output_basketball/history/`. To reactivate the NBA UI: re-add `from nba.routes import nba_bp, NBA_TASKS` and `app.register_blueprint(nba_bp, url_prefix='/nba')` in `web_ui/app.py`, plus restore the nav link in `web_ui/templates/layout.html`.
 
 `entity_resolver.py` + `team_mapping.py` + `data_sets/team_mappings.json` handle name reconciliation between Flashscore and football-data.co.uk (fuzzy match via `rapidfuzz`/`thefuzz`).
 
@@ -105,7 +107,7 @@ Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a b
 - `output/predictions_<date>.csv`, `output/verification_<date>.csv`, `output/report_<date>.txt` — prediction artifacts.
 - `output/bets_<date>.json` — placed bet slips (active). Each bet has a `lane` tag.
 - `output/history/` — soft-delete destination. Files moved here are hidden from UI lists but still counted by `/betting` Strategy Comparison stats.
-- `output_basketball/` — NBA equivalents.
+- `output_basketball/` — NBA artifacts (currently empty; old slate archived under `output_basketball/history/`).
 - `models/` — trained XGBoost JSON / sklearn pickle artifacts and tuned hyperparameters.
 - `logs/` — pipeline, scraper status, UI logs.
 

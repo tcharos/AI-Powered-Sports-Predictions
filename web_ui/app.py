@@ -11,13 +11,16 @@ import time
 
 # Import Blueprints
 # Import Blueprints
-from nba_routes import nba_bp, NBA_TASKS
+# NBA routes are dormant — code lives at web_ui/nba/routes.py.
+# To reactivate: `from nba.routes import nba_bp, NBA_TASKS` and re-add
+# the register_blueprint call below.
+NBA_TASKS = {}  # kept as empty stub so /status responses don't break
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_flashscore'
 
 # Register Blueprints
-app.register_blueprint(nba_bp, url_prefix='/nba')
+# app.register_blueprint(nba_bp, url_prefix='/nba')  # NBA UI detached
 
 # Constants
 

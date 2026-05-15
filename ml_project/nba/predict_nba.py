@@ -10,8 +10,8 @@ from nba_utils import get_full_name, get_abbr
 # Constants
 MATCH_FILE_PATTERN = "output_basketball/nba_matches_*_final.json"
 STATS_DIR = "data_sets/NBA"
-MODEL_WINNER = "models/nba_winner_model.pkl"
-MODEL_TOTAL = "models/nba_total_model.pkl"
+MODEL_WINNER = "models/nba/winner_model.pkl"
+MODEL_TOTAL = "models/nba/total_model.pkl"
 ODDS_FILE = "output_basketball/espn_odds.json"
 
 def load_latest_matches():

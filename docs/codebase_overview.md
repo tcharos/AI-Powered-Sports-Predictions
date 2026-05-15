@@ -35,13 +35,14 @@ This document provides a summary of all Python (`.py`) and Shell (`.sh`) scripts
 | `team_mapping.py` | **Config**: Static dictionary for known team name variations. |
 | `train_model.py` | **Training**: Trains XGBoost models (1X2, draw, O/U Poisson), saving them to JSON. |
 | `tune_model.py` | **Optimization**: Performs stepwise hyperparameter tuning for XGBoost and saves best parameters. |
+| `nba/` (subpackage) | All NBA pipeline modules: `predict_nba.py`, `train_nba_models.py`, `tune_nba_models.py`, `evaluate_nba_predictions.py`, `nba_feature_engineering.py`, `nba_utils.py`, `fetch_nba_results.py`, `fetch_nba_history_stats.py`, `fetch_nba_stats_tables.py`, `fetch_espn_odds.py`. Models at `models/nba/`, outputs at `output_basketball/`. NBA UI is currently detached. |
 
 ## 3. Web Interface (`web_ui/`)
 
 | File | Description |
 | :--- | :--- |
 | `app.py` | **Flask App**: Main web server. Hosts dashboard, prediction/verification triggers, the live-loop controls, and the **active betting flow** (`/auto_wager`, `/place_bets`, `process_bet_verification`, `/betting`). Also handles soft-delete via `/delete_file/<filename>` (moves files to `output/history/`). |
-| `nba_routes.py` | **Flask Blueprint**: NBA equivalents of the football routes. |
+| `nba/routes.py` | **(Detached)** Flask Blueprint for NBA routes. Code preserved but not registered in `app.py` — NBA UI is currently dormant. Template at `templates/nba/index.html`. |
 
 ## 4. Scrapers (`flashscore_scraper/`, `scripts/`)
 

@@ -17,11 +17,12 @@ echo "Target Date: $TARGET_DATE"
 
 # Activate Venv
 source venv/bin/activate
+export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project:$(pwd)/ml_project/nba
 
 # 1. Fetch Results
 echo ""
 echo "[*] Fetching NBA Results from ESPN..."
-python3 ml_project/fetch_nba_results.py --date $TARGET_DATE
+python3 ml_project/nba/fetch_nba_results.py --date $TARGET_DATE
 
 if [ $? -ne 0 ]; then
     echo "[-] Failed to fetch results."
@@ -31,7 +32,7 @@ fi
 # 2. Evaluate
 echo ""
 echo "[*] Evaluating Predictions..."
-python3 ml_project/evaluate_nba_predictions.py --date $TARGET_DATE
+python3 ml_project/nba/evaluate_nba_predictions.py --date $TARGET_DATE
 
 echo ""
 echo "========================================"

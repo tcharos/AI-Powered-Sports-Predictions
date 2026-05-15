@@ -12,9 +12,9 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 DATA_PATH = "data_sets/NBA/training_data.csv"
-MODEL_DIR = "models"
-WINNER_PARAMS_FILE = os.path.join(MODEL_DIR, "nba_best_params_winner.json")
-TOTAL_PARAMS_FILE = os.path.join(MODEL_DIR, "nba_best_params_total.json")
+MODEL_DIR = "models/nba"
+WINNER_PARAMS_FILE = os.path.join(MODEL_DIR, "best_params_winner.json")
+TOTAL_PARAMS_FILE = os.path.join(MODEL_DIR, "best_params_total.json")
 
 class NBATuner:
     def __init__(self):

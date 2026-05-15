@@ -44,8 +44,8 @@ fi
 # 4. Run Prediction
 echo ""
 echo "[*] Running NBA Predictor..."
-export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
-python3 ml_project/predict_nba.py
+export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project:$(pwd)/ml_project/nba
+python3 ml_project/nba/predict_nba.py
 
 echo ""
 echo "========================================"
