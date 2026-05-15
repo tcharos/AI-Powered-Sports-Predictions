@@ -325,34 +325,6 @@
 </div>
 </div>
 
-<!-- Row 4: Files Table -->
-<h3>All Files</h3>
-<table class="table table-striped">
-    <thead>
-        <tr>
-            <th>Filename</th>
-            <th>Type</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in predictions %}
-        <tr>
-            <td>{{ item.filename }} <small class="text-muted">({{ item.count }} matches)</small></td>
-            <td><span class="badge bg-primary">Prediction</span></td>
-            <td><a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a></td>
-        </tr>
-        {% endfor %}
-        {% for item in verifications %}
-        <tr>
-            <td>{{ item.filename }}</td>
-            <td><span class="badge bg-secondary">Verification</span></td>
-            <td><a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-
 <script>
 
 
