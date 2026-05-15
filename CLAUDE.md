@@ -40,7 +40,7 @@ Run a single spider manually:
 scrapy crawl flashscore -O output/matches_YYYY-MM-DD.json -L WARNING -a filter_leagues=true -a day_diff=1
 scrapy crawl flashscore -a live_ids="id1,id2,..." -a mode=verification -O <file>
 scrapy crawl standings -L WARNING
-scrapy crawl basketball -O output_basketball/nba_matches_YYYY-MM-DD_final.json -L WARNING
+scrapy crawl nba -O output_basketball/nba_matches_YYYY-MM-DD_final.json -L WARNING
 ```
 
 There is no test suite — `tests/` only contains a `Notes for Football Data` reference text, not Python tests. Treat correctness checks as: run the relevant pipeline end-to-end, then inspect `output/predictions_*.csv`, `output/report_*.txt`, or `output/verification_*.csv`.
@@ -57,7 +57,7 @@ The project is three loosely-coupled subsystems sharing a filesystem-based data 
   - `-a mode=verification` flips parsing to read final scores.
   - `-a filter_leagues=true` restricts to `data_sets/target_leagues.json`.
 - `spiders/standings_spider.py` — league tables and form; outputs are written via `pipelines.StandingsPipeline`, so do not use `-O`.
-- `spiders/basketball_spider.py` — NBA equivalent.
+- `spiders/nba_spider.py` — NBA equivalent (spider name = `nba`).
 - `settings.py` sets `CONCURRENT_REQUESTS=4`, `DOWNLOAD_DELAY=1`, headless Chromium via `scrapy_playwright`. `ROBOTSTXT_OBEY=False`.
 - `scripts/update_football_data.py` and `scripts/setup_historical_data.py` pull CSVs from football-data.co.uk — not Scrapy spiders, just HTTP downloaders feeding `data_sets/MatchHistory/`.
 
@@ -79,7 +79,7 @@ NBA flow mirrors football with separate modules: `fetch_nba_results.py`, `fetch_
 
 ### 3. Web UI — `web_ui/app.py` (Flask, port 5001)
 
-Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a bet-tracking dashboard. `basketball_routes.py` adds NBA equivalents. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
+Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a bet-tracking dashboard. `nba_routes.py` adds NBA equivalents. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
 
 **Betting flow** (active path, all in `web_ui/app.py`):
 - `/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).

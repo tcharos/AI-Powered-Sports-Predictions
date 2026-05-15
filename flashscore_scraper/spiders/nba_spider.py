@@ -4,13 +4,13 @@ import json
 import datetime
 import os
 
-class BasketballSpider(scrapy.Spider):
-    name = "basketball"
+class NbaSpider(scrapy.Spider):
+    name = "nba"
     allowed_domains = ["flashscore.com"]
     start_urls = ["https://www.flashscore.com/basketball/"]
 
     def __init__(self, days_back=0, *args, **kwargs):
-        super(BasketballSpider, self).__init__(*args, **kwargs)
+        super(NbaSpider, self).__init__(*args, **kwargs)
         self.days_back = int(days_back)
         self.logger.info("🏀 Basketball Spider Initialized (Main Page Mode).")
 

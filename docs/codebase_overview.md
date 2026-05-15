@@ -41,7 +41,7 @@ This document provides a summary of all Python (`.py`) and Shell (`.sh`) scripts
 | File | Description |
 | :--- | :--- |
 | `app.py` | **Flask App**: Main web server. Hosts dashboard, prediction/verification triggers, the live-loop controls, and the **active betting flow** (`/auto_wager`, `/place_bets`, `process_bet_verification`, `/betting`). Also handles soft-delete via `/delete_file/<filename>` (moves files to `output/history/`). |
-| `basketball_routes.py` | **Flask Blueprint**: NBA equivalents of the football routes. |
+| `nba_routes.py` | **Flask Blueprint**: NBA equivalents of the football routes. |
 
 ## 4. Scrapers (`flashscore_scraper/`, `scripts/`)
 

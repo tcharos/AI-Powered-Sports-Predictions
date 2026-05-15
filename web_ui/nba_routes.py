@@ -7,7 +7,7 @@ import subprocess
 import datetime
 from datetime import timedelta
 
-basketball_bp = Blueprint('basketball', __name__, template_folder='templates')
+nba_bp = Blueprint('nba', __name__, template_folder='templates')
 
 NBA_TASKS = {}
 
@@ -83,7 +83,7 @@ def load_latest_predictions():
         print(f"Error reading predictions: {e}")
         return None, None
 
-@basketball_bp.route('/')
+@nba_bp.route('/')
 def index():
     # NBA Dashboard
     stats = load_nba_stats()
@@ -98,11 +98,11 @@ def index():
                            pred_file=filename,
                            analytics=analytics)
 
-@basketball_bp.route('/verify', methods=['POST'])
+@nba_bp.route('/verify', methods=['POST'])
 def verify_nba():
     if NBA_TASKS.get('verify') and NBA_TASKS['verify'].poll() is None:
         flash("NBA Verification is already running.", "warning")
-        return redirect(url_for('basketball.index'))
+        return redirect(url_for('nba.index'))
         
     try:
         project_root = os.path.dirname(current_app.root_path)
@@ -120,13 +120,13 @@ def verify_nba():
     except Exception as e:
         flash(f"Error starting verification: {e}", "danger")
         
-    return redirect(url_for('basketball.index'))
+    return redirect(url_for('nba.index'))
 
-@basketball_bp.route('/retrain', methods=['POST'])
+@nba_bp.route('/retrain', methods=['POST'])
 def retrain_nba():
     if NBA_TASKS.get('retrain') and NBA_TASKS['retrain'].poll() is None:
         flash("NBA Retraining is already running.", "warning")
-        return redirect(url_for('basketball.index'))
+        return redirect(url_for('nba.index'))
         
     try:
         project_root = os.path.dirname(current_app.root_path)
@@ -142,13 +142,13 @@ def retrain_nba():
     except Exception as e:
         flash(f"Error starting retraining: {e}", "danger")
         
-    return redirect(url_for('basketball.index'))
+    return redirect(url_for('nba.index'))
 
-@basketball_bp.route('/predict', methods=['POST'])
+@nba_bp.route('/predict', methods=['POST'])
 def predict_nba():
     if NBA_TASKS.get('predict') and NBA_TASKS['predict'].poll() is None:
         flash("NBA Prediction is already running.", "warning")
-        return redirect(url_for('basketball.index'))
+        return redirect(url_for('nba.index'))
         
     try:
         project_root = os.path.dirname(current_app.root_path)
@@ -164,9 +164,9 @@ def predict_nba():
     except Exception as e:
         flash(f"Error starting prediction: {e}", "danger")
         
-    return redirect(url_for('basketball.index'))
+    return redirect(url_for('nba.index'))
 
-@basketball_bp.route('/api/stats')
+@nba_bp.route('/api/stats')
 def api_stats():
     stats = load_nba_stats()
     return jsonify(stats)

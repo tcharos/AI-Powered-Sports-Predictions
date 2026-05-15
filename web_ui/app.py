@@ -11,13 +11,13 @@ import time
 
 # Import Blueprints
 # Import Blueprints
-from basketball_routes import basketball_bp, NBA_TASKS
+from nba_routes import nba_bp, NBA_TASKS
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_flashscore'
 
 # Register Blueprints
-app.register_blueprint(basketball_bp, url_prefix='/nba')
+app.register_blueprint(nba_bp, url_prefix='/nba')
 
 # Constants
 

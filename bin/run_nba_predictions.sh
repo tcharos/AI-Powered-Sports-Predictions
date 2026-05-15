@@ -30,7 +30,7 @@ echo ""
 echo "[*] Starting NBA Scraper..."
 # We use -O to overwrite the final file with the Scrapy ITEMS (dictionaries), 
 # ignoring the side-effect ID-list file the spider creates.
-scrapy crawl basketball -O "$FINAL_FILE" -L WARNING
+scrapy crawl nba -O "$FINAL_FILE" -L WARNING
 
 if [ $? -eq 0 ]; then
     echo "[+] Scraper Finished. Data saved to $FINAL_FILE"
