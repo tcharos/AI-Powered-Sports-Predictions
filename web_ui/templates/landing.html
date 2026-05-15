@@ -45,6 +45,76 @@
             {% endfor %}
         </div>
 
+        {% if sport_summaries %}
+        <div class="card mt-5 border-dark">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">📈 Portfolio Summary</h5>
+                <small class="text-white-50">Cumulative across all sports (active + archived slips)</small>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 align-middle text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start">Sport</th>
+                            <th>Bets</th>
+                            <th>Settled</th>
+                            <th>Stake</th>
+                            <th>Returned</th>
+                            <th>Net P/L</th>
+                            <th>ROI %</th>
+                            <th>Bankroll</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ns = namespace(total_bets=0, total_settled=0, total_stake=0.0, total_returned=0.0, total_pnl=0.0, total_bankroll=0.0) %}
+                        {% for sport in sports %}
+                        {% set s = sport_summaries.get(sport.slug, {'bets':0,'settled':0,'stake':0,'returned':0,'pnl':0,'roi':0}) %}
+                        {% set br = bankrolls.get(sport.slug, 0.0) %}
+                        {% set ns.total_bets = ns.total_bets + s.bets %}
+                        {% set ns.total_settled = ns.total_settled + s.settled %}
+                        {% set ns.total_stake = ns.total_stake + s.stake %}
+                        {% set ns.total_returned = ns.total_returned + s.returned %}
+                        {% set ns.total_pnl = ns.total_pnl + s.pnl %}
+                        {% set ns.total_bankroll = ns.total_bankroll + br %}
+                        <tr class="{{ '' if sport.active else 'text-muted' }}">
+                            <td class="text-start">
+                                {{ sport.icon }} <strong>{{ sport.label }}</strong>
+                                {% if not sport.active %}<span class="badge bg-secondary ms-1">dormant</span>{% endif %}
+                            </td>
+                            <td>{{ s.bets }}</td>
+                            <td>{{ s.settled }}</td>
+                            <td>€{{ s.stake }}</td>
+                            <td>€{{ s.returned }}</td>
+                            <td class="fw-bold {{ 'text-success' if s.pnl > 0 else ('text-danger' if s.pnl < 0 else 'text-muted') }}">
+                                {{ '+' if s.pnl > 0 else '' }}€{{ s.pnl }}
+                            </td>
+                            <td class="fw-bold {{ 'text-success' if s.roi > 0 else ('text-danger' if s.roi < 0 else 'text-muted') }}">
+                                {{ '+' if s.roi > 0 else '' }}{{ s.roi }}%
+                            </td>
+                            <td>€{{ br|round(2) }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% set portfolio_roi = (ns.total_pnl / ns.total_stake * 100) if ns.total_stake > 0 else 0 %}
+                        <tr class="table-dark fw-bold">
+                            <td class="text-start">🏆 Total</td>
+                            <td>{{ ns.total_bets }}</td>
+                            <td>{{ ns.total_settled }}</td>
+                            <td>€{{ ns.total_stake|round(2) }}</td>
+                            <td>€{{ ns.total_returned|round(2) }}</td>
+                            <td class="{{ 'text-success' if ns.total_pnl > 0 else ('text-danger' if ns.total_pnl < 0 else '') }}">
+                                {{ '+' if ns.total_pnl > 0 else '' }}€{{ ns.total_pnl|round(2) }}
+                            </td>
+                            <td class="{{ 'text-success' if portfolio_roi > 0 else ('text-danger' if portfolio_roi < 0 else '') }}">
+                                {{ '+' if portfolio_roi > 0 else '' }}{{ portfolio_roi|round(1) }}%
+                            </td>
+                            <td>€{{ ns.total_bankroll|round(2) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="text-center mt-5">
             <p class="text-muted small">
                 Adding a new sport: create a Flask blueprint at <code>web_ui/&lt;sport&gt;/routes.py</code>,

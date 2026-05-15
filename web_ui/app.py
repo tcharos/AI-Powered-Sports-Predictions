@@ -26,9 +26,11 @@ NBA_TASKS = {}  # kept as empty stub so /status responses don't break
 # to True, uncomment the import + register_blueprint call further down, and
 # the landing page card automatically becomes a working link.
 SPORTS = [
-    {'slug': 'football', 'label': 'Football',  'icon': '⚽', 'active': True,
+    {'slug': 'football', 'label': 'Football', 'icon': '⚽', 'active': True,
+     'bets_dir': 'output',
      'tagline': 'Daily 1X2 + Over/Under predictions, two-lane betting strategy.'},
-    {'slug': 'nba',      'label': 'NBA',       'icon': '🏀', 'active': False,
+    {'slug': 'nba',      'label': 'NBA',      'icon': '🏀', 'active': False,
+     'bets_dir': 'output_basketball',
      'tagline': 'Dormant — code preserved at web_ui/nba/. Reactivation planned for next NBA season.'},
 ]
 
@@ -730,34 +732,48 @@ def place_bets():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@football_bp.route('/betting')
-def betting_page():
-    def _load_slip(filepath):
-        try:
-            with open(filepath, 'r') as fh:
-                data = json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            return None
-        data['filename'] = os.path.basename(filepath)
-        if 'total_stake' not in data:
-            data['total_stake'] = sum(float(b.get('stake_units', 0)) for b in data.get('bets', []))
-        if 'total_return' not in data:
-            data['total_return'] = (
-                data.get('total_stake', 0) + data.get('pnl', 0)
-                if data.get('status') == 'CLOSED' else 0.0
-            )
-        return data
+def _load_slip(filepath):
+    """Load a single bets_*.json with backfilled fields."""
+    try:
+        with open(filepath, 'r') as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    data['filename'] = os.path.basename(filepath)
+    if 'total_stake' not in data:
+        data['total_stake'] = sum(float(b.get('stake_units', 0)) for b in data.get('bets', []))
+    if 'total_return' not in data:
+        data['total_return'] = (
+            data.get('total_stake', 0) + data.get('pnl', 0)
+            if data.get('status') == 'CLOSED' else 0.0
+        )
+    return data
 
-    # Visible history: only ACTIVE slips (not archived)
+
+def compute_sport_summary(bets_dir):
+    """
+    Aggregate stats for one sport from its bets directory.
+    Reads ACTIVE slips (bets_dir/bets_*.json) AND ARCHIVED slips
+    (bets_dir/history/bets_*.json) so soft-deleted slips still count.
+
+    Returns: {
+        'history': [active slips, sorted desc by date],
+        'lane_stats': {lane: {bets, settled, won, lost, void, stake,
+                              returned, pnl, win_rate, roi}},
+        'totals': {bets, settled, stake, returned, pnl, roi},
+    }
+    """
+    abs_dir = bets_dir if os.path.isabs(bets_dir) else os.path.join(PROJECT_ROOT, bets_dir)
+    history_dir = os.path.join(abs_dir, 'history')
+
     history = []
-    for f in glob.glob(os.path.join(OUTPUT_DIR, "bets_*.json")):
+    for f in glob.glob(os.path.join(abs_dir, "bets_*.json")):
         s = _load_slip(f)
         if s: history.append(s)
     history.sort(key=lambda x: x.get('date', ''), reverse=True)
 
-    # Cumulative comparison: ACTIVE + ARCHIVED slips. Soft-delete must not erase history.
     archived_slips = []
-    for f in glob.glob(os.path.join(HISTORY_DIR, "bets_*.json")):
+    for f in glob.glob(os.path.join(history_dir, "bets_*.json")):
         s = _load_slip(f)
         if s: archived_slips.append(s)
 
@@ -783,7 +799,6 @@ def betting_page():
             s['settled'] += 1
             if result == 'WON' or status == 'WON':
                 s['won'] += 1
-                # On win, returned = stake + pnl (which equals stake * odd)
                 s['returned'] += stake + float(bet.get('pnl', 0))
                 s['pnl'] += float(bet.get('pnl', 0))
             elif result == 'LOST' or status == 'LOST':
@@ -791,21 +806,35 @@ def betting_page():
                 s['pnl'] += float(bet.get('pnl', -stake))
             else:  # VOID
                 s['void'] += 1
-                s['returned'] += stake  # stake refunded
+                s['returned'] += stake
 
-    # Derived metrics
     for lane, s in lane_stats.items():
         decided = s['won'] + s['lost']
-        s['win_rate'] = (s['won'] / decided * 100) if decided > 0 else 0.0
-        s['roi'] = (s['pnl'] / s['stake'] * 100) if s['stake'] > 0 else 0.0
-        # Round for display
+        s['win_rate'] = round((s['won'] / decided * 100) if decided > 0 else 0.0, 1)
+        s['roi'] = round((s['pnl'] / s['stake'] * 100) if s['stake'] > 0 else 0.0, 1)
         s['stake'] = round(s['stake'], 2)
         s['returned'] = round(s['returned'], 2)
         s['pnl'] = round(s['pnl'], 2)
-        s['win_rate'] = round(s['win_rate'], 1)
-        s['roi'] = round(s['roi'], 1)
 
-    return render_template('betting.html', history=history, lane_stats=lane_stats)
+    totals = {
+        'bets': sum(s['bets'] for s in lane_stats.values()),
+        'settled': sum(s['settled'] for s in lane_stats.values()),
+        'stake': round(sum(s['stake'] for s in lane_stats.values()), 2),
+        'returned': round(sum(s['returned'] for s in lane_stats.values()), 2),
+        'pnl': round(sum(s['pnl'] for s in lane_stats.values()), 2),
+    }
+    totals['roi'] = round((totals['pnl'] / totals['stake'] * 100) if totals['stake'] > 0 else 0.0, 1)
+
+    return {'history': history, 'lane_stats': lane_stats, 'totals': totals}
+
+
+@football_bp.route('/betting')
+def betting_page():
+    summary = compute_sport_summary(OUTPUT_DIR)
+    return render_template('betting.html',
+                           history=summary['history'],
+                           lane_stats=summary['lane_stats'],
+                           sport_label='Football')
 
 # Update Server Routes logic...
 @football_bp.route('/live_analysis', methods=['POST'])
@@ -1156,8 +1185,15 @@ def inject_sports():
 # --- Sport-agnostic landing page ---
 @app.route('/')
 def landing():
-    """Sport picker. Active sports link to their dashboards; dormant sports show greyed out."""
-    return render_template('landing.html')
+    """Sport picker + portfolio summary. Active sports link to their dashboards.
+    Per-sport stats are aggregated from each sport's bets directory (active +
+    archived slips), so the portfolio totals stay correct after soft-deletes."""
+    sport_summaries = {}
+    for sport in SPORTS:
+        bets_dir = sport.get('bets_dir')
+        if bets_dir:
+            sport_summaries[sport['slug']] = compute_sport_summary(bets_dir)['totals']
+    return render_template('landing.html', sport_summaries=sport_summaries)
 
 
 # Register sport blueprints after their routes have been defined.
