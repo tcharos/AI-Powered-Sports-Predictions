@@ -1,8 +1,21 @@
-# Flashscore Predictor UI Manual
+# Sports Predictor UI Manual
 
 The Web Dashboard serves as the command center for running predictions, verifications, and managing data.
 
-## 1. Dashboard Home
+## 0. Multi-sport URL structure
+
+The UI is sport-aware. Each sport mounts under its own URL prefix:
+
+| URL | What lives there |
+| :--- | :--- |
+| `/` | **Sport-picker landing page**. Shows a card per sport (active or dormant). |
+| `/football/*` | All football routes — dashboard, betting, predict, verify, retrain, etc. |
+| `/nba/*` | NBA routes (currently dormant — returns 404 until reactivated next NBA season). |
+| `/status`, `/stop/*`, `/server/*` | Sport-agnostic infrastructure. |
+
+The navbar has a **🏟️ Sport ▾** dropdown to switch between sports, and a brand link (🏆 Sports Predictor) that returns to the landing page. Adding a new sport is a one-PR operation — see `CLAUDE.md` for the recipe.
+
+## 1. Football Dashboard (`/football/`)
 The main page lists generated reports sorted by date (most recent first).
 *   **Prediction Reports / Verification Reports / Available Scraped Data**: each card shows the **last 3** entries to keep the dashboard tidy. The full list is in the "All Files" table at the bottom.
 *   **Action**: Click "View" to see the detailed table of predictions for that day.

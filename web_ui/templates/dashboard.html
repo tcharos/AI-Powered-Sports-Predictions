@@ -10,7 +10,7 @@
             <div class="card-header bg-primary text-white">Actions</div>
             <div class="card-body">
                 <p>Run the scraping and prediction pipeline for the upcoming matches.</p>
-                <form action="/predict" method="post" class="d-inline" id="predictForm">
+                <form action="/football/predict" method="post" class="d-inline" id="predictForm">
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" name="force" id="forceScrape">
                         <label class="form-check-label" for="forceScrape">
@@ -35,7 +35,7 @@
                 </div>
                 <hr>
                 <p>Verify yesterday's predictions against actual results.</p>
-                <form action="/verify" method="post" class="d-inline" id="verifyForm">
+                <form action="/football/verify" method="post" class="d-inline" id="verifyForm">
                     <div class="mb-2">
                         <label for="verifyDate" class="form-label">Target Date (Optional)</label>
                         <input type="date" class="form-control" name="date" id="verifyDate">
@@ -66,7 +66,7 @@
                 <div class="list-group">
                     {% for item in predictions[:3] %}
                     <div class="list-group-item d-flex justify-content-between align-items-center">
-                        <a href="/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
+                        <a href="/football/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
                             <div>
                                 <strong>{{ item.date }}</strong> <small class="text-muted">({{ item.count }}
                                     matches)</small>
@@ -74,8 +74,8 @@
                             </div>
                         </a>
                         <div class="d-flex align-items-center gap-2">
-                            <a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a>
-                            <form action="/delete_file/{{ item.filename }}" method="post"
+                            <a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a>
+                            <form action="/football/delete_file/{{ item.filename }}" method="post"
                                 onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
                                 class="m-0">
                                 <button type="submit" class="btn btn-sm btn-outline-danger px-2"
@@ -94,15 +94,15 @@
                 <div class="list-group">
                     {% for item in verifications[:3] %}
                     <div class="list-group-item d-flex justify-content-between align-items-center">
-                        <a href="/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
+                        <a href="/football/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
                             <div>
                                 <strong>{{ item.date }}</strong>
                                 <span class="badge bg-warning text-dark">{{ item.type }}</span>
                             </div>
                         </a>
                         <div class="d-flex align-items-center gap-2">
-                            <a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a>
-                            <form action="/delete_file/{{ item.filename }}" method="post"
+                            <a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a>
+                            <form action="/football/delete_file/{{ item.filename }}" method="post"
                                 onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
                                 class="m-0">
                                 <button type="submit" class="btn btn-sm btn-outline-danger px-2"
@@ -126,12 +126,12 @@
     <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
         <span>⚡ Live Match Analysis & Adjustments</span>
         <div class="btn-group">
-            <form action="/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
+            <form action="/football/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
                 <button type="submit" class="btn btn-sm btn-light text-danger fw-bold" id="refreshLiveBtn">Refresh
                     Once</button>
             </form>
             <!-- Auto Loop Form -->
-            <form action="/live_analysis" method="post" class="d-inline ms-2">
+            <form action="/football/live_analysis" method="post" class="d-inline ms-2">
                 <button type="submit" class="btn btn-sm btn-success fw-bold" id="startLiveBtn">Start Auto-Loop
                     (10m)</button>
             </form>
@@ -139,7 +139,7 @@
                 Loop</button>
             <form id="stopLiveForm" action="/stop/live" method="post" style="display:none;"></form>
 
-            <form action="/clear_live" method="post" class="d-inline ms-2">
+            <form action="/football/clear_live" method="post" class="d-inline ms-2">
                 <button type="submit" class="btn btn-sm btn-warning fw-bold text-dark" title="Clear Data">🗑️ Clear
                     Data</button>
             </form>
@@ -225,10 +225,10 @@
     <div class="card-body d-flex justify-content-between align-items-center">
         <span>No Live Data loaded.</span>
         <div>
-            <form action="/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
+            <form action="/football/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
                 <button type="submit" class="btn btn-outline-danger" id="triggerLiveBtn">⚡ Run Once</button>
             </form>
-            <form action="/live_analysis" method="post" class="d-inline ms-2">
+            <form action="/football/live_analysis" method="post" class="d-inline ms-2">
                 <button type="submit" class="btn btn-outline-success" id="startLiveBtnEmpty">Start Auto-Loop
                     (10m)</button>
             </form>
@@ -241,7 +241,7 @@
 <div class="card mb-4">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
         <span>Cumulative League Performance (All-Time)</span>
-        <form action="/reset_stats" method="post"
+        <form action="/football/reset_stats" method="post"
             onsubmit="return confirm('Are you sure you want to completely RESET all cumulative league statistics?');">
             <button type="submit" class="btn btn-sm btn-danger py-0">Reset Logic</button>
         </form>
@@ -305,7 +305,7 @@
                     <td>{{ item.count }}</td>
                     <td><span class="badge bg-success">Ready</span></td>
                     <td>
-                        <form action="/delete_file/{{ item.filename }}" method="post"
+                        <form action="/football/delete_file/{{ item.filename }}" method="post"
                             onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
                             class="m-0">
                             <button type="submit" class="btn btn-sm btn-outline-danger px-2" title="Archive">📁</button>
@@ -340,14 +340,14 @@
         <tr>
             <td>{{ item.filename }} <small class="text-muted">({{ item.count }} matches)</small></td>
             <td><span class="badge bg-primary">Prediction</span></td>
-            <td><a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a></td>
+            <td><a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a></td>
         </tr>
         {% endfor %}
         {% for item in verifications %}
         <tr>
             <td>{{ item.filename }}</td>
             <td><span class="badge bg-secondary">Verification</span></td>
-            <td><a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a></td>
+            <td><a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a></td>
         </tr>
         {% endfor %}
     </tbody>
@@ -372,7 +372,7 @@
 
     function triggerLive(event) {
         event.preventDefault();
-        fetch('/refresh_live', { method: 'POST' })
+        fetch('/football/refresh_live', { method: 'POST' })
             .then(response => {
                 if (response.ok) {
                     const form = event.target;

@@ -81,7 +81,33 @@ NBA pipeline lives entirely under `ml_project/nba/` (`fetch_nba_results.py`, `fe
 
 ### 3. Web UI — `web_ui/app.py` (Flask, port 5001)
 
-Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a bet-tracking dashboard. `nba_routes.py` adds NBA equivalents. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
+Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
+
+**URL structure:**
+- `/` — sport-picker landing page. Lists everything in `SPORTS = [...]` (defined near the top of `app.py`); active sports are clickable cards, dormant ones are greyed out.
+- `/football/*` — football blueprint (`football_bp`). Every football route — dashboard, betting, predict, verify, retrain, place_bets, auto_wager, view, delete_file, refresh_live, etc. — lives here.
+- `/nba/*` — NBA blueprint (currently DETACHED; code at `web_ui/nba/routes.py`, see "NBA reactivation" below).
+- `/status`, `/stop/<task>`, `/server/<action>` — sport-agnostic, registered directly on `app`.
+
+**Adding a new sport** (forward-compatible by design):
+1. Create `web_ui/<sport>/routes.py` with a `Blueprint('<sport>', __name__)` and the routes you want.
+2. Add an entry to `SPORTS` in `app.py`: `{'slug': '<sport>', 'label': '...', 'icon': '...', 'active': True, 'tagline': '...'}`.
+3. Import + register: `from <sport>.routes import <sport>_bp` then `app.register_blueprint(<sport>_bp, url_prefix='/<sport>')`.
+4. The landing page card and navbar Sport ▾ dropdown pick it up automatically.
+
+**NBA reactivation** (next NBA season): in `web_ui/app.py` flip `nba` entry's `active: False` → `True`, uncomment the `from nba.routes import nba_bp, NBA_TASKS` and `app.register_blueprint(nba_bp, url_prefix='/nba')` lines.
+
+**Betting flow** (lives in `football_bp`, all under `/football/...`):
+- `/football/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).
+- `/football/place_bets` writes the combined slip to `output/bets_<date>.json` with each bet tagged `lane: 'value' | 'conviction'`, deducts total stake from `data_sets/betting_config.json:current_bankroll`.
+- `process_bet_verification` (called after a verification CSV is produced) settles bets and credits returns. **Only looks in `output/`** — archived slips will not settle.
+- `/football/betting` page shows a per-lane Strategy Comparison table (aggregates from both `output/` and `output/history/`) plus the visible active slip list.
+- `/football/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
+
+**Tunables** live in `data_sets/betting_config.json`:
+- `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct` — value lane + shared.
+- `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct` — conviction lane.
+- Several legacy keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) are read only by the orphan `betting_engine.py` and have no effect on the active path.
 
 **Betting flow** (active path, all in `web_ui/app.py`):
 - `/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).

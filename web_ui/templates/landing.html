@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="text-center mb-5">
+            <h1 class="display-5 fw-bold">🏆 Sports Predictor</h1>
+            <p class="lead text-muted">Pick a sport to view its dashboard, predictions, and betting strategy.</p>
+        </div>
+
+        <div class="row g-4">
+            {% for sport in sports %}
+            <div class="col-md-6">
+                {% if sport.active %}
+                <a href="/{{ sport.slug }}/" class="text-decoration-none text-reset">
+                    <div class="card h-100 border-primary shadow-sm sport-card">
+                        <div class="card-body text-center p-5">
+                            <div class="display-1 mb-3">{{ sport.icon }}</div>
+                            <h3 class="card-title">{{ sport.label }}</h3>
+                            <p class="text-muted">{{ sport.tagline }}</p>
+                            <span class="badge bg-success">Active</span>
+                        </div>
+                    </div>
+                </a>
+                {% else %}
+                <div class="card h-100 border-secondary opacity-75 sport-card-disabled">
+                    <div class="card-body text-center p-5">
+                        <div class="display-1 mb-3" style="filter: grayscale(0.5);">{{ sport.icon }}</div>
+                        <h3 class="card-title text-muted">{{ sport.label }}</h3>
+                        <p class="text-muted small">{{ sport.tagline }}</p>
+                        <span class="badge bg-secondary">Dormant</span>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="text-center mt-5">
+            <p class="text-muted small">
+                Adding a new sport: create a Flask blueprint at <code>web_ui/&lt;sport&gt;/routes.py</code>,
+                register it in <code>app.py</code>, and add an entry to the <code>SPORTS</code> list.
+            </p>
+        </div>
+    </div>
+</div>
+
+<style>
+    .sport-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .sport-card:hover { transform: translateY(-4px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important; }
+    .sport-card-disabled { cursor: not-allowed; }
+</style>
+{% endblock %}

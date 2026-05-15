@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, Blueprint
 import pandas as pd
 import os
 import subprocess
@@ -9,18 +9,32 @@ import shutil
 import sys
 import time
 
-# Import Blueprints
-# Import Blueprints
-# NBA routes are dormant — code lives at web_ui/nba/routes.py.
-# To reactivate: `from nba.routes import nba_bp, NBA_TASKS` and re-add
-# the register_blueprint call below.
+# Sport blueprints — each sport's routes mount under /<sport>/.
+# Sport-agnostic routes (/, /status, /stop/<task>, /server/<action>) stay
+# on the app itself. Adding a new sport = create a blueprint, register it.
 NBA_TASKS = {}  # kept as empty stub so /status responses don't break
+
+# List of sports surfaced on the landing page. To activate NBA, flip 'active'
+# to True, uncomment the import + register_blueprint call further down, and
+# the landing page card automatically becomes a working link.
+SPORTS = [
+    {'slug': 'football', 'label': 'Football',  'icon': '⚽', 'active': True,
+     'tagline': 'Daily 1X2 + Over/Under predictions, two-lane betting strategy.'},
+    {'slug': 'nba',      'label': 'NBA',       'icon': '🏀', 'active': False,
+     'tagline': 'Dormant — code preserved at web_ui/nba/. Reactivation planned for next NBA season.'},
+]
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_flashscore'
 
+football_bp = Blueprint('football', __name__)
+
 # Register Blueprints
-# app.register_blueprint(nba_bp, url_prefix='/nba')  # NBA UI detached
+# from nba.routes import nba_bp, NBA_TASKS  # uncomment to reactivate NBA
+# app.register_blueprint(nba_bp, url_prefix='/nba')
+
+# Football blueprint registration happens at the bottom of this file,
+# after all @football_bp.route handlers have been defined.
 
 # Constants
 
@@ -55,7 +69,7 @@ TASKS = {
     'retrain': {'process': None, 'log': 'retrain.log'}
 }
 
-@app.route('/')
+@football_bp.route('/')
 def index():
     # List prediction and verification files
     prediction_files = glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv'))
@@ -332,7 +346,7 @@ def process_bet_verification(verification_file_path):
     except Exception as e:
         print(f"Error processing bet verification: {e}")
 
-@app.route('/predict', methods=['POST'])
+@football_bp.route('/predict', methods=['POST'])
 def run_prediction():
     if TASKS['predict'] and TASKS['predict']['process'] and TASKS['predict']['process'].poll() is None:
          flash('Prediction is already running!', 'warning')
@@ -363,7 +377,7 @@ def run_prediction():
         
     return redirect(url_for('index'))
 
-@app.route('/verify', methods=['POST'])
+@football_bp.route('/verify', methods=['POST'])
 def run_verification():
     if TASKS['verify'] and TASKS['verify']['process'] and TASKS['verify']['process'].poll() is None:
          flash('Verification is already running!', 'warning')
@@ -404,7 +418,7 @@ def run_verification():
         
     return redirect(url_for('index'))
 
-@app.route('/logs/<filename>')
+@football_bp.route('/logs/<filename>')
 def view_log(filename):
     filepath = os.path.join(LOG_DIR, filename)
     if os.path.exists(filepath):
@@ -429,7 +443,7 @@ def _archive_file(filepath, filename):
     return target
 
 
-@app.route('/delete_file/<filename>', methods=['POST'])
+@football_bp.route('/delete_file/<filename>', methods=['POST'])
 def delete_file(filename):
     """
     Soft-delete: archive the file to output/history/ instead of removing.
@@ -452,7 +466,7 @@ def delete_file(filename):
 
     return redirect(request.referrer or url_for('index'))
 
-@app.route('/view/<filename>')
+@football_bp.route('/view/<filename>')
 def view_file(filename):
     filepath = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(filepath):
@@ -536,7 +550,7 @@ def view_file(filename):
         flash(f'Error reading file: {e}', 'danger')
         return redirect(url_for('index'))
 
-@app.route('/live_analysis')
+@football_bp.route('/live_analysis')
 def live_analysis():
     live_file = os.path.join(OUTPUT_DIR, "live_data.json")
     matches_data = []
@@ -551,7 +565,7 @@ def live_analysis():
     # Fallback/Empty state handled in template
     return render_template('live.html', matches=matches_data)
 
-@app.route('/refresh_live', methods=['POST'])
+@football_bp.route('/refresh_live', methods=['POST'])
 def refresh_live():
     # Trigger the script
     script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_live_analysis.py')
@@ -575,7 +589,7 @@ def refresh_live():
         
     return redirect(url_for('index'))
 
-@app.route('/clear_live', methods=['POST'])
+@football_bp.route('/clear_live', methods=['POST'])
 def clear_live():
     live_file = os.path.join(OUTPUT_DIR, "live_data.json")
     try:
@@ -587,7 +601,7 @@ def clear_live():
         
     return redirect(url_for('index'))
 
-@app.route('/reset_stats', methods=['POST'])
+@football_bp.route('/reset_stats', methods=['POST'])
 def reset_stats():
     stats_file = os.path.join(PROJECT_ROOT, 'data_sets/league_analytics.json')
     check_file = os.path.join(PROJECT_ROOT, 'data_sets/league_analytics_check.json')
@@ -607,7 +621,7 @@ def reset_stats():
         flash(f'Error resetting stats: {e}', 'danger')
     return redirect(url_for('index'))
 
-@app.route('/update_leagues', methods=['POST'])
+@football_bp.route('/update_leagues', methods=['POST'])
 def update_leagues():
     script_path = os.path.join(PROJECT_ROOT, 'bin', 'update_leagues_data.sh')
     try:
@@ -668,7 +682,7 @@ def server_control(action):
         return f"Error: {e}", 500
 
 
-@app.route('/place_bets', methods=['POST'])
+@football_bp.route('/place_bets', methods=['POST'])
 def place_bets():
     try:
         data = request.get_json()
@@ -733,7 +747,7 @@ def place_bets():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/betting')
+@football_bp.route('/betting')
 def betting_page():
     def _load_slip(filepath):
         try:
@@ -811,7 +825,7 @@ def betting_page():
     return render_template('betting.html', history=history, lane_stats=lane_stats)
 
 # Update Server Routes logic...
-@app.route('/live_analysis', methods=['POST'])
+@football_bp.route('/live_analysis', methods=['POST'])
 def run_live_analysis():
     task_name = 'live'
     if TASKS[task_name] and TASKS[task_name]['process'] and TASKS[task_name]['process'].poll() is None:
@@ -832,7 +846,7 @@ def run_live_analysis():
     flash('Live Analysis Loop started (running every 10 mins).', 'success')
     return redirect(url_for('index'))
 
-@app.route('/update_data', methods=['POST'])
+@football_bp.route('/update_data', methods=['POST'])
 def update_data():
     if TASKS.get('update') and TASKS['update']['process'] and TASKS['update']['process'].poll() is None:
          flash('Data update is already running!', 'warning')
@@ -851,7 +865,7 @@ def update_data():
         
     return redirect(url_for('index'))
 
-@app.route('/retrain_model', methods=['POST'])
+@football_bp.route('/retrain_model', methods=['POST'])
 def retrain_model():
     if TASKS.get('retrain') and TASKS['retrain']['process'] and TASKS['retrain']['process'].poll() is None:
          flash('Model Retraining is already running!', 'warning')
@@ -920,7 +934,7 @@ def run_verify_task_thread(date_arg):
     finally:
         TASKS['verify']['process'] = None
 
-@app.route('/verify', methods=['POST'])
+@football_bp.route('/verify', methods=['POST'])
 def run_verify():
     if TASKS['verify'] and TASKS['verify']['process'] and TASKS['verify']['process'].poll() is None:
         flash('Verification task is already running.', 'warning')
@@ -940,7 +954,7 @@ import glob
 import pandas as pd
 from flask import jsonify
 
-@app.route('/auto_wager')
+@football_bp.route('/auto_wager')
 def auto_wager():
     try:
         # 1. Find latest prediction file
@@ -1152,6 +1166,22 @@ def inject_bankroll():
             pass
     return dict(bankroll=bankroll)
 
+
+@app.context_processor
+def inject_sports():
+    """Make the SPORTS list available to every template (for navbar picker)."""
+    return dict(sports=SPORTS)
+
+
+# --- Sport-agnostic landing page ---
+@app.route('/')
+def landing():
+    """Sport picker. Active sports link to their dashboards; dormant sports show greyed out."""
+    return render_template('landing.html')
+
+
+# Register sport blueprints after their routes have been defined.
+app.register_blueprint(football_bp, url_prefix='/football')
 
 
 if __name__ == '__main__':

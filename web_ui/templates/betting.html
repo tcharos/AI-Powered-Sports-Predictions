@@ -329,7 +329,7 @@
         if (!currentBets.length) return;
         if (!confirm(`Place ${currentBets.length} virtual bets across both lanes?`)) return;
 
-        fetch('/place_bets', {
+        fetch('/football/place_bets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ bets: currentBets, filename: currentFilename })

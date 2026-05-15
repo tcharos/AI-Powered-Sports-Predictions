@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Betting AI Dashboard</title>
+    <title>Sports Predictor</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -31,7 +31,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="/">⚽ AI Powered Sports Predictions</a>
+            <a class="navbar-brand" href="/">🏆 Sports Predictor</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
                 aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
@@ -39,13 +39,30 @@
             <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
                 <ul class="navbar-nav">
                     <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="sportDropdown" role="button"
+                            data-bs-toggle="dropdown" aria-expanded="false">
+                            🏟️ Sport
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="sportDropdown">
+                            {% for sport in sports %}
+                            {% if sport.active %}
+                            <li><a class="dropdown-item" href="/{{ sport.slug }}/">{{ sport.icon }} {{ sport.label }}</a></li>
+                            {% else %}
+                            <li><span class="dropdown-item disabled text-muted">{{ sport.icon }} {{ sport.label }} <span class="badge bg-secondary ms-1">dormant</span></span></li>
+                            {% endif %}
+                            {% endfor %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/">🏆 All sports</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="dataDropdown" role="button"
                             data-bs-toggle="dropdown" aria-expanded="false">
                             💾 Data
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dataDropdown">
                             <li>
-                                <form action="/update_data" method="post"
+                                <form action="/football/update_data" method="post"
                                     onsubmit="return confirm('Update historical data? This will download the latest match results.');">
                                     <button class="dropdown-item" type="submit">Update Current Season (Results)</button>
                                 </form>
@@ -54,7 +71,7 @@
                                 <hr class="dropdown-divider">
                             </li>
                             <li>
-                                <form action="/update_leagues" method="post"
+                                <form action="/football/update_leagues" method="post"
                                     onsubmit="return confirm('Update League Standings & Form? This might take a few minutes.');">
                                     <button class="dropdown-item" type="submit">Update Standings & Form</button>
                                 </form>
@@ -63,7 +80,7 @@
                                 <hr class="dropdown-divider">
                             </li>
                             <li>
-                                <form action="/retrain_model" method="post"
+                                <form action="/football/retrain_model" method="post"
                                     onsubmit="return confirm('Full Pipeline: Update Data + Form + Retrain Model. This will take several minutes.');">
                                     <button class="dropdown-item fw-bold text-primary" type="submit">🔄 Retrain Model
                                         (Full Pipeline)</button>
@@ -72,7 +89,7 @@
                         </ul>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/betting">💸 Betting</a>
+                        <a class="nav-link" href="/football/betting">💸 Betting</a>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button"
