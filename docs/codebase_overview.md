@@ -20,26 +20,28 @@ This document provides a summary of all Python (`.py`) and Shell (`.sh`) scripts
 
 | File | Description |
 | :--- | :--- |
-| `betting_engine.py` | **Simulation**: Manages the virtual bankroll, places bets, and resolves them based on results. |
+| `betting_engine.py` | **(Legacy / orphan)** Reference implementation of bet placement + resolution + league filter. Not instantiated anywhere; the active betting logic lives in `web_ui/app.py`. Kept for design reference until the league-performance filter is migrated. |
 | `data_loader.py` | **IO**: Utility class to load raw CSV match data into Pandas DataFrames. |
 | `elo_engine.py` | **Feature**: Calculates historical ELO ratings for all teams. |
 | `elo_scraper.py` | **Utility**: (Deprecated/Optional) Scraper for external ELO sources. |
 | `entity_resolver.py` | **Utility**: Fuzzy matching logic to map team names between different data sources. |
 | `evaluate_predictions.py` | **Verification**: Compares predicted vs actual results and generates accuracy reports. |
-| `feature_engineering.py` | **Core**: Transforms raw match data into rolling features (Form, PPG, Strength) for the model. |
+| `feature_engineering.py` | **Core**: Transforms raw match data into rolling features (Form, PPG, Attack/Defense Strength) for the model. |
 | `generate_target_leagues.py`| **Config**: Helper to generate the list of active leagues (not actively used in runtime). |
-| `heuristic_adjuster.py` | **Logic**: Applies post-prediction heuristic rules (Form, Standings) to adjust probabilities. |
+| `heuristic_adjuster.py` | **Logic**: Post-prediction adjuster (calibration, draw cap, rank/form/trend boosts with cumulative-magnitude cap, value/EV logging). Also exposes `get_team_strength()` consumed by `predict_matches.py` to derive PPG/Att/Def from current standings at inference. |
 | `live_adjuster.py` | **Live**: Heuristics specifically for in-play stats (Analysis of Shots/xG). |
 | `predict_matches.py` | **Core**: Main prediction CLI. Loads model, fetches features for upcoming games, and predicts. |
+| `resolve_daily_bets.py` | **Settlement**: Settles open `output/bets_*.json` slips against scraped results. Called by `bin/run_verification.sh`. |
 | `team_mapping.py` | **Config**: Static dictionary for known team name variations. |
-| `train_model.py` | **Training**: Defines and trains the XGBoost 1X2 and O/U models, saving them to JSON. |
+| `train_model.py` | **Training**: Trains XGBoost models (1X2, draw, O/U Poisson), saving them to JSON. |
 | `tune_model.py` | **Optimization**: Performs stepwise hyperparameter tuning for XGBoost and saves best parameters. |
 
 ## 3. Web Interface (`web_ui/`)
 
 | File | Description |
 | :--- | :--- |
-| `app.py` | **Flask App**: The main web server. Handles routes (`/`, `/predict`, `/betting`, `/retrain` etc.). |
+| `app.py` | **Flask App**: Main web server. Hosts dashboard, prediction/verification triggers, the live-loop controls, and the **active betting flow** (`/auto_wager`, `/place_bets`, `process_bet_verification`, `/betting`). Also handles soft-delete via `/delete_file/<filename>` (moves files to `output/history/`). |
+| `basketball_routes.py` | **Flask Blueprint**: NBA equivalents of the football routes. |
 
 ## 4. Scrapers (`flashscore_scraper/`, `scripts/`)
 

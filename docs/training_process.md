@@ -65,26 +65,43 @@ The raw data is processed by `ml_project/feature_engineering.py` to generate the
 
 ## 4. Heuristic Adjuster
 
-A post-processing step applied to model probabilities:
-1.  **Standings Differential**: Boosts favorite if rank gap > 5.
-2.  **Form Momentum**: Boosts team with >= 4 wins in last 5 games.
-3.  **High Scoring Trend**: Boosts Over 2.5 if combined avg goals > 3.5.
-4.  **Form Trend Analysis (NEW)**:
-    *   **Heating Up**: Boosts team if Last 5 form is significantly better than Last 10.
-    *   **Cooling Down**: Penalizes team if Last 5 form is significantly worse than Last 10.
-    *   **Consistency**: Rewards teams with high win rates in *both* Last 5 and Last 10.
-5.  **Specific Form**: Checks Home/Away specific form for stronger signals.
+A post-processing step applied to model probabilities (`ml_project/heuristic_adjuster.py`). Heuristics propose **deltas** to an accumulator rather than mutating probabilities directly; the accumulator is **capped** before being applied so no single match can have its outcome distorted by more than `MAX_TOTAL_BOOST_PER_CLASS` (default 0.15) per class.
 
-| Heuristic | Condition | Adjustment | Weight (Approx) |
-| :--- | :--- | :--- | :--- |
-| **Rank Diff** | Rank Diff $\ge$ 5 places | Boost stronger team | +2-10% (scaled) |
-| **Spec Rank Diff** | Home Rank (Home Table) vs Away Rank (Away Table) $\ge$ 5 | Boost stronger team | +3-10% (scaled) |
-| **Form Momentum** | Last 5: Wins $\ge$ 4 | Boost team | +5% |
-| **Form Fade** | Last 5: Losses $\ge$ 4 | Fade team | (Boost Opponent +5% / Fade Team) |
-| **Specific Form** | Home Wins @ Home $\ge$ 4 | Boost Home | +6% |
-| **Goal Fest** | Combined Avg GF > 3.5 | Boost "Over 2.5" | +5% |
+### Pre-heuristic calibration (always runs)
+1.  **League-aware draw shrinkage**: nudges P(Draw) 15% toward the league's historical draw rate, redistributing the delta proportionally between Home/Away.
+2.  **Draw cap**: hard-caps P(Draw) at `league_draw_rate + 0.05`. Excess redistributed proportionally to Home/Away.
 
-*Note*: Probabilities are re-normalized after adjustments.
+### H1–H6 (proposed deltas, accumulated then capped)
+
+| Heuristic | Condition | Action |
+| :--- | :--- | :--- |
+| **H1 — Rank Diff (Overall)** | Standings rank gap ≥ 5 | Boost stronger team `+0.02 × (gap/5)` capped at 0.10 |
+| **H2 — Rank Diff (Specific)** | Home-table rank vs Away-table rank gap ≥ 5 | Boost stronger team `+0.03 × (gap/5)` capped at 0.10 |
+| **H3 — Form (Overall)** | Last 5: Wins ≥ 4 → boost; Losses ≥ 4 → **fade** | Win: `+0.05` to the team. Loss: `_fade()` — 70% to opponent + 30% to Draw |
+| **H4 — Form (Specific venue)** | Home form at home / Away form at away: same W/L rules | Win: `+0.06`. Loss: `_fade()` 70/30 |
+| **H6 — Trend (L5 vs L10)** | L5 win-rate ≥ L10 + 0.30 → heating up. L5 ≤ L10 − 0.30 → cooling. Both ≥ 0.70/0.60 → consistent | Heat: `+0.04`. Cool: `_fade()` 70/30. Consistent: `+0.03` |
+
+Symmetric design: every "winning team boost" has a mirror "opposing team fade", split between the opposing outcome and Draw. Previously the fade went entirely to the opponent, producing a structural pro-home bias when away teams were on losing streaks.
+
+### O/U and value logging (separate from the cap)
+
+| Heuristic | Condition | Action |
+| :--- | :--- | :--- |
+| **H5 — Goal Fest (O/U)** | Combined avg GF > 3.5 | Boost P(Over 2.5) by `+0.05`, then renormalize O/U |
+| **H7 — Value flagging** | `adj_prob − implied_book_prob > 0.05` | Log only (no probability change) |
+
+### Application order
+
+1. Apply calibration + draw cap to `adj_1x2` directly.
+2. Look up team standings/form. Bail out early with "No Standings Data" if missing.
+3. Run H1–H6, each pushing to `delta = [Δhome, Δdraw, Δaway]`.
+4. Clip each component of `delta` to `[-0.15, +0.15]`. If anything clipped, log `Boost Cap: H+x.xx→...`.
+5. Apply `delta` to `adj_1x2`, clip negatives, normalize.
+6. Run H5 on `adj_ou` and normalize.
+7. Run H7 (logging only).
+
+### Inference-time consistency
+At training, season-to-date PPG / attack strength / defense weakness are computed from full match history. At inference, `predict_matches.py` calls `HeuristicAdjuster.get_team_strength(league, team)` which reads the same fields from current standings JSON — keeping train and serve aligned on these features (no proxy-from-form-points anymore).
 
 ## 5. Output
 *   **Predictions CSV**: Contains original odds, ML confidence, and heuristic-adjusted confidence.

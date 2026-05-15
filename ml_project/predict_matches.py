@@ -274,22 +274,18 @@ class MatchPredictor:
                 b365_a = float(b365_a_str.replace(',', '.'))
             except: continue
                 
-            # --- CALCULATE BALANCE FEATURES ON THE FLY ---
-            # Needed for Draw Model
             elo_diff = home_elo - away_elo
             abs_elo_diff = abs(elo_diff)
-            
-            # Simple PPG approx from form if not available
-            # H_ppg usually comes from `add_rolling_features` accumulation logic. 
-            # In live prediction, we might not have 'season-to-date' PPG easily without full replay.
-            # Approximation: Use form_pts * 3? Or just use form_pts diff?
-            # Let's use that.
-            h_ppg_approx = h_stats['form_pts']
-            a_ppg_approx = a_stats['form_pts']
-            ppg_diff = h_ppg_approx - a_ppg_approx
-            abs_ppg_diff = abs(ppg_diff) # Using form pts as proxy
-            
-            abs_form_pts_diff = abs(h_stats['form_pts'] - a_stats['form_pts']) # Same as above essentially
+
+            # Season-to-date PPG and league-relative strength from current standings.
+            # Mirrors FeatureEngineer._add_ppg_strength_features used at training time.
+            h_ppg, h_att, h_def = self.adjuster.get_team_strength(league_name, scraper_home)
+            a_ppg, a_att, a_def = self.adjuster.get_team_strength(league_name, scraper_away)
+            ppg_diff = h_ppg - a_ppg
+            abs_ppg_diff = abs(ppg_diff)
+            att_def_diff = (h_att - a_att) - (h_def - a_def)
+
+            abs_form_pts_diff = abs(h_stats['form_pts'] - a_stats['form_pts'])
 
             # Construct Input Vector
             input_row = {
@@ -301,18 +297,21 @@ class MatchPredictor:
                 'H_home_sf': h_spec['spec_sf'], 'H_home_sa': h_spec['spec_sa'],
                 'A_away_pts': a_spec['spec_pts'], 'A_away_gf': a_spec['spec_gf'], 'A_away_ga': a_spec['spec_ga'],
                 'A_away_sf': a_spec['spec_sf'], 'A_away_sa': a_spec['spec_sa'],
-                # New Stats
                 'H_form_sf': h_stats['form_sf'], 'H_form_sa': h_stats['form_sa'],
                 'H_form_cf': h_stats['form_cf'], 'H_form_ca': h_stats['form_ca'],
                 'A_form_sf': a_stats['form_sf'], 'A_form_sa': a_stats['form_sa'],
                 'A_form_cf': a_stats['form_cf'], 'A_form_ca': a_stats['form_ca'],
-                'league_cat': league_name, # Feature 11
-                'match_id': match.get('match_id', ''), # Save ID for verification
-                # NEW Features
+                'league_cat': league_name,
+                'match_id': match.get('match_id', ''),
                 'elo_diff': elo_diff,
                 'abs_elo_diff': abs_elo_diff,
                 'abs_ppg_diff': abs_ppg_diff,
-                'abs_form_pts_diff': abs_form_pts_diff
+                'abs_form_pts_diff': abs_form_pts_diff,
+                # Season-to-date PPG and league-relative strength
+                'H_ppg': h_ppg, 'A_ppg': a_ppg, 'ppg_diff': ppg_diff,
+                'H_att': h_att, 'A_att': a_att,
+                'H_def': h_def, 'A_def': a_def,
+                'att_def_diff': att_def_diff,
             }
             
             # Generate DF for prediction

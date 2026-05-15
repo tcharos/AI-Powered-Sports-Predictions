@@ -64,7 +64,7 @@
                 <h6 class="mt-2 border-bottom pb-1">Prediction Reports</h6>
                 {% if predictions %}
                 <div class="list-group">
-                    {% for item in predictions %}
+                    {% for item in predictions[:3] %}
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <a href="/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
                             <div>
@@ -76,10 +76,10 @@
                         <div class="d-flex align-items-center gap-2">
                             <a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a>
                             <form action="/delete_file/{{ item.filename }}" method="post"
-                                onsubmit="return confirm('Are you sure you want to delete {{ item.filename }}?');"
+                                onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
                                 class="m-0">
                                 <button type="submit" class="btn btn-sm btn-outline-danger px-2"
-                                    title="Delete">🗑️</button>
+                                    title="Archive">📁</button>
                             </form>
                         </div>
                     </div>
@@ -92,7 +92,7 @@
                 <h6 class="mt-2 border-bottom pb-1">Verification Reports</h6>
                 {% if verifications %}
                 <div class="list-group">
-                    {% for item in verifications %}
+                    {% for item in verifications[:3] %}
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <a href="/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
                             <div>
@@ -103,10 +103,10 @@
                         <div class="d-flex align-items-center gap-2">
                             <a href="/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a>
                             <form action="/delete_file/{{ item.filename }}" method="post"
-                                onsubmit="return confirm('Are you sure you want to delete {{ item.filename }}?');"
+                                onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
                                 class="m-0">
                                 <button type="submit" class="btn btn-sm btn-outline-danger px-2"
-                                    title="Delete">🗑️</button>
+                                    title="Archive">📁</button>
                             </form>
                         </div>
                     </div>
@@ -299,16 +299,16 @@
                 </tr>
             </thead>
             <tbody>
-                {% for item in scraped_data %}
+                {% for item in scraped_data[:3] %}
                 <tr>
                     <td>{{ item.filename }}</td>
                     <td>{{ item.count }}</td>
                     <td><span class="badge bg-success">Ready</span></td>
                     <td>
                         <form action="/delete_file/{{ item.filename }}" method="post"
-                            onsubmit="return confirm('Are you sure you want to delete {{ item.filename }}?');"
+                            onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
                             class="m-0">
-                            <button type="submit" class="btn btn-sm btn-outline-danger px-2" title="Delete">🗑️</button>
+                            <button type="submit" class="btn btn-sm btn-outline-danger px-2" title="Archive">📁</button>
                         </form>
                     </td>
                 </tr>

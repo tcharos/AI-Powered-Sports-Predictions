@@ -152,13 +152,13 @@ class FeatureEngineer:
         if 'H_form_pts' in df.columns and 'A_form_pts' in df.columns:
             df['form_pts_diff'] = df['H_form_pts'] - df['A_form_pts']
             df['abs_form_pts_diff'] = df['form_pts_diff'].abs()
-            
-            # Proxy for PPG Diff (since we don't have full season PPG easily available without complex logic)
-            df['abs_ppg_diff'] = df['abs_form_pts_diff'] 
 
         # 5. Specific Home/Away Form
         df = self._calculate_specific_home_away(df)
-        
+
+        # 6. Season-to-date PPG, attack strength, defense weakness
+        df = self._add_ppg_strength_features(df)
+
         return df
 
     def _calculate_specific_home_away(self, df):
@@ -342,254 +342,94 @@ class FeatureEngineer:
             'form_cf': np.mean(cf) if cf else 0,
             'form_ca': np.mean(ca) if ca else 0
         }
-        # We need Season column for PPG to reset every season. 
-        # If Season doesn't exist, we can infer from date (approx) or accumulate infinite history?
-        # User said "accumulated so far in the season".
-        # Assuming we can derive season from date (Aug-May).
-        
-        # 1. Elo Diff (Simple)
-        df = self.add_elo_features(df)
-        
-        # 2. League Encoding
-        df = self.add_league_encoding(df)
 
-        # 3. Create a Team-Match DataFrame for calculation
-        cols = ['date', 'home_team', 'away_team', 'FTHG', 'FTAG', 'FTR', 
-                'HST', 'AST', 'HC', 'AC',
-                'league', 'Season']
-        existing_cols = [c for c in cols if c in df.columns]
-        
-        # We need Season column for PPG to reset every season. 
-        # If Season doesn't exist, we can infer from date (approx) or accumulate infinite history?
-        # User said "accumulated so far in the season".
-        # Assuming we can derive season from date (Aug-May).
-        
-        home_matches = df[existing_cols].copy()
-        home_matches['goals_for'] = home_matches['FTHG']
-        home_matches['goals_against'] = home_matches['FTAG']
-        home_matches['shots_for'] = home_matches.get('HST', np.nan)
-        home_matches['shots_against'] = home_matches.get('AST', np.nan)
-        home_matches['corners_for'] = home_matches.get('HC', np.nan)
-        home_matches['corners_against'] = home_matches.get('AC', np.nan)
-        
-        home_matches = home_matches.rename(columns={'home_team': 'team'})
-        home_matches['points'] = home_matches['FTR'].map({'H': 3, 'D': 1, 'A': 0})
-        home_matches['is_home'] = 1
-        home_matches['over_2_5'] = (home_matches['goals_for'] + home_matches['goals_against'] > 2.5).astype(int)
-        
-        meta_cols = ['date', 'team', 'points', 'goals_for', 'goals_against', 'over_2_5',
-                     'shots_for', 'shots_against', 'corners_for', 'corners_against', 'is_home', 'league']
-        
-        home_params = home_matches[meta_cols]
+    def _add_ppg_strength_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Adds season-to-date PPG, attack strength, defense weakness, and
+        derived diffs. All cumulative stats are computed from games STRICTLY
+        BEFORE each match (within the same Aug→Jul season) to avoid leakage.
 
-        away_matches = df[existing_cols].copy()
-        away_matches['goals_for'] = away_matches['FTAG']
-        away_matches['goals_against'] = away_matches['FTHG']
-        away_matches['shots_for'] = away_matches.get('AST', np.nan)
-        away_matches['shots_against'] = away_matches.get('HST', np.nan)
-        away_matches['corners_for'] = away_matches.get('AC', np.nan)
-        away_matches['corners_against'] = away_matches.get('HC', np.nan)
-        
-        away_matches = away_matches.rename(columns={'away_team': 'team'})
-        away_matches['points'] = away_matches['FTR'].map({'A': 3, 'D': 1, 'H': 0})
-        away_matches['is_home'] = 0
-        away_matches['over_2_5'] = (away_matches['goals_for'] + away_matches['goals_against'] > 2.5).astype(int)
-        
-        away_params = away_matches[meta_cols]
+        Strength is normalized against the league's running average goals
+        scored per team-game in the same season.
+        """
+        required = {'date', 'home_team', 'away_team', 'FTHG', 'FTAG', 'FTR', 'league'}
+        if not required.issubset(df.columns):
+            return df
 
-        # Stack them
-        team_stats = pd.concat([home_params, away_params]).sort_values('date').reset_index(drop=True)
-        
-        # --- PPG & Relative Strength Calculation ---
-        # We need to compute cumulative stats *prior* to the current match.
-        # Group by [League, Team, Season] would be ideal, but Season is tricky without explicit column.
-        # Let's use a simplified approach: Rolling window of 38 games (approx 1 season) for "Current Strength"?
-        # OR: Cumulative Sum expanding window, but we need to reset?
-        # Infinite Accumulation (Career PPG) vs Season PPG?
-        # User asked for "accumulated so far in the season".
-        # Let's define a Season Key based on Month. (Aug to July).
-        
-        team_stats['season_year'] = team_stats['date'].apply(lambda d: d.year if d.month >= 8 else d.year - 1)
-        
-        # Group by Team and SeasonYear to calc running PPG
-        # shift(1) to ensure we use pre-match stats
-        
-        def calc_running_stats(x):
-            # x is a dataframe for a specific team in a specific season, sorted by date
-            x = x.sort_values('date')
-            
-            # Cumulative Points / Games Played
-            # We want stats BEFORE the match.
-            # So shift data down by 1.
-            past_stats = x.shift(1)
-            
-            # Cumulative Sums
-            cum_pts = past_stats['points'].cumsum().fillna(0)
-            cum_games = past_stats['points'].expanding().count().fillna(0) # count any valid row
-            
-            # PPG
-            # Avoid division by zero
-            running_ppg = cum_pts / cum_games.replace(0, 1) 
-            running_ppg = running_ppg.where(cum_games > 0, 0) # if games=0, ppg=0
-            
-            # Relative Strength Inputs (Avg Goals Scored per game so far)
-            cum_gf = past_stats['goals_for'].cumsum().fillna(0)
-            cum_ga = past_stats['goals_against'].cumsum().fillna(0)
-            
-            avg_gf = cum_gf / cum_games.replace(0, 1)
-            avg_ga = cum_ga / cum_games.replace(0, 1)
-            
+        home_view = pd.DataFrame({
+            'date': df['date'],
+            'team': df['home_team'],
+            'league': df['league'],
+            'points': df['FTR'].map({'H': 3, 'D': 1, 'A': 0}),
+            'goals_for': df['FTHG'],
+            'goals_against': df['FTAG'],
+            'is_home': 1,
+        })
+        away_view = pd.DataFrame({
+            'date': df['date'],
+            'team': df['away_team'],
+            'league': df['league'],
+            'points': df['FTR'].map({'A': 3, 'D': 1, 'H': 0}),
+            'goals_for': df['FTAG'],
+            'goals_against': df['FTHG'],
+            'is_home': 0,
+        })
+
+        team_stats = pd.concat([home_view, away_view], ignore_index=True)
+        team_stats = team_stats.dropna(subset=['points'])
+        team_stats = team_stats.sort_values('date').reset_index(drop=True)
+
+        # Football season key: Aug–Dec → year; Jan–Jul → year-1.
+        months = team_stats['date'].dt.month
+        years = team_stats['date'].dt.year
+        team_stats['season_year'] = years.where(months >= 8, years - 1)
+
+        def _running_team(group):
+            past = group[['points', 'goals_for', 'goals_against']].shift(1)
+            cum_games = past['points'].notna().cumsum().replace(0, np.nan)
             return pd.DataFrame({
-                'ppg': running_ppg,
-                'avg_gf': avg_gf,
-                'avg_ga': avg_ga,
-                'original_index': x.index
-            })
+                'ppg': (past['points'].cumsum() / cum_games).fillna(0),
+                'avg_gf': (past['goals_for'].cumsum() / cum_games).fillna(0),
+                'avg_ga': (past['goals_against'].cumsum() / cum_games).fillna(0),
+            }, index=group.index)
 
-        # Apply per team-season
-        # FutureWarning Fix: include_groups=False
-        try:
-            running_stats = team_stats.groupby(['team', 'season_year']).apply(calc_running_stats, include_groups=False).reset_index(drop=True)
-        except TypeError:
-            # Fallback for older pandas
-            running_stats = team_stats.groupby(['team', 'season_year']).apply(calc_running_stats).reset_index(drop=True)
-        
-        # Restore index to merge
-        running_stats = running_stats.set_index('original_index')
-        team_stats = team_stats.merge(running_stats, left_index=True, right_index=True)
-        
-        # Now we have PPG, AvgGF, AvgGA for each team-match.
-        
-        # --- League Averages (Season-to-Date) ---
-        # We need the average Home GF and Away GF for the league up to that date?
-        # Or simpler: Global Rolling Average for the league?
-        # User: "Attack strength home and defense weakness away (take into account GD, goal difference)"
-        # "Home Team Avg GF / League Avg Home GF"
-        # We need LEAGUE running stats.
-        
-        # Calculate League running averages
-        # Group by League+SeasonYear
-        def calc_league_running(x):
-            x = x.sort_values('date')
-            past = x.shift(1)
-            # Global Average Goals (Home+Away) / 2? No, League Avg Goals per Team per Game.
-            # Avg GF per game.
-            cum_gf = past['goals_for'].cumsum().fillna(0)
-            cum_games = past['goals_for'].expanding().count().fillna(0)
-            
-            league_avg_gf = cum_gf / cum_games.replace(0, 1)
-            return pd.DataFrame({
-                'league_avg_gf': league_avg_gf,
-                'original_index': x.index
-            })
-            
-        try:
-            league_running = team_stats.groupby(['league', 'season_year']).apply(calc_league_running, include_groups=False).reset_index(drop=True)
-        except TypeError:
-            # Fallback for older pandas
-            league_running = team_stats.groupby(['league', 'season_year']).apply(calc_league_running).reset_index(drop=True)
-        league_running = league_running.set_index('original_index')
-        team_stats = team_stats.merge(league_running, left_index=True, right_index=True)
-        
-        # Apply Relative Strength Formulas
-        # Attack Strength: Team Avg GF / League Avg GF
-        # Defense Weakness: Team Avg GA / League Avg GF (how many they concede vs league avg scoring)
-        
-        # Avoid zero division
-        team_stats['att_strength'] = team_stats['avg_gf'] / team_stats['league_avg_gf'].replace(0, 1)
-        team_stats['def_weakness'] = team_stats['avg_ga'] / team_stats['league_avg_gf'].replace(0, 1) # using avg_gf as baseline for "goals expected"
-        
-        # 4. Standard Rolling Features (Last 5)
-        features_to_roll = ['points', 'goals_for', 'goals_against', 'over_2_5',
-                           'shots_for', 'shots_against', 'corners_for', 'corners_against']
-                           
-        grouped = team_stats.groupby('team')[features_to_roll]
-        
-        def calculate_rolling(x):
-            return x.shift(1).rolling(window=window, min_periods=1).mean()
+        running_team = team_stats.groupby(
+            ['team', 'season_year'], group_keys=False
+        ).apply(_running_team)
+        team_stats[['ppg', 'avg_gf', 'avg_ga']] = running_team
 
-        rolling_stats = grouped.apply(calculate_rolling)
-        
-        # Join back
-        new_cols = ['roll_pts', 'roll_gf', 'roll_ga', 'roll_ou', 
-                    'roll_sf', 'roll_sa', 'roll_cf', 'roll_ca']
-        team_stats[new_cols] = rolling_stats.reset_index(level=0, drop=True)
-        
-        # 5. Merge back into main DF
-        team_stats_indexed = team_stats.set_index(['date', 'team'])
-        
-        # Extract features for Home Team (Current match)
-        # We need: PPG, AttStr, DefWeak, Rolling Stats
-        cols_extract = ['date', 'team', 'ppg', 'att_strength', 'def_weakness'] + new_cols
-        
-        home_feats = team_stats[team_stats['is_home'] == 1][cols_extract].copy()
-        home_feats.columns = ['date', 'home_team', 'H_ppg', 'H_att', 'H_def'] + \
-                             ['H_form_pts', 'H_form_gf', 'H_form_ga', 'H_form_ou', 'H_form_sf', 'H_form_sa', 'H_form_cf', 'H_form_ca']
-                             
-        away_feats = team_stats[team_stats['is_home'] == 0][cols_extract].copy()
-        away_feats.columns = ['date', 'away_team', 'A_ppg', 'A_att', 'A_def'] + \
-                             ['A_form_pts', 'A_form_gf', 'A_form_ga', 'A_form_ou', 'A_form_sf', 'A_form_sa', 'A_form_cf', 'A_form_ca']
-                             
-        # Merge
-        df_enriched = pd.merge(df, home_feats, on=['date', 'home_team'], how='left')
-        df_enriched = pd.merge(df_enriched, away_feats, on=['date', 'away_team'], how='left')
-        
-        # Calc Differences
-        df_enriched['ppg_diff'] = df_enriched['H_ppg'] - df_enriched['A_ppg']
-        
-        # --- NEW: Explicit Match Balance Features (for Draw Detection) ---
-        # Absolute differences help identify "close" games regardless of who is better
-        df_enriched['abs_ppg_diff'] = df_enriched['ppg_diff'].abs()
-        
-        # Form Points Difference
-        if 'H_form_pts' in df_enriched.columns and 'A_form_pts' in df_enriched.columns:
-            df_enriched['form_pts_diff'] = df_enriched['H_form_pts'] - df_enriched['A_form_pts']
-            df_enriched['abs_form_pts_diff'] = df_enriched['form_pts_diff'].abs()
-        
-        # Re-calc Elo Diff (if not done)
-        if 'H_elo' in df_enriched.columns and 'A_elo' in df_enriched.columns:
-            df_enriched['elo_diff'] = df_enriched['H_elo'] - df_enriched['A_elo']
-            df_enriched['abs_elo_diff'] = df_enriched['elo_diff'].abs()
-            
-        # Re-add League Encoding
-        df_enriched = self.add_league_encoding(df_enriched)
-        
-        # --- Specific Home/Away Form (unchanged logic) ---
+        def _running_league(group):
+            past = group['goals_for'].shift(1)
+            cum_games = past.notna().cumsum().replace(0, np.nan)
+            return (past.cumsum() / cum_games).fillna(0)
 
-        # --- Specific Home/Away Form (unchanged logic) ---
-        # 1. Home Form (Only Home Games)
-        home_games_only = team_stats[team_stats['is_home'] == 1].copy()
-        grouped_home = home_games_only.groupby('team')[['points', 'goals_for', 'goals_against', 'shots_for', 'shots_against']]
-        
-        def calculate_rolling_basic(x):
-            return x.shift(1).rolling(window=window, min_periods=1).mean()
-            
-        rolling_home = grouped_home.apply(calculate_rolling_basic).reset_index(level=0, drop=True)
-        home_games_only[['roll_home_pts', 'roll_home_gf', 'roll_home_ga']] = rolling_home[['points', 'goals_for', 'goals_against']]
-        home_games_only['roll_home_sf'] = rolling_home.get('shots_for')
-        home_games_only['roll_home_sa'] = rolling_home.get('shots_against')
-        
-        h_specific_feats = home_games_only[['date', 'team', 'roll_home_pts', 'roll_home_gf', 'roll_home_ga', 'roll_home_sf', 'roll_home_sa']].copy()
-        h_specific_feats.columns = ['date', 'home_team', 'H_home_pts', 'H_home_gf', 'H_home_ga', 'H_home_sf', 'H_home_sa']
-        
-        # 2. Away Form (Only Away Games)
-        away_games_only = team_stats[team_stats['is_home'] == 0].copy()
-        grouped_away = away_games_only.groupby('team')[['points', 'goals_for', 'goals_against', 'shots_for', 'shots_against']]
-        rolling_away = grouped_away.apply(calculate_rolling_basic).reset_index(level=0, drop=True)
-        away_games_only[['roll_away_pts', 'roll_away_gf', 'roll_away_ga']] = rolling_away[['points', 'goals_for', 'goals_against']]
-        away_games_only['roll_away_sf'] = rolling_away.get('shots_for')
-        away_games_only['roll_away_sa'] = rolling_away.get('shots_against')
-        
-        a_specific_feats = away_games_only[['date', 'team', 'roll_away_pts', 'roll_away_gf', 'roll_away_ga', 'roll_away_sf', 'roll_away_sa']].copy()
-        a_specific_feats.columns = ['date', 'away_team', 'A_away_pts', 'A_away_gf', 'A_away_ga', 'A_away_sf', 'A_away_sa']
+        team_stats['league_avg_gf'] = team_stats.groupby(
+            ['league', 'season_year'], group_keys=False
+        ).apply(_running_league)
 
-        df_enriched = pd.merge(df_enriched, h_specific_feats, on=['date', 'home_team'], how='left')
-        df_enriched = pd.merge(df_enriched, a_specific_feats, on=['date', 'away_team'], how='left')
-        
-        # Cleanup NaNs
-        df_enriched = df_enriched.dropna(subset=['H_form_pts', 'A_form_pts'])
-        
-        return df_enriched
+        baseline = team_stats['league_avg_gf'].replace(0, np.nan)
+        team_stats['att_strength'] = (team_stats['avg_gf'] / baseline).fillna(1.0)
+        team_stats['def_weakness'] = (team_stats['avg_ga'] / baseline).fillna(1.0)
+
+        keep = ['date', 'team', 'ppg', 'att_strength', 'def_weakness']
+        home_feats = team_stats.loc[team_stats['is_home'] == 1, keep].rename(columns={
+            'team': 'home_team',
+            'ppg': 'H_ppg', 'att_strength': 'H_att', 'def_weakness': 'H_def',
+        })
+        away_feats = team_stats.loc[team_stats['is_home'] == 0, keep].rename(columns={
+            'team': 'away_team',
+            'ppg': 'A_ppg', 'att_strength': 'A_att', 'def_weakness': 'A_def',
+        })
+
+        df = df.merge(home_feats, on=['date', 'home_team'], how='left')
+        df = df.merge(away_feats, on=['date', 'away_team'], how='left')
+
+        df['ppg_diff'] = df['H_ppg'] - df['A_ppg']
+        df['abs_ppg_diff'] = df['ppg_diff'].abs()
+        df['att_def_diff'] = (df['H_att'] - df['A_att']) - (df['H_def'] - df['A_def'])
+
+        return df
+
 
 if __name__ == "__main__":
     from data_loader import DataLoader

@@ -66,11 +66,11 @@ The project is three loosely-coupled subsystems sharing a filesystem-based data 
 Football flow (1X2 + Over/Under 2.5):
 1. `data_loader.py` reads `data_sets/MatchHistory/**.csv`. When Bet365 odds are absent (some extra leagues), it falls back to `AvgC*` then `MaxC*` columns.
 2. `elo_engine.py` builds ELO ratings across full history (~since 2010) with goal-margin K-factor; cached at `data_sets/elo_ratings.json`.
-3. `feature_engineering.py` produces: implied probabilities (`IP_H/D/A`), ELO, rolling last-5 form (points/GF/GA/OU/shots/corners), season-to-date PPG and attack/defense strength vs league average, and home-only / away-only specific form.
-4. `train_model.py` trains two XGBoost classifiers (multi-class 1X2 and binary O/U 2.5). Time-series 5-fold CV. Models saved to `models/xgb_model_1x2.json`, `models/xgb_model_ou.json`, with feature lists in `models/features_*.json`. `tune_model.py` runs a 6-stage stepwise hyperparameter search and writes `models/best_params_*.json`.
-5. `predict_matches.MatchPredictor` (invoked by `run_predictions.sh`) loads models, fetches/derives features for the scraped upcoming-matches JSON, and writes `output/predictions_YYYY-MM-DD.csv`.
-6. `heuristic_adjuster.py` post-processes raw model probabilities with rank-gap, form-momentum, heating/cooling trend, specific home/away form, and a goal-fest O/U boost (see `docs/training_process.md` for weights). Probabilities are renormalized; the *adjusted* confidence drives the final pick.
-7. `betting_engine.py` + `resolve_daily_bets.py` simulate a bankroll and resolve open bet slips against `output/matches_<date>.json` after verification.
+3. `feature_engineering.py` produces: implied probabilities (`IP_H/D/A`), ELO, rolling last-5 form (points/GF/GA/OU/shots/corners), season-to-date PPG and attack/defense strength vs league average (`H_ppg`/`A_ppg`/`H_att`/`A_att`/`H_def`/`A_def`/`ppg_diff`/`abs_ppg_diff`/`att_def_diff`), and home-only / away-only specific form.
+4. `train_model.py` trains XGBoost models: multi-class 1X2, binary draw, and Poisson O/U 2.5. Time-series 5-fold CV. Models saved to `models/xgb_model_{1x2,draw,ou}.json`, with feature lists in `models/features_*.json`. `tune_model.py` runs a 6-stage stepwise hyperparameter search and writes `models/best_params_*.json`.
+5. `predict_matches.MatchPredictor` (invoked by `run_predictions.sh`) loads models, fetches/derives features for the scraped upcoming-matches JSON, and writes `output/predictions_YYYY-MM-DD.csv`. Season-to-date PPG/strength at inference is mirrored from the standings JSON via `HeuristicAdjuster.get_team_strength` to avoid train/serve skew.
+6. `heuristic_adjuster.py` post-processes raw model probabilities with league-aware draw calibration + cap, rank-gap boosts, symmetric form-momentum (winning streak → boost; losing streak → split fade between opponent and Draw via `_fade()`), heating/cooling trend, and a goal-fest O/U boost. All H1–H6 deltas are accumulated and capped at `MAX_TOTAL_BOOST_PER_CLASS = 0.15` per outcome before being applied. Probabilities re-normalized; the *adjusted* confidence drives the final pick. See `docs/training_process.md` for the heuristic table.
+7. `resolve_daily_bets.py` (called by `run_verification.sh:96`) settles open bet slips in `output/bets_*.json` against scraped results. **Note**: `ml_project/betting_engine.py` is legacy/reference code — the *active* bet-placement and settlement flow lives in `web_ui/app.py` (`/auto_wager`, `/place_bets`, `process_bet_verification`).
 8. `live_adjuster.py` applies in-play heuristics (shots/xG) on top of model output during the live loop.
 
 NBA flow mirrors football with separate modules: `fetch_nba_results.py`, `fetch_nba_history_stats.py`, `fetch_nba_stats_tables.py` (uses `pbpstats`), `nba_feature_engineering.py`, `train_nba_models.py`, `tune_nba_models.py`, `predict_nba.py`, `evaluate_nba_predictions.py`. Models live at `models/nba_*_model.pkl`.
@@ -79,7 +79,19 @@ NBA flow mirrors football with separate modules: `fetch_nba_results.py`, `fetch_
 
 ### 3. Web UI — `web_ui/app.py` (Flask, port 5001)
 
-Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a bet-tracking dashboard reading `data_sets/bets.json` and `data_sets/betting_config.json`. `basketball_routes.py` adds NBA equivalents. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
+Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a bet-tracking dashboard. `basketball_routes.py` adds NBA equivalents. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
+
+**Betting flow** (active path, all in `web_ui/app.py`):
+- `/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).
+- `/place_bets` writes the combined slip to `output/bets_<date>.json` with each bet tagged `lane: 'value' | 'conviction'`, deducts total stake from `data_sets/betting_config.json:current_bankroll`.
+- `process_bet_verification` (called after a verification CSV is produced) settles bets and credits returns. **Only looks in `output/`** — archived slips will not settle.
+- `/betting` page shows a per-lane Strategy Comparison table (aggregates from both `output/` and `output/history/`) plus the visible active slip list.
+- `/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. Used by all delete buttons across the UI (slips, predictions, verifications, scraped data). The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
+
+**Tunables** live in `data_sets/betting_config.json`:
+- `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct` — value lane + shared.
+- `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct` — conviction lane.
+- Several legacy keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) are read only by the orphan `betting_engine.py` and have no effect on the active path.
 
 ### Data layout cheatsheet
 
@@ -87,8 +99,12 @@ Wraps the CLI pipelines (predict / verify / retrain / standings update) plus a b
 - `data_sets/standings/` — JSON files written by `standings_spider` (current standings + form tables).
 - `data_sets/target_leagues.json` — whitelist for the daily match filter.
 - `data_sets/elo_ratings.json`, `league_analytics.json`, `team_mappings.json` — derived/config caches.
+- `data_sets/betting_config.json` — bankroll + strategy tunables (see Web UI section).
+- `data_sets/bets.json` — present but unused (read by orphan `betting_engine.py`).
 - `output/matches_<date>.json` — scraper output (predictions or results, depending on mode).
 - `output/predictions_<date>.csv`, `output/verification_<date>.csv`, `output/report_<date>.txt` — prediction artifacts.
+- `output/bets_<date>.json` — placed bet slips (active). Each bet has a `lane` tag.
+- `output/history/` — soft-delete destination. Files moved here are hidden from UI lists but still counted by `/betting` Strategy Comparison stats.
 - `output_basketball/` — NBA equivalents.
 - `models/` — trained XGBoost JSON / sklearn pickle artifacts and tuned hyperparameters.
 - `logs/` — pipeline, scraper status, UI logs.

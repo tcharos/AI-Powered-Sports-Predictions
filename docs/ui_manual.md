@@ -3,11 +3,11 @@
 The Web Dashboard serves as the command center for running predictions, verifications, and managing data.
 
 ## 1. Dashboard Home
-The main page lists all generated reports sorted by date.
-*   **Predictions List**: Shows all generated `predictions_YYYY-MM-DD.csv` files.
-    *   **Action**: Click "View" to see the detailed table of predictions for that day.
-*   **Verification List**: Shows all `verification_YYYY-MM-DD.csv` files (results of comparing predictions vs actuals).
+The main page lists generated reports sorted by date (most recent first).
+*   **Prediction Reports / Verification Reports / Available Scraped Data**: each card shows the **last 3** entries to keep the dashboard tidy. The full list is in the "All Files" table at the bottom.
+*   **Action**: Click "View" to see the detailed table of predictions for that day.
 *   **Global Stats**: Displays overall accuracy for the loaded leagues at the top.
+*   **📁 Archive button**: All "delete" buttons across the dashboard (predictions, verifications, scraped data) are **soft-delete** — they move the file to `output/history/` rather than removing it. Files in `output/history/` are hidden from the dashboard lists but remain on disk for reference and (for bet slips) keep counting toward the Strategy Comparison totals.
 
 ## 2. Navigation Bar (Top Menu)
 
@@ -25,42 +25,58 @@ Contains administrative tasks for data management:
     *Use this once a week or when significant new data is available.*
 
 ### 💸 Betting Strategy & Simulator
-Opens the **Betting Simulator Dashboard**, a fully functional virtual sportsbook manager.
+Opens the **Betting Simulator Dashboard** at `/betting`. Two parallel paper-trading strategies run on the same predictions and are tracked separately for long-run comparison.
 
-#### **1. The Strategy (Automated)**
-The system uses a sophisticated 3-layer approach to identify value bets:
-*   **Layer 1: Probability**: The XGBoost ML Model predicts the probability of an outcome (1X2 or Over/Under).
-*   **Layer 2: Expected Value (EV)**: It compares the Model's Probability against the Bookmaker's Odds (Bet365).
-    *   *Formula*: `EV = (Model_Prob * Odds) - 1`
-    *   *Rule*: Only bets with **Positive EV (> 0)** are selected.
-*   **Layer 3: Stake Management (Kelly Criterion)**:
-    *   The system calculates the optimal stake size using the **Kelly Criterion**.
-    *   **Configuration**: We use **Quarter-Kelly (0.25x)**. This is a conservative approach to protect the bankroll while capitalizing on the edge.
+#### **1. Two-Lane Strategy**
 
-#### **2. Virtual Betting Workflow**
-The built-in ledger mimics a real bank account to track performance honestly.
+| | Value lane | Conviction lane |
+| :--- | :--- | :--- |
+| **Entry filter** | EV > 0 AND Conf ≥ `min_confidence` (default 0.45) | Conf ≥ `conviction_min_confidence` (0.65) AND odds ≥ `conviction_min_odds` (1.40). EV ignored. |
+| **Stake formula** | `bankroll × EV × Conf × stake_multiplier` (default multiplier 0.4) | Flat `bankroll × conviction_stake_pct` (0.5%) |
+| **Per-bet cap** | `bankroll × max_stake_pct` (3%) | Same |
+| **Min-stake floor** | €2 (drop sub-floor picks entirely) | Same |
+| **Goal** | Capture market mispricing | Bet the model's strongest opinions, regardless of vig |
 
-1.  **Generate Slip**:
-    *   Click "Generate High Confidence Auto-Wager Slip".
-    *   **Custom Bankroll**: You can optionally enter a "Session Bankroll" (e.g., $100) to limit your exposure for that specific day. If left empty, it uses your full Account Balance.
-2.  **Place Bets (Debit)**:
-    *   Review the generated slip.
-    *   Click **"Place Bets"**.
-    *   **Immediate Deduction**: The total stake is *immediately deducted* from your Bankroll.
-    *   *Example*: Bankroll $1000 - Bet $50 = New Balance $950.
-3.  **Wait for Results**:
-    *   Matches take place.
-4.  **Verification & Settlement (Credit)**:
-    *   Run the **"Verify"** process (via Dashboard) the next day.
-    *   The system compares predictions with actual results.
-    *   **Settlement**: For every **Winning Bet**, the system credits the **Total Return** (Stake + Profit) back to your account.
-    *   *Example (Win @ 2.00)*: Balance $950 + Return $100 = New Balance $1050.
-    *   *Example (Loss)*: Balance $950 + $0 = $950.
+Both lanes share a **combined daily exposure cap** of `bankroll × max_daily_exposure_pct` (10%). When the combined total exceeds the cap, the value lane gets priority and the conviction lane is scaled down (or dropped entirely if value alone hits the cap). Look for the `cap_action` line in the slip summary to see which behavior fired.
 
-#### **3. History**
-*   **Open**: Bets placed but not yet verified.
-*   **Won/Lost**: Finalized bets with P/L recorded.
-*   **Void**: Bets where the match was postponed or data data was missing (Stake is returned).
+All tunables live in `data_sets/betting_config.json` and can be edited without touching code.
+
+#### **2. Workflow**
+
+1.  **Generate Slip** (`/auto_wager`):
+    *   Click 🎰 **Generate Slip**.
+    *   Two cards render side-by-side — Value lane (blue) and Conviction lane (yellow). Each shows match, type, selection, odds, conf, EV, and stake.
+    *   **Session Bankroll override**: optional input. Lets you preview a slip sized as if your bankroll were smaller. Cannot exceed your real saved bankroll. Empty = use real bankroll.
+2.  **Place All Bets** (`/place_bets`):
+    *   Combined slip (both lanes) is written to `output/bets_<date>.json`. Each bet is tagged with its `lane`.
+    *   Total stake is **immediately deducted** from your saved bankroll.
+3.  **Wait for results** — kickoff and finals.
+4.  **Verification & Settlement**:
+    *   Click ✅ **Run Verification** (or run `./bin/run_verification.sh` from CLI). Triggers the scraper to pull final scores.
+    *   Two settlement paths run on the same `bets_<date>.json` file: `resolve_daily_bets.py` (CLI, fires first) and `process_bet_verification` (web UI, fires after subprocess returns and skips if already CLOSED).
+    *   Winning bets credit `stake × odds` back to bankroll. Losing bets credit nothing. VOID bets refund stake.
+
+#### **3. Strategy Comparison Table**
+At the top of the `/betting` page. One row per lane, aggregated across **all** historical slips (active + archived):
+
+| Column | What it means |
+| :--- | :--- |
+| **Bets** | Total bets placed in this lane |
+| **Settled / Won / Lost / Void** | Resolution counts |
+| **Win %** | `won / (won + lost)` — voids don't count |
+| **Stake** | Total currency staked |
+| **Returned** | Total currency returned (stake + winnings + voided refunds) |
+| **Net P/L** | Currency delta. Bankroll-era dependent — use ROI for comparison |
+| **ROI %** | `Net P/L / Stake` — the apples-to-apples lane comparison metric |
+
+Use **ROI %** as the long-run lane comparator; absolute P/L is bankroll-era dependent.
+
+#### **4. History & Soft Delete**
+*   Each placed slip shows below the comparison table.
+*   **OPEN slips**: badge shows `🔒 Archive available after settlement`. The Archive button is intentionally hidden — settlement only looks in `output/`, so archiving an OPEN slip would orphan it.
+*   **CLOSED slips**: 📁 **Archive** button moves the file to `output/history/`. The slip disappears from the visible list but its bets are still counted in the Strategy Comparison table totals.
+*   **Result badges**: WON (green), LOST (red), VOID (yellow), OPEN (grey).
+*   To restore an archived slip: move the file back manually via `mv output/history/bets_<date>.json output/`.
 
 ### ⚙️ Server (Dropdown)
 *   **Restart Server**: Reloads the Flask application (useful after code changes).

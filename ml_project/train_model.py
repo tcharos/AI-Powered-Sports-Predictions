@@ -28,10 +28,9 @@ class ModelTrainer:
             'H_home_pts', 'H_home_gf', 'H_home_ga', 'H_home_sf', 'H_home_sa',
             'A_away_pts', 'A_away_gf', 'A_away_ga', 'A_away_sf', 'A_away_sa',
             
-            # New Stats: Shots and Corners (Overall Form)
-            # New Stats: Shots and Corners (Overall Form)
+            # Shots and Corners (Overall Form)
             'H_form_sf', 'H_form_sa', 'H_form_cf', 'H_form_ca',
-            'A_form_sf', 'A_form_cf', 'A_form_ca',
+            'A_form_sf', 'A_form_sa', 'A_form_cf', 'A_form_ca',
             
             # Implied Probabilities
             'IP_H', 'IP_D', 'IP_A',
@@ -39,6 +38,14 @@ class ModelTrainer:
             # NEW: Advanced Features (Re-enabled/Added for Draw Detection)
             'abs_elo_diff', 'abs_ppg_diff', 'abs_form_pts_diff',
             'elo_diff', # Re-added for context
+
+            # Season-to-date PPG and league-relative attack/defense strength
+            # (built by FeatureEngineer._add_ppg_strength_features at training,
+            # mirrored from current standings by HeuristicAdjuster.get_team_strength
+            # at prediction).
+            'H_ppg', 'A_ppg', 'ppg_diff',
+            'H_att', 'A_att', 'H_def', 'A_def',
+            'att_def_diff',
         ]
 
     def prepare_data(self):

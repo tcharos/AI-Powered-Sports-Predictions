@@ -5,6 +5,7 @@ import subprocess
 import datetime
 import glob
 import json
+import shutil
 import sys
 import time
 
@@ -26,6 +27,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 sys.path.append(PROJECT_ROOT) # Enable importing ml_project
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output')
+HISTORY_DIR = os.path.join(OUTPUT_DIR, 'history')
 DATA_SETS_DIR = os.path.join(PROJECT_ROOT, 'data_sets')
 app.config['DATA_SETS_DIR'] = DATA_SETS_DIR
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
@@ -409,27 +411,42 @@ def view_log(filename):
     else:
         return "Log file not found."
 
+def _archive_file(filepath, filename):
+    """
+    Soft-delete: move filepath to output/history/, returning the archived path.
+    On name collision in history, append a timestamp suffix so nothing gets clobbered.
+    """
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+    target = os.path.join(HISTORY_DIR, filename)
+    if os.path.exists(target):
+        base, ext = os.path.splitext(filename)
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        target = os.path.join(HISTORY_DIR, f"{base}.{ts}{ext}")
+    shutil.move(filepath, target)
+    return target
+
+
 @app.route('/delete_file/<filename>', methods=['POST'])
 def delete_file(filename):
-    # Security check: Ensure filename is just a basename and exists in OUTPUT_DIR
+    """
+    Soft-delete: archive the file to output/history/ instead of removing.
+    Bet slips remain readable by the cumulative comparison aggregator;
+    they just disappear from the visible UI lists.
+    """
     if os.path.sep in filename or '..' in filename:
         flash('Invalid filename!', 'danger')
         return redirect(url_for('index'))
-        
+
     filepath = os.path.join(OUTPUT_DIR, filename)
     if os.path.exists(filepath):
         try:
-            os.remove(filepath)
-            flash(f'File {filename} deleted successfully.', 'success')
-            
-            # Optional: If it's a prediction CSV, maybe ask to delete the JSON? 
-            # For now, just delete what was asked.
-            
-        except Exception as e:
-            flash(f'Error deleting file: {e}', 'danger')
+            _archive_file(filepath, filename)
+            flash(f'Archived {filename} (moved to history/).', 'success')
+        except OSError as e:
+            flash(f'Error archiving file: {e}', 'danger')
     else:
         flash('File not found.', 'warning')
-        
+
     return redirect(request.referrer or url_for('index'))
 
 @app.route('/view/<filename>')
@@ -715,33 +732,80 @@ def place_bets():
 
 @app.route('/betting')
 def betting_page():
-    # Load history
-    files = glob.glob(os.path.join(OUTPUT_DIR, "bets_*.json"))
-    history = []
-    for f in files:
+    def _load_slip(filepath):
         try:
-            with open(f, 'r') as fh:
+            with open(filepath, 'r') as fh:
                 data = json.load(fh)
-                data['filename'] = os.path.basename(f)
-                
-                # Backfill total_stake if missing (for older files)
-                if 'total_stake' not in data:
-                    stake_sum = sum(float(b.get('stake_units', 0)) for b in data.get('bets', []))
-                    data['total_stake'] = stake_sum
-                    
-                # Backfill total_return if missing
-                if 'total_return' not in data:
-                    # If settled, return = stake + pnl
-                    if data.get('status') == 'CLOSED':
-                        data['total_return'] = data.get('total_stake', 0) + data.get('pnl', 0)
-                    else:
-                         data['total_return'] = 0.0
-                    
-                history.append(data)
-        except:
-            pass
+        except (OSError, json.JSONDecodeError):
+            return None
+        data['filename'] = os.path.basename(filepath)
+        if 'total_stake' not in data:
+            data['total_stake'] = sum(float(b.get('stake_units', 0)) for b in data.get('bets', []))
+        if 'total_return' not in data:
+            data['total_return'] = (
+                data.get('total_stake', 0) + data.get('pnl', 0)
+                if data.get('status') == 'CLOSED' else 0.0
+            )
+        return data
+
+    # Visible history: only ACTIVE slips (not archived)
+    history = []
+    for f in glob.glob(os.path.join(OUTPUT_DIR, "bets_*.json")):
+        s = _load_slip(f)
+        if s: history.append(s)
     history.sort(key=lambda x: x.get('date', ''), reverse=True)
-    return render_template('betting.html', history=history)
+
+    # Cumulative comparison: ACTIVE + ARCHIVED slips. Soft-delete must not erase history.
+    archived_slips = []
+    for f in glob.glob(os.path.join(HISTORY_DIR, "bets_*.json")):
+        s = _load_slip(f)
+        if s: archived_slips.append(s)
+
+    def _empty():
+        return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
+                'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
+    lane_stats = {'value': _empty(), 'conviction': _empty()}
+
+    for slip in (history + archived_slips):
+        for bet in slip.get('bets', []):
+            lane = bet.get('lane', 'value')
+            s = lane_stats.setdefault(lane, _empty())
+            stake = float(bet.get('stake_units', 0))
+            status = bet.get('status', 'OPEN')
+            result = bet.get('result', '')
+
+            s['bets'] += 1
+            s['stake'] += stake
+
+            if status == 'OPEN':
+                continue
+
+            s['settled'] += 1
+            if result == 'WON' or status == 'WON':
+                s['won'] += 1
+                # On win, returned = stake + pnl (which equals stake * odd)
+                s['returned'] += stake + float(bet.get('pnl', 0))
+                s['pnl'] += float(bet.get('pnl', 0))
+            elif result == 'LOST' or status == 'LOST':
+                s['lost'] += 1
+                s['pnl'] += float(bet.get('pnl', -stake))
+            else:  # VOID
+                s['void'] += 1
+                s['returned'] += stake  # stake refunded
+
+    # Derived metrics
+    for lane, s in lane_stats.items():
+        decided = s['won'] + s['lost']
+        s['win_rate'] = (s['won'] / decided * 100) if decided > 0 else 0.0
+        s['roi'] = (s['pnl'] / s['stake'] * 100) if s['stake'] > 0 else 0.0
+        # Round for display
+        s['stake'] = round(s['stake'], 2)
+        s['returned'] = round(s['returned'], 2)
+        s['pnl'] = round(s['pnl'], 2)
+        s['win_rate'] = round(s['win_rate'], 1)
+        s['roi'] = round(s['roi'], 1)
+
+    return render_template('betting.html', history=history, lane_stats=lane_stats)
 
 # Update Server Routes logic...
 @app.route('/live_analysis', methods=['POST'])
@@ -887,29 +951,42 @@ def auto_wager():
         
         df = pd.read_csv(latest_file)
         
-        bets = []
-        total_stake_units = 0.0
-        
-        # Helper to parse kelly string "1.25%" -> 0.0125
-        def parse_kelly(k_str):
+        def _to_float(v):
             try:
-                if isinstance(k_str, str) and '%' in k_str:
-                        return float(k_str.strip('%')) / 100.0
-                return 0.0
-            except:
+                if isinstance(v, str):
+                    v = v.strip().rstrip('%')
+                    if not v:
+                        return 0.0
+                return float(v)
+            except (ValueError, TypeError):
                 return 0.0
 
-        # Load Bankroll
+        def parse_kelly(k_str):
+            v = _to_float(k_str)
+            return v / 100.0 if isinstance(k_str, str) and '%' in k_str else v
+
+        # Load config (bankroll + lane tunables)
         config_path = os.path.join(DATA_SETS_DIR, 'betting_config.json')
-        config_bankroll = 100.0
+        config = {}
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
-                     config = json.load(f)
-                     config_bankroll = config.get('current_bankroll', 100.0)
-            except:
+                    config = json.load(f)
+            except (OSError, json.JSONDecodeError):
                 pass
-        
+
+        config_bankroll          = config.get('current_bankroll', 100.0)
+        # Value lane (Option B)
+        min_confidence           = config.get('min_confidence', 0.45)
+        stake_multiplier         = config.get('stake_multiplier', 0.4)
+        min_stake_eur            = config.get('min_stake_eur', 2.0)
+        max_stake_pct            = config.get('max_stake_pct', 0.03)
+        max_daily_exposure       = config.get('max_daily_exposure_pct', 0.10)
+        # Conviction lane (parallel A/B)
+        conv_min_confidence      = config.get('conviction_min_confidence', 0.65)
+        conv_min_odds            = config.get('conviction_min_odds', 1.40)
+        conv_stake_pct           = config.get('conviction_stake_pct', 0.005)
+
         # Override if user provided one
         custom_bankroll = request.args.get('bankroll')
         if custom_bankroll:
@@ -918,68 +995,141 @@ def auto_wager():
                 if val > config_bankroll:
                     return jsonify({'error': f"Session bankroll ({val}) cannot exceed your actual current balance ({config_bankroll})."}), 400
                 if val <= 0:
-                     return jsonify({'error': "Session bankroll must be positive."}), 400
+                    return jsonify({'error': "Session bankroll must be positive."}), 400
                 current_bankroll = val
             except ValueError:
-                 current_bankroll = config_bankroll
+                current_bankroll = config_bankroll
         else:
             current_bankroll = config_bankroll
 
-        for _, row in df.iterrows():
-            # Check 1X2
-            if 'Kelly 1X2' in row:
-                k_val = parse_kelly(row['Kelly 1X2'])
-                if k_val > 0:
-                    stake_amount = k_val * current_bankroll
-                    bets.append({
-                        'date': row.get('Date', ''),
-                        'match': f"{row['Home Team']} vs {row['Away Team']}",
-                        'home': row['Home Team'],
-                        'away': row['Away Team'],
-                        'match_id': row.get('match_id', ''),
-                        'league': row['League'],
-                        'type': '1X2',
-                        'selection': row['Prediction 1X2'],
-                        'odds': row['Prediction 1X2 Odd'],
-                        'odd': row['Prediction 1X2 Odd'],
-                        'kelly': f"{k_val:.2%}",
-                        'ev': row['EV 1X2'],
-                        'stake_units': stake_amount,
-                        'stake': stake_amount,
-                        'status': 'OPEN'
-                    })
-                    total_stake_units += stake_amount
+        max_stake_per_bet = current_bankroll * max_stake_pct
+        conv_stake_eur = current_bankroll * conv_stake_pct
 
-            # Check O/U
-            if 'Kelly O/U' in row:
-                k_val = parse_kelly(row['Kelly O/U'])
-                if k_val > 0:
-                    stake_amount = k_val * current_bankroll
-                    bets.append({
-                        'date': row.get('Date', ''),
-                        'match': f"{row['Home Team']} vs {row['Away Team']}",
-                        'home': row['Home Team'],
-                        'away': row['Away Team'],
-                        'match_id': row.get('match_id', ''),
-                        'league': row['League'],
-                        'type': 'O/U',
-                        'selection': row['Prediction O/U'],
-                        'odds': row['Prediction O/U Odd'],
-                        'odd': row['Prediction O/U Odd'],
-                        'kelly': f"{k_val:.2%}",
-                        'ev': row['EV O/U'],
-                        'stake_units': stake_amount,
-                        'stake': stake_amount,
-                        'status': 'OPEN'
-                    })
-                    total_stake_units += stake_amount
-        
+        def _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
+            return {
+                'date': row.get('Date', ''),
+                'match': f"{row['Home Team']} vs {row['Away Team']}",
+                'home': row['Home Team'],
+                'away': row['Away Team'],
+                'match_id': row.get('match_id', ''),
+                'league': row['League'],
+                'type': bet_type,
+                'selection': row[selection_col],
+                'odds': row[odd_col],
+                'odd': row[odd_col],
+                'conf': f"{_to_float(row.get(conf_col, 0)):.2f}",
+                'ev': f"{_to_float(row.get(ev_col, 0)):+.2f}",
+                'kelly': f"{parse_kelly(row.get(kelly_col, '0%')):.2%}",
+                'status': 'OPEN',
+            }
+
+        def build_value_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
+            """Option B: EV-gated, stake = bankroll * EV * conf * multiplier, capped & floored."""
+            ev = _to_float(row.get(ev_col, 0))
+            conf = _to_float(row.get(conf_col, 0))
+            if ev <= 0 or conf < min_confidence:
+                return None
+            raw_stake = current_bankroll * ev * conf * stake_multiplier
+            stake = min(raw_stake, max_stake_per_bet)
+            if stake < min_stake_eur:
+                return None
+            bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
+            bet.update({'lane': 'value', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
+            return bet
+
+        def build_conviction_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
+            """Conviction lane: high conf, odds ≥ floor, EV ignored. Flat stake."""
+            conf = _to_float(row.get(conf_col, 0))
+            odd = _to_float(row.get(odd_col, 0))
+            if conf < conv_min_confidence or odd < conv_min_odds:
+                return None
+            stake = conv_stake_eur
+            if stake < min_stake_eur:
+                return None
+            bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
+            bet.update({'lane': 'conviction', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
+            return bet
+
+        value_bets = []
+        conviction_bets = []
+        for _, row in df.iterrows():
+            for bet_type, sel, odd, conf, ev, kelly in [
+                ('1X2', 'Prediction 1X2', 'Prediction 1X2 Odd', 'Conf 1X2', 'EV 1X2', 'Kelly 1X2'),
+                ('O/U', 'Prediction O/U', 'Prediction O/U Odd', 'Conf O/U', 'EV O/U', 'Kelly O/U'),
+            ]:
+                vb = build_value_bet(row, bet_type, sel, odd, conf, ev, kelly)
+                if vb: value_bets.append(vb)
+                cb = build_conviction_bet(row, bet_type, sel, odd, conf, ev, kelly)
+                if cb: conviction_bets.append(cb)
+
+        # Combined daily exposure cap. Value lane gets priority; conviction lane absorbs the squeeze.
+        value_total = sum(b['stake_units'] for b in value_bets)
+        conviction_total = sum(b['stake_units'] for b in conviction_bets)
+        daily_cap = current_bankroll * max_daily_exposure
+        cap_action = None
+
+        if (value_total + conviction_total) > daily_cap and daily_cap > 0:
+            if value_total >= daily_cap:
+                # Value alone exceeds the cap. Scale value down, kill conviction entirely.
+                if value_total > 0:
+                    scale = daily_cap / value_total
+                    for b in value_bets:
+                        b['stake_units'] = round(b['stake_units'] * scale, 2)
+                        b['stake'] = b['stake_units']
+                conviction_bets = []
+                cap_action = 'value-scaled, conviction dropped'
+            else:
+                # Value fits; conviction gets whatever budget remains.
+                remaining = daily_cap - value_total
+                if conviction_total > 0:
+                    scale = remaining / conviction_total
+                    for b in conviction_bets:
+                        b['stake_units'] = round(b['stake_units'] * scale, 2)
+                        b['stake'] = b['stake_units']
+                # Drop conviction bets that fall below floor after scaling.
+                conviction_bets = [b for b in conviction_bets if b['stake_units'] >= min_stake_eur]
+                cap_action = 'conviction-scaled'
+
+        value_total = sum(b['stake_units'] for b in value_bets)
+        conviction_total = sum(b['stake_units'] for b in conviction_bets)
+        all_bets = value_bets + conviction_bets
+
         return jsonify({
             'filename': os.path.basename(latest_file),
-            'count': len(bets),
-            'total_stake': total_stake_units,
             'bankroll': current_bankroll,
-            'bets': bets
+            'count': len(all_bets),
+            'total_stake': round(value_total + conviction_total, 2),
+            'bets': all_bets,
+            'lanes': {
+                'value': {
+                    'count': len(value_bets),
+                    'total_stake': round(value_total, 2),
+                    'bets': value_bets,
+                },
+                'conviction': {
+                    'count': len(conviction_bets),
+                    'total_stake': round(conviction_total, 2),
+                    'bets': conviction_bets,
+                },
+            },
+            'guardrails': {
+                'value': {
+                    'min_confidence': min_confidence,
+                    'stake_multiplier': stake_multiplier,
+                    'max_stake_per_bet': round(max_stake_per_bet, 2),
+                },
+                'conviction': {
+                    'min_confidence': conv_min_confidence,
+                    'min_odds': conv_min_odds,
+                    'flat_stake_eur': round(conv_stake_eur, 2),
+                },
+                'shared': {
+                    'min_stake_eur': min_stake_eur,
+                    'max_daily_exposure_pct': max_daily_exposure,
+                    'daily_cap_eur': round(daily_cap, 2),
+                    'cap_action': cap_action,
+                },
+            },
         })
         
     except Exception as e:
