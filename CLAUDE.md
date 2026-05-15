@@ -84,7 +84,7 @@ NBA pipeline lives entirely under `ml_project/nba/` (`fetch_nba_results.py`, `fe
 Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — direct `python3 web_ui/app.py` works but won't daemonize.
 
 **URL structure:**
-- `/` — sport-picker landing page. Lists everything in `SPORTS = [...]` (defined near the top of `app.py`); active sports are clickable cards, dormant ones are greyed out.
+- `/` — sport-picker landing page. Lists everything in `SPORTS = [...]` (defined near the top of `app.py`); active sports are clickable cards, dormant ones are greyed out. Also renders a **Portfolio Summary table** aggregating bets / stake / P/L / ROI / bankroll across every sport.
 - `/football/*` — football blueprint (`football_bp`). Every football route — dashboard, betting, predict, verify, retrain, place_bets, auto_wager, view, delete_file, refresh_live, etc. — lives here.
 - `/nba/*` — NBA blueprint (currently DETACHED; code at `web_ui/nba/routes.py`, see "NBA reactivation" below).
 - `/status`, `/stop/<task>`, `/server/<action>` — sport-agnostic, registered directly on `app`.
@@ -101,7 +101,7 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 - `/football/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).
 - `/football/place_bets` writes the combined slip to `output/bets_<date>.json` with each bet tagged `lane: 'value' | 'conviction'`, deducts total stake from `data_sets/betting_config.json:current_bankroll`.
 - `process_bet_verification` (called after a verification CSV is produced) settles bets and credits returns. **Only looks in `output/`** — archived slips will not settle.
-- `/football/betting` page shows a per-lane Strategy Comparison table (aggregates from both `output/` and `output/history/`) plus the visible active slip list.
+- `/football/betting` page shows a per-lane Strategy Comparison table — header reads "Strategy Comparison · Football (cumulative)" so the sport scope is explicit. Aggregation logic lives in `compute_sport_summary(bets_dir)` (module-level in `app.py`); the same helper feeds the landing page's Portfolio Summary table, so figures stay consistent across views. Each `SPORTS` entry includes a `bets_dir` field so adding a new sport's aggregation is just a new entry, no helper changes.
 - `/football/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
 
 **Tunables** live in `data_sets/betting_config.json`, **sport-keyed**:

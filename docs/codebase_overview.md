@@ -41,7 +41,8 @@ This document provides a summary of all Python (`.py`) and Shell (`.sh`) scripts
 
 | File | Description |
 | :--- | :--- |
-| `app.py` | **Flask App**: Main web server. Hosts dashboard, prediction/verification triggers, the live-loop controls, and the **active betting flow** (`/auto_wager`, `/place_bets`, `process_bet_verification`, `/betting`). Also handles soft-delete via `/delete_file/<filename>` (moves files to `output/history/`). |
+| `app.py` | **Flask App**: Main web server. `/` is the sport-picker landing + portfolio summary; `/football/*` (blueprint) hosts dashboard, betting (`/auto_wager`, `/place_bets`, `/betting`), live-loop controls, and soft-delete via `/football/delete_file/<filename>`. Module-level helper `compute_sport_summary(bets_dir)` aggregates per-lane stats from any sport's slips folder — used by both `/football/betting` and the landing page. |
+| `sports_config.py` | **Bankroll/config helpers**. Single source of truth for `data_sets/betting_config.json` access. `get_sport_config(slug)`, `get_bankroll(slug)`, `update_bankroll(slug, delta)`, `all_bankrolls()`, `total_bankroll()`. Routes never read or mutate the JSON directly. |
 | `nba/routes.py` | **(Detached)** Flask Blueprint for NBA routes. Code preserved but not registered in `app.py` — NBA UI is currently dormant. Template at `templates/nba/index.html`. |
 
 ## 4. Scrapers (`flashscore_scraper/`, `scripts/`)

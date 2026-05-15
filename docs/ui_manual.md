@@ -8,7 +8,7 @@ The UI is sport-aware. Each sport mounts under its own URL prefix:
 
 | URL | What lives there |
 | :--- | :--- |
-| `/` | **Sport-picker landing page**. Shows a card per sport (active or dormant) with current bankroll. |
+| `/` | **Sport-picker landing page**. Shows a card per sport (active or dormant) with current bankroll, plus a **Portfolio Summary table** at the bottom aggregating bets, stake, P/L, ROI, and bankroll across every sport. |
 | `/football/*` | All football routes — dashboard, betting, predict, verify, retrain, etc. |
 | `/nba/*` | NBA routes (currently dormant — returns 404 until reactivated next NBA season). |
 | `/status`, `/stop/*`, `/server/*` | Sport-agnostic infrastructure. |
@@ -19,7 +19,7 @@ The navbar has a **🏟️ Sport ▾** dropdown to switch between sports, and a 
 
 ## 1. Football Dashboard (`/football/`)
 The main page lists generated reports sorted by date (most recent first).
-*   **Prediction Reports / Verification Reports / Available Scraped Data**: each card shows the **last 3** entries to keep the dashboard tidy. The full list is in the "All Files" table at the bottom.
+*   **Prediction Reports / Verification Reports / Available Scraped Data**: each card shows the **last 3** entries to keep the dashboard tidy. Older entries remain on disk under `output/` and `output/history/`; access them by direct URL or by archiving newer entries to bring older ones into view.
 *   **Action**: Click "View" to see the detailed table of predictions for that day.
 *   **Global Stats**: Displays overall accuracy for the loaded leagues at the top.
 *   **📁 Archive button**: All "delete" buttons across the dashboard (predictions, verifications, scraped data) are **soft-delete** — they move the file to `output/history/` rather than removing it. Files in `output/history/` are hidden from the dashboard lists but remain on disk for reference and (for bet slips) keep counting toward the Strategy Comparison totals.
@@ -72,7 +72,7 @@ All tunables live in `data_sets/betting_config.json` and can be edited without t
     *   Winning bets credit `stake × odds` back to bankroll. Losing bets credit nothing. VOID bets refund stake.
 
 #### **3. Strategy Comparison Table**
-At the top of the `/betting` page. One row per lane, aggregated across **all** historical slips (active + archived):
+At the top of `/<sport>/betting` (e.g. `/football/betting`). The header reads "**Strategy Comparison · &lt;Sport&gt;**" so the scope is unambiguous when more than one sport is active. One row per lane, aggregated across **all** of that sport's historical slips (active + archived):
 
 | Column | What it means |
 | :--- | :--- |
@@ -85,6 +85,8 @@ At the top of the `/betting` page. One row per lane, aggregated across **all** h
 | **ROI %** | `Net P/L / Stake` — the apples-to-apples lane comparison metric |
 
 Use **ROI %** as the long-run lane comparator; absolute P/L is bankroll-era dependent.
+
+For a cross-sport view of the same metrics, see the **Portfolio Summary** table on the landing page (`/`) — one row per sport plus a Total row. Same aggregator under the hood (`compute_sport_summary()` in `web_ui/app.py`).
 
 #### **4. History & Soft Delete**
 *   Each placed slip shows below the comparison table.
