@@ -238,7 +238,7 @@ def stop_task(task_name):
             flash(f'Error stopping task: {str(e)}', 'danger')
     else:
         flash(f'No running {task_name} task found.', 'secondary')
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 def process_bet_verification(verification_file_path):
     """
@@ -350,7 +350,7 @@ def process_bet_verification(verification_file_path):
 def run_prediction():
     if TASKS['predict'] and TASKS['predict']['process'] and TASKS['predict']['process'].poll() is None:
          flash('Prediction is already running!', 'warning')
-         return redirect(url_for('index'))
+         return redirect(url_for('football.index'))
 
     try:
         # Execute run_predictions.sh from project root
@@ -375,13 +375,13 @@ def run_prediction():
     except Exception as e:
         flash(f'Error starting prediction: {e}', 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/verify', methods=['POST'])
 def run_verification():
     if TASKS['verify'] and TASKS['verify']['process'] and TASKS['verify']['process'].poll() is None:
          flash('Verification is already running!', 'warning')
-         return redirect(url_for('index'))
+         return redirect(url_for('football.index'))
 
     # 1. Retrieve Date
     date_arg = request.form.get('date')
@@ -398,7 +398,7 @@ def run_verification():
     # but the UI button is for "Yesterday".
     if not os.path.exists(pred_file):
         flash(f'Error: Predictions file for {target_date} not found. Cannot verify.', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('football.index'))
 
     try:
         script_path = os.path.join(PROJECT_ROOT, 'bin', 'run_verification.sh')
@@ -416,7 +416,7 @@ def run_verification():
     except Exception as e:
         flash(f'Error starting verification: {e}', 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/logs/<filename>')
 def view_log(filename):
@@ -452,7 +452,7 @@ def delete_file(filename):
     """
     if os.path.sep in filename or '..' in filename:
         flash('Invalid filename!', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('football.index'))
 
     filepath = os.path.join(OUTPUT_DIR, filename)
     if os.path.exists(filepath):
@@ -464,14 +464,14 @@ def delete_file(filename):
     else:
         flash('File not found.', 'warning')
 
-    return redirect(request.referrer or url_for('index'))
+    return redirect(request.referrer or url_for('football.index'))
 
 @football_bp.route('/view/<filename>')
 def view_file(filename):
     filepath = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(filepath):
         flash('File not found!', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('football.index'))
         
     try:
         df = pd.read_csv(filepath)
@@ -548,7 +548,7 @@ def view_file(filename):
         return render_template('results.html', filename=filename, columns=columns, data=data, league_stats=league_stats, count=count)
     except Exception as e:
         flash(f'Error reading file: {e}', 'danger')
-        return redirect(url_for('index'))
+        return redirect(url_for('football.index'))
 
 @football_bp.route('/live_analysis')
 def live_analysis():
@@ -576,7 +576,7 @@ def refresh_live():
         # Or spawn Popen.
         if TASKS.get('live') and TASKS['live']['process'] and TASKS['live']['process'].poll() is None:
              flash('Live analysis is already running!', 'warning')
-             return redirect(url_for('index'))
+             return redirect(url_for('football.index'))
              
         log_file = open(os.path.join(LOG_DIR, 'live.log'), 'w')
         proc = subprocess.Popen(['venv/bin/python', script_path], cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
@@ -587,7 +587,7 @@ def refresh_live():
     except Exception as e:
         flash(f"Error starting live analysis: {e}", 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/clear_live', methods=['POST'])
 def clear_live():
@@ -599,7 +599,7 @@ def clear_live():
     except Exception as e:
         flash(f'Error clearing live data: {e}', 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/reset_stats', methods=['POST'])
 def reset_stats():
@@ -619,7 +619,7 @@ def reset_stats():
             flash('No statistics file found to reset.', 'warning')
     except Exception as e:
         flash(f'Error resetting stats: {e}', 'danger')
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/update_leagues', methods=['POST'])
 def update_leagues():
@@ -627,7 +627,7 @@ def update_leagues():
     try:
         if TASKS.get('leagues') and TASKS['leagues']['process'] and TASKS['leagues']['process'].poll() is None:
              flash('Leagues update is already running!', 'warning')
-             return redirect(url_for('index'))
+             return redirect(url_for('football.index'))
              
         log_file = open(os.path.join(LOG_DIR, 'leagues.log'), 'w')
         # Use simple bash execution
@@ -639,7 +639,7 @@ def update_leagues():
     except Exception as e:
         flash(f"Error starting leagues update: {e}", 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @app.route('/server/<action>', methods=['POST'])
 def server_control(action):
@@ -842,7 +842,7 @@ def run_live_analysis():
     task_name = 'live'
     if TASKS[task_name] and TASKS[task_name]['process'] and TASKS[task_name]['process'].poll() is None:
         flash('Live Analysis Loop is already running!', 'warning')
-        return redirect(url_for('index'))
+        return redirect(url_for('football.index'))
 
     cmd = [sys.executable, 'scripts/run_live_loop.py']
     log_file = open(os.path.join(LOG_DIR, TASKS[task_name]['log']), 'w')
@@ -856,13 +856,13 @@ def run_live_analysis():
     )
     
     flash('Live Analysis Loop started (running every 10 mins).', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/update_data', methods=['POST'])
 def update_data():
     if TASKS.get('update') and TASKS['update']['process'] and TASKS['update']['process'].poll() is None:
          flash('Data update is already running!', 'warning')
-         return redirect(url_for('index'))
+         return redirect(url_for('football.index'))
 
     try:
         script_path = os.path.join(PROJECT_ROOT, 'scripts', 'update_football_data.py')
@@ -875,13 +875,13 @@ def update_data():
     except Exception as e:
         flash(f"Error starting update: {e}", 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 @football_bp.route('/retrain_model', methods=['POST'])
 def retrain_model():
     if TASKS.get('retrain') and TASKS['retrain']['process'] and TASKS['retrain']['process'].poll() is None:
          flash('Model Retraining is already running!', 'warning')
-         return redirect(url_for('index'))
+         return redirect(url_for('football.index'))
 
     try:
         script_path = os.path.join(PROJECT_ROOT, 'bin', 'retrain_pipeline.sh')
@@ -895,7 +895,7 @@ def retrain_model():
     except Exception as e:
         flash(f"Error starting retrain: {e}", 'danger')
         
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 import threading
 
@@ -950,7 +950,7 @@ def run_verify_task_thread(date_arg):
 def run_verify():
     if TASKS['verify'] and TASKS['verify']['process'] and TASKS['verify']['process'].poll() is None:
         flash('Verification task is already running.', 'warning')
-        return redirect(url_for('index'))
+        return redirect(url_for('football.index'))
 
     # Reset state
     TASKS['verify'] = {'state': 'running', 'process': None, 'msg': ''}
@@ -960,7 +960,7 @@ def run_verify():
     thread.start()
     
     flash('Verification task started! Bankroll will update upon completion.', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('football.index'))
 
 import glob
 import pandas as pd
