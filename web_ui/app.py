@@ -168,13 +168,112 @@ def index():
                 live_matches = json.load(f)
         except Exception as e:
             pass
-            
-    return render_template('dashboard.html', 
-                          predictions=predictions, 
+
+    # Enrich each live match with any OPEN bets we have on it.
+    # Lets the dashboard show stake / odds / fair-value cashout per bet
+    # alongside the live stats. Read-only — actual cashout action is
+    # gated behind NEXT_STEPS phase 7.
+    _attach_open_bets(live_matches)
+
+    return render_template('dashboard.html',
+                          predictions=predictions,
                           verifications=verifications,
                           league_stats=league_stats,
                           live_matches=live_matches[:50],
                           scraped_data=scraped_data)
+
+
+# Selection → adjusted-probs key for fair-value cashout estimation.
+_SELECTION_TO_PROB_KEY = {
+    '1': 'home', 1: 'home',
+    'X': 'draw', 'x': 'draw',
+    '2': 'away', 2: 'away',
+    'Over 2.5':  'over',  'Over': 'over',
+    'Under 2.5': 'under', 'Under': 'under',
+}
+
+_CASHOUT_HOUSE_HAIRCUT = 0.95
+
+
+def _attach_open_bets(live_matches):
+    """Mutate each live match dict, adding `open_bets` (list).
+
+    Each entry: {lane, type, selection, stake, odds, adj_prob,
+    fair_cashout, status_badge}.
+
+    Joined by match string ("Home vs Away"). Today's slip only;
+    archived slips are skipped because OPEN bets can't be there.
+    """
+    today_slip = os.path.join(OUTPUT_DIR, f"bets_{datetime.date.today().isoformat()}.json")
+    if not os.path.exists(today_slip):
+        for m in live_matches:
+            m['open_bets'] = []
+        return
+
+    try:
+        with open(today_slip, 'r') as f:
+            slip = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        for m in live_matches:
+            m['open_bets'] = []
+        return
+
+    # Build lookup: match_str → list of OPEN bets
+    by_match = {}
+    for bet in slip.get('bets', []):
+        status = bet.get('status', '')
+        # Skip already-settled bets (LOST/WON/VOID); only OPEN are cashable.
+        if status not in ('OPEN', ''):
+            if bet.get('result') in ('WON', 'LOST', 'VOID'):
+                continue
+        match_str = bet.get('match', '').strip()
+        if match_str:
+            by_match.setdefault(match_str, []).append(bet)
+
+    for m in live_matches:
+        if m.get('message'):
+            m['open_bets'] = []
+            continue
+        match_str = m.get('match', '').strip()
+        related = by_match.get(match_str, [])
+
+        enriched = []
+        for bet in related:
+            stake = float(bet.get('stake_units', 0))
+            odds = float(bet.get('odds', 0))
+            bet_type = bet.get('type', '1X2')
+            selection = bet.get('selection')
+            prob_key = _SELECTION_TO_PROB_KEY.get(selection)
+
+            # For 1X2 we have adj_probs in the live snapshot. For O/U
+            # we don't (the LiveAdjuster has the method but the snapshot
+            # doesn't currently persist over/under adj probs). Mark
+            # those as no live-adjusted estimate.
+            adj_prob = None
+            fair_cashout = None
+            if bet_type == '1X2' and prob_key in ('home', 'draw', 'away'):
+                adj_prob = float(m.get('adj_probs', {}).get(prob_key, 0))
+                fair_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
+
+            # Status badge (informational only; no auto-action attached).
+            badge = 'hold'
+            if fair_cashout is not None and stake > 0:
+                if fair_cashout / stake >= 1.5:
+                    badge = 'lock_in'
+                elif adj_prob is not None and adj_prob < 0.20:
+                    badge = 'stop_loss'
+
+            enriched.append({
+                'lane': bet.get('lane', 'value'),
+                'type': bet_type,
+                'selection': str(selection),
+                'stake': round(stake, 2),
+                'odds': odds,
+                'adj_prob': round(adj_prob, 3) if adj_prob is not None else None,
+                'fair_cashout': fair_cashout,
+                'badge': badge,
+            })
+        m['open_bets'] = enriched
 
 @app.route('/status')
 def get_status():

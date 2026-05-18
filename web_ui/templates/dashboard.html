@@ -89,7 +89,7 @@
                     <div class="card-body p-2">
                         <div class="row g-2 align-items-center">
                             <!-- Match name + score -->
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <div class="small fw-bold">{{ item.match }}</div>
                                 <div class="fs-5 fw-bold mt-1">
                                     {{ item.score }}
@@ -98,7 +98,7 @@
                             </div>
 
                             <!-- Stats -->
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <table class="table table-sm mb-0 small">
                                     <thead class="table-light">
                                         <tr>
@@ -126,14 +126,14 @@
                             </div>
 
                             <!-- Pre vs Live adjustment -->
-                            <div class="col-md-5">
+                            <div class="col-md-4">
                                 <table class="table table-bordered table-sm text-center small mb-0">
                                     <thead class="table-light">
                                         <tr>
                                             <th></th>
-                                            <th>1 (Home)</th>
-                                            <th>X (Draw)</th>
-                                            <th>2 (Away)</th>
+                                            <th>1</th>
+                                            <th>X</th>
+                                            <th>2</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -157,6 +157,40 @@
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+
+                            <!-- Open bets on this match (Phase 6 display-only) -->
+                            <div class="col-md-3">
+                                {% set _lane_badge = {'value': 'bg-primary', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
+                                {% set _state_badge = {'lock_in': 'bg-success', 'stop_loss': 'bg-danger', 'hold': 'bg-secondary'} %}
+                                {% set _state_label = {'lock_in': '🟢 Lock in', 'stop_loss': '🔴 Stop loss', 'hold': '🟡 Hold'} %}
+                                {% if item.open_bets %}
+                                {% for b in item.open_bets %}
+                                <div class="border rounded p-1 mb-1 small bg-light">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="badge {{ _lane_badge.get(b.lane, 'bg-secondary') }}">{{ b.lane|capitalize }}</span>
+                                        <span class="badge {{ _state_badge.get(b.badge, 'bg-secondary') }}">{{ _state_label.get(b.badge, b.badge) }}</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between">
+                                        <span><strong>{{ b.type }}</strong> · {{ b.selection }} @ {{ b.odds }}</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between text-muted">
+                                        <span>Stake €{{ b.stake }}</span>
+                                        {% if b.fair_cashout is not none %}
+                                            <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}">
+                                                Cashout €{{ b.fair_cashout }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted small">O/U cashout n/a</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                                {% else %}
+                                <div class="text-center text-muted small py-3 border rounded bg-light">
+                                    — No active bet —
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>

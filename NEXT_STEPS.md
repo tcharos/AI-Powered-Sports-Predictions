@@ -10,7 +10,7 @@ Living document. Keep it short. Update statuses inline as phases complete.
 | 2   | Backtest harness (engine + CLI)    | ✅ done        | `ml_project/backtest/` + `scripts/run_backtest.py`. Self-validation against stored slip P/L passes. |
 | 5   | O/U adjuster                       | ✅ done (pulled forward) | `LiveAdjuster.adjust_ou_probabilities()` — Poisson goal model blended with pre-match. Harness now evaluates O/U bets. |
 | 3   | Bet status migration (CASHED_OUT)  | ⏸ deferred     | Cheap (~30 min). Defer until just before Phase 7 — nothing uses it yet. |
-| 6   | Bets↔live UI linkage (display only) | ⏸ deferred    | Show open bets joined to live matches with fair-value cashout number. No button yet. |
+| 6   | Bets↔live UI linkage (display only) | ⚙ partial      | Dashboard live rows show a per-match bet column: lane badge, type/selection/odds, stake, fair-value cashout (1X2 only — O/U adj probs not yet persisted to snapshots), state badge (🟢 lock-in / 🔴 stop-loss / 🟡 hold) from the same rule thresholds the backtest harness uses. No button, no auto-action. Same template fragment isn't shared with the `/football/live_analysis` standalone page yet. |
 | 7   | Manual cashout endpoint + button   | ⏸ deferred     | Per-bet (not per-slip). Settlement on cashout credits the specific lane. |
 
 ## The data wait
@@ -79,6 +79,10 @@ When/if we revisit the end-goal decision:
 - [ ] **9. Bet placement** — design phase. New plan required. Conviction-lane only as starting point per earlier recommendation.
 - [ ] **10. Settlement reconciliation** — match Pamestoixima's settled-bet history against our `bets_*.json`.
 - [ ] **11. Withdrawal flow** — **never automated**. Manual only, by design.
+
+## Future analysis ideas (not yet scoped)
+
+- **"Place bet now?" shortcut on live rows** — when a live match has no open bet, show a one-click action that takes you to `/football/auto_wager` (or a future bet-placement modal) pre-filtered to that match. Useful for value-discovery on in-progress games where the score state has shifted the EV. Caveat: couples live analytical view with virtual betting action; needs design before building. Revisit when /auto_wager UI is generalised enough to accept a per-match filter.
 
 ## Open / deferred work (smaller items)
 
