@@ -13,6 +13,9 @@ TODAY = datetime.datetime.now().strftime('%d.%m.%Y') # 10.12.2025 match format
 TODAY_FILE_DATE = datetime.datetime.now().strftime('%Y-%m-%d')
 PREDICTIONS_FILE = os.path.join(OUTPUT_DIR, f"predictions_{TODAY_FILE_DATE}.csv")
 LIVE_OUTPUT = os.path.join(OUTPUT_DIR, "live_data.json")
+# Append-only per-tick snapshots. One JSON object per match per refresh.
+# Feeds the (forthcoming) cashout backtest harness.
+LIVE_HISTORY = os.path.join(OUTPUT_DIR, f"live_history_{TODAY_FILE_DATE}.jsonl")
 
 def main():
     if not os.path.exists(PREDICTIONS_FILE):
@@ -140,13 +143,16 @@ def main():
     # Create a set of processed IDs to track misses if needed
     processed_ids = set()
 
+    snapshot_ts = datetime.datetime.now().isoformat(timespec='seconds')
+    history_lines = []
+
     for item in batch_data:
         m_id = item.get('match_id')
         if m_id not in match_lookup: continue
-        
+
         processed_ids.add(m_id)
         live_meta, pred_row = match_lookup[m_id]
-        
+
         try:
               pre_probs = {
                 'home': float(pred_row['Home Win %']),
@@ -155,22 +161,43 @@ def main():
               }
         except:
              pre_probs = {'home':0.33, 'draw':0.33, 'away':0.33}
-             
+
         adjusted = adjuster.adjust_probabilities(
             pre_probs,
             item.get('stats', {}),
             item.get('minute', 0),
             item.get('score', '0-0')
         )
-        
-        final_results.append({
+
+        record = {
             'match': f"{live_meta['home_team']} vs {live_meta['away_team']}",
             'score': item.get('score', '0-0'),
             'minute': item.get('minute', 0),
             'stats': item.get('stats', {}),
             'pre_probs': pre_probs,
-            'adj_probs': adjusted
+            'adj_probs': adjusted,
+        }
+        final_results.append(record)
+
+        history_lines.append({
+            'ts': snapshot_ts,
+            'date': TODAY_FILE_DATE,
+            'match_id': m_id,
+            'home_team': live_meta['home_team'],
+            'away_team': live_meta['away_team'],
+            'league': pred_row.get('League', ''),
+            'minute': item.get('minute', 0),
+            'score': item.get('score', '0-0'),
+            'stats': item.get('stats', {}),
+            'pre_probs': pre_probs,
+            'adj_probs': adjusted,
         })
+
+    if history_lines:
+        with open(LIVE_HISTORY, 'a') as hf:
+            for line in history_lines:
+                hf.write(json.dumps(line) + '\n')
+        print(f"Appended {len(history_lines)} snapshot(s) to {LIVE_HISTORY}")
 
     # Add matches that failed to scrape (keep them in list with old data or error?)
     # For now, only show successfully scraped ones to avoid stale data confusion.

@@ -32,7 +32,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
 | Update standings/form only | `./bin/update_leagues_data.sh` |
 | Download a season of history | `./bin/setup_data.sh 2526` (season code = end year) |
 | NBA predictions / verification / retrain | `./bin/run_nba_predictions.sh`, `./bin/run_nba_verification.sh`, `./bin/retrain_nba_pipeline.sh` |
-| Live in-play loop | `python3 scripts/run_live_loop.py` (daemon, ~10 min cycles) |
+| Live in-play snapshot (one-shot) | `python3 scripts/run_live_analysis.py` — also exposed in the UI as the "Refresh Live Snapshot" button |
 | Start/stop web UI (Flask, port 5001) | `./bin/manage_server.sh {start\|stop\|restart\|status}` — logs to `logs/ui.log` |
 
 Run a single spider manually:
@@ -71,7 +71,7 @@ Football flow (1X2 + Over/Under 2.5):
 5. `predict_matches.MatchPredictor` (invoked by `run_predictions.sh`) loads models, fetches/derives features for the scraped upcoming-matches JSON, and writes `output/predictions_YYYY-MM-DD.csv`. Season-to-date PPG/strength at inference is mirrored from the standings JSON via `HeuristicAdjuster.get_team_strength` to avoid train/serve skew.
 6. `heuristic_adjuster.py` post-processes raw model probabilities with league-aware draw calibration + cap, rank-gap boosts, symmetric form-momentum (winning streak → boost; losing streak → split fade between opponent and Draw via `_fade()`), heating/cooling trend, and a goal-fest O/U boost. All H1–H6 deltas are accumulated and capped at `MAX_TOTAL_BOOST_PER_CLASS = 0.15` per outcome before being applied. Probabilities re-normalized; the *adjusted* confidence drives the final pick. See `docs/training_process.md` for the heuristic table.
 7. `resolve_daily_bets.py` (called by `run_verification.sh:96`) settles open bet slips in `output/bets_*.json` against scraped results. **Note**: `ml_project/betting_engine.py` is legacy/reference code — the *active* bet-placement and settlement flow lives in `web_ui/app.py` (`/auto_wager`, `/place_bets`, `process_bet_verification`).
-8. `live_adjuster.py` applies in-play heuristics (shots/xG) on top of model output during the live loop.
+8. `live_adjuster.py` applies in-play heuristics (shots/xG/possession/dominance + time decay) on top of model 1X2 output. Invoked by `scripts/run_live_analysis.py` (one-shot, user-triggered via the dashboard's **Refresh Live Snapshot** button or run directly). Each refresh writes the latest snapshot to `output/live_data.json` (consumed by the UI) AND appends one JSON line per scraped match to `output/live_history_<YYYY-MM-DD>.jsonl` (append-only, feeds the forthcoming cashout backtest harness).
 
 NBA pipeline lives entirely under `ml_project/nba/` (`fetch_nba_results.py`, `fetch_nba_history_stats.py`, `fetch_nba_stats_tables.py` (uses `pbpstats`), `fetch_espn_odds.py`, `nba_feature_engineering.py`, `nba_utils.py`, `train_nba_models.py`, `tune_nba_models.py`, `predict_nba.py`, `evaluate_nba_predictions.py`). Models at `models/nba/{winner,total}_model.pkl` + `best_params_*.json`. Outputs at `output_basketball/`. Bin scripts (`run_nba_*.sh`, `retrain_nba_pipeline.sh`) export `PYTHONPATH=...:ml_project/nba` so the in-package imports (`from nba_utils import ...`) keep resolving without prefixes.
 
@@ -156,6 +156,8 @@ The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction
 - `output/matches_<date>.json` — scraper output (predictions or results, depending on mode).
 - `output/predictions_<date>.csv`, `output/verification_<date>.csv`, `output/report_<date>.txt` — prediction artifacts.
 - `output/bets_<date>.json` — placed bet slips (active). Each bet has a `lane` tag.
+- `output/live_data.json` — latest live-snapshot results (overwritten each refresh; what the UI reads).
+- `output/live_history_<date>.jsonl` — append-only per-match snapshots from every Refresh Live Snapshot run. One JSON object per line. Schema: `ts, date, match_id, home_team, away_team, league, minute, score, stats, pre_probs, adj_probs`. Source data for cashout backtesting.
 - `output/history/` — soft-delete destination. Files moved here are hidden from UI lists but still counted by `/betting` Strategy Comparison stats.
 - `output_basketball/` — NBA artifacts (currently empty; old slate archived under `output_basketball/history/`).
 - `models/` — trained XGBoost JSON / sklearn pickle artifacts and tuned hyperparameters.

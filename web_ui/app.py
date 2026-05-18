@@ -77,7 +77,7 @@ def to_float_filter(value):
 TASKS = {
     'predict': {'process': None, 'log': 'predict.log'},
     'verify': {'process': None, 'log': 'verify.log'},
-    'live': {'process': None, 'log': 'live_loop.log'},
+    'live': {'process': None, 'log': 'live.log'},
     'update': {'process': None, 'log': 'update.log'},
     'leagues': {'process': None, 'log': 'leagues.log'},
     'retrain': {'process': None, 'log': 'retrain.log'}
@@ -586,7 +586,16 @@ def refresh_live():
              return redirect(url_for('football.index'))
              
         log_file = open(os.path.join(LOG_DIR, 'live.log'), 'w')
-        proc = subprocess.Popen(['venv/bin/python', script_path], cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
+        # ml_project imports need both repo root and ml_project/ on PYTHONPATH
+        # (same convention as bin/run_predictions.sh).
+        env = os.environ.copy()
+        existing_pp = env.get('PYTHONPATH', '')
+        ml_paths = [PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'ml_project')]
+        env['PYTHONPATH'] = os.pathsep.join([p for p in ml_paths + [existing_pp] if p])
+        proc = subprocess.Popen(
+            ['venv/bin/python', script_path],
+            cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env
+        )
         
         TASKS['live'] = {'process': proc, 'start_time': datetime.datetime.now()}
         
@@ -606,26 +615,6 @@ def clear_live():
     except Exception as e:
         flash(f'Error clearing live data: {e}', 'danger')
         
-    return redirect(url_for('football.index'))
-
-@football_bp.route('/reset_stats', methods=['POST'])
-def reset_stats():
-    stats_file = os.path.join(PROJECT_ROOT, 'data_sets/league_analytics.json')
-    check_file = os.path.join(PROJECT_ROOT, 'data_sets/league_analytics_check.json')
-    try:
-        deleted = False
-        if os.path.exists(stats_file):
-            os.remove(stats_file)
-            deleted = True
-        if os.path.exists(check_file):
-            os.remove(check_file)
-            deleted = True
-        if deleted:
-            flash('Cumulative League Statistics have been reset.', 'success')
-        else:
-            flash('No statistics file found to reset.', 'warning')
-    except Exception as e:
-        flash(f'Error resetting stats: {e}', 'danger')
     return redirect(url_for('football.index'))
 
 @football_bp.route('/update_leagues', methods=['POST'])
@@ -861,28 +850,6 @@ def betting_page():
                            history=summary['history'],
                            lane_stats=summary['lane_stats'],
                            sport_label='Football')
-
-# Update Server Routes logic...
-@football_bp.route('/live_analysis', methods=['POST'])
-def run_live_analysis():
-    task_name = 'live'
-    if TASKS[task_name] and TASKS[task_name]['process'] and TASKS[task_name]['process'].poll() is None:
-        flash('Live Analysis Loop is already running!', 'warning')
-        return redirect(url_for('football.index'))
-
-    cmd = [sys.executable, 'scripts/run_live_loop.py']
-    log_file = open(os.path.join(LOG_DIR, TASKS[task_name]['log']), 'w')
-    
-    # Start process
-    TASKS[task_name]['process'] = subprocess.Popen(
-        cmd, 
-        stdout=log_file, 
-        stderr=subprocess.STDOUT,
-        cwd=PROJECT_ROOT
-    )
-    
-    flash('Live Analysis Loop started (running every 10 mins).', 'success')
-    return redirect(url_for('football.index'))
 
 @football_bp.route('/update_data', methods=['POST'])
 def update_data():

@@ -127,18 +127,9 @@
         <span>⚡ Live Match Analysis & Adjustments</span>
         <div class="btn-group">
             <form action="/football/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
-                <button type="submit" class="btn btn-sm btn-light text-danger fw-bold" id="refreshLiveBtn">Refresh
-                    Once</button>
+                <button type="submit" class="btn btn-sm btn-light text-danger fw-bold" id="refreshLiveBtn">⚡ Refresh
+                    Live Snapshot</button>
             </form>
-            <!-- Auto Loop Form -->
-            <form action="/football/live_analysis" method="post" class="d-inline ms-2">
-                <button type="submit" class="btn btn-sm btn-success fw-bold" id="startLiveBtn">Start Auto-Loop
-                    (10m)</button>
-            </form>
-            <button class="btn btn-sm btn-danger fw-bold ms-2" onclick="stopTask('live')" id="stopLiveBtn">Stop
-                Loop</button>
-            <form id="stopLiveForm" action="/stop/live" method="post" style="display:none;"></form>
-
             <form action="/football/clear_live" method="post" class="d-inline ms-2">
                 <button type="submit" class="btn btn-sm btn-warning fw-bold text-dark" title="Clear Data">🗑️ Clear
                     Data</button>
@@ -226,61 +217,62 @@
         <span>No Live Data loaded.</span>
         <div>
             <form action="/football/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
-                <button type="submit" class="btn btn-outline-danger" id="triggerLiveBtn">⚡ Run Once</button>
-            </form>
-            <form action="/football/live_analysis" method="post" class="d-inline ms-2">
-                <button type="submit" class="btn btn-outline-success" id="startLiveBtnEmpty">Start Auto-Loop
-                    (10m)</button>
+                <button type="submit" class="btn btn-outline-danger" id="triggerLiveBtn">⚡ Refresh Live Snapshot</button>
             </form>
         </div>
     </div>
 </div>
 {% endif %}
 
-<!-- Row 3: Cumulative Stats -->
+<!-- Row 3: Cumulative Stats (collapsible) -->
 <div class="card mb-4">
-    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+         role="button" data-bs-toggle="collapse" data-bs-target="#leagueStatsBody"
+         aria-expanded="false" aria-controls="leagueStatsBody"
+         id="leagueStatsHeader" style="cursor:pointer;">
         <span>Cumulative League Performance (All-Time)</span>
-        <form action="/football/reset_stats" method="post"
-            onsubmit="return confirm('Are you sure you want to completely RESET all cumulative league statistics?');">
-            <button type="submit" class="btn btn-sm btn-danger py-0">Reset Logic</button>
-        </form>
+        <span class="small">
+            {% if league_stats %}<span class="badge bg-light text-dark me-2">{{ league_stats|length }} leagues</span>{% endif %}
+            <span id="leagueStatsChevron">▾</span>
+        </span>
     </div>
-    <div class="card-body p-0">
-        {% if league_stats %}
-        <table class="table table-sm table-striped m-0">
-            <thead>
-                <tr>
-                    <th>League</th>
-                    <th>Count</th>
-                    <th>Accuracy 1X2 (%)</th>
-                    <th>Accuracy O/U (%)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for stat in league_stats %}
-                <tr>
-                    <td>{{ stat['League'] }}</td>
-                    <td>{{ stat['Count'] }}</td>
-                    <td>
-                        <span class="badge {{ 'bg-success' if stat['Acc_1X2'] > 50 else 'bg-warning' }}">
-                            {{ stat['Acc_1X2'] }}%
-                        </span>
-                    </td>
-                    <td>
-                        <span class="badge {{ 'bg-success' if stat['Acc_OU'] > 50 else 'bg-warning' }}">
-                            {{ stat['Acc_OU'] }}%
-                        </span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="p-3 text-center text-muted">
-            <p class="mb-0">No statistics available yet. Run a verification task to populate this data.</p>
+    <div id="leagueStatsBody" class="collapse">
+        <div class="card-body p-0">
+            {% if league_stats %}
+            <table class="table table-sm table-striped m-0">
+                <thead>
+                    <tr>
+                        <th>League</th>
+                        <th>Count</th>
+                        <th>Accuracy 1X2 (%)</th>
+                        <th>Accuracy O/U (%)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in league_stats %}
+                    <tr>
+                        <td>{{ stat['League'] }}</td>
+                        <td>{{ stat['Count'] }}</td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if stat['Acc_1X2'] > 50 else 'bg-warning' }}">
+                                {{ stat['Acc_1X2'] }}%
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if stat['Acc_OU'] > 50 else 'bg-warning' }}">
+                                {{ stat['Acc_OU'] }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="p-3 text-center text-muted">
+                <p class="mb-0">No statistics available yet. Run a verification task to populate this data.</p>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 </div>
 
@@ -334,8 +326,6 @@
                 document.getElementById('stopPredictForm').submit();
             } else if (taskName === 'verify') {
                 document.getElementById('stopVerifyForm').submit();
-            } else if (taskName === 'live') {
-                document.getElementById('stopLiveForm').submit();
             }
         }
     }
@@ -417,12 +407,12 @@
                         const refreshBtn = document.getElementById('refreshLiveBtn');
                         if (refreshBtn) {
                             refreshBtn.disabled = false;
-                            refreshBtn.innerText = 'Refresh Once';
+                            refreshBtn.innerText = '⚡ Refresh Live Snapshot';
                         }
                         const triggerBtn = document.getElementById('triggerLiveBtn');
                         if (triggerBtn) {
                             triggerBtn.disabled = false;
-                            triggerBtn.innerText = '⚡ Run Live Analysis';
+                            triggerBtn.innerText = '⚡ Refresh Live Snapshot';
                         }
                     }
                 }
@@ -430,6 +420,26 @@
     }
 
     setInterval(updateStatus, 2000);
+
+    // Persist league-stats collapse state across visits.
+    (function () {
+        const body = document.getElementById('leagueStatsBody');
+        const chevron = document.getElementById('leagueStatsChevron');
+        if (!body || !chevron) return;
+        const KEY = 'leagueStatsOpen';
+        if (localStorage.getItem(KEY) === '1') {
+            body.classList.add('show');
+            chevron.textContent = '▴';
+        }
+        body.addEventListener('shown.bs.collapse', () => {
+            localStorage.setItem(KEY, '1');
+            chevron.textContent = '▴';
+        });
+        body.addEventListener('hidden.bs.collapse', () => {
+            localStorage.setItem(KEY, '0');
+            chevron.textContent = '▾';
+        });
+    })();
     updateStatus();
 </script>
 {% endblock %}
