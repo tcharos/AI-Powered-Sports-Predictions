@@ -2,119 +2,57 @@
 
 {% block content %}
 
-<!-- Row 1: Actions & Reports -->
-<div class="row mb-4">
-    <!-- Actions Card -->
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header bg-primary text-white">Actions</div>
-            <div class="card-body">
-                <p>Run the scraping and prediction pipeline for the upcoming matches.</p>
-                <form action="/football/predict" method="post" class="d-inline" id="predictForm">
-                    <div class="form-check mb-2">
+<!-- Row 1: Actions (full width, Prediction + Verification side-by-side) -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white py-2">Actions</div>
+    <div class="card-body py-3">
+        <div class="row g-4">
+            <!-- Prediction (left) -->
+            <div class="col-md-6">
+                <form action="/football/predict" method="post" id="predictForm">
+                    <label class="form-label fw-bold small mb-1">🚀 Prediction</label>
+                    <div class="input-group input-group-sm mb-1">
+                        <input type="date" class="form-control" name="date" id="predictDate" title="Target date (optional)">
+                        <button type="submit" class="btn btn-success" id="predictBtn">Run</button>
+                    </div>
+                    <div class="form-check form-check-inline small">
                         <input class="form-check-input" type="checkbox" name="force" id="forceScrape">
-                        <label class="form-check-label" for="forceScrape">
-                            Force Scrape (Overwrite Data)
-                        </label>
+                        <label class="form-check-label" for="forceScrape">Force scrape (overwrite data)</label>
                     </div>
-                    <div class="mb-2">
-                        <label for="predictDate" class="form-label">Target Date (Optional)</label>
-                        <input type="date" class="form-control" name="date" id="predictDate">
-                    </div>
-                    <button type="submit" class="btn btn-success w-100 mb-2" id="predictBtn">🚀 Run Prediction</button>
                 </form>
                 <div id="predictStatus" style="display: none;" class="mt-2">
-                    <small>Status: <span id="predictState">Running...</span></small>
-                    <div class="progress mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted">Status: <span id="predictState">Running...</span></small>
+                        <button class="btn btn-outline-danger btn-sm py-0" onclick="stopTask('predict')">🛑 Stop</button>
+                        <form id="stopPredictForm" action="/stop/predict" method="post" style="display:none;"></form>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px;">
                         <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
                             role="progressbar" style="width: 100%"></div>
                     </div>
-                    <button class="btn btn-danger btn-sm w-100" onclick="stopTask('predict')">🛑 Stop
-                        Prediction</button>
-                    <form id="stopPredictForm" action="/stop/predict" method="post" style="display:none;"></form>
                 </div>
-                <hr>
-                <p>Verify yesterday's predictions against actual results.</p>
-                <form action="/football/verify" method="post" class="d-inline" id="verifyForm">
-                    <div class="mb-2">
-                        <label for="verifyDate" class="form-label">Target Date (Optional)</label>
-                        <input type="date" class="form-control" name="date" id="verifyDate">
+            </div>
+
+            <!-- Verification (right) -->
+            <div class="col-md-6">
+                <form action="/football/verify" method="post" id="verifyForm">
+                    <label class="form-label fw-bold small mb-1">✅ Verification</label>
+                    <div class="input-group input-group-sm">
+                        <input type="date" class="form-control" name="date" id="verifyDate" title="Target date (optional)">
+                        <button type="submit" class="btn btn-warning" id="verifyBtn">Run</button>
                     </div>
-                    <button type="submit" class="btn btn-warning w-100" id="verifyBtn">✅ Run Verification</button>
                 </form>
                 <div id="verifyStatus" style="display: none;" class="mt-2">
-                    <small>Status: <span id="verifyState">Running...</span></small>
-                    <div class="progress mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted">Status: <span id="verifyState">Running...</span></small>
+                        <button class="btn btn-outline-danger btn-sm py-0" onclick="stopTask('verify')">🛑 Stop</button>
+                        <form id="stopVerifyForm" action="/stop/verify" method="post" style="display:none;"></form>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px;">
                         <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
                             role="progressbar" style="width: 100%"></div>
                     </div>
-                    <button class="btn btn-danger btn-sm w-100" onclick="stopTask('verify')">🛑 Stop
-                        Verification</button>
-                    <form id="stopVerifyForm" action="/stop/verify" method="post" style="display:none;"></form>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Reports Card -->
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header bg-dark text-white">Recent Reports</div>
-            <div class="card-body">
-                <h6 class="mt-2 border-bottom pb-1">Prediction Reports</h6>
-                {% if predictions %}
-                <div class="list-group">
-                    {% for item in predictions[:3] %}
-                    <div class="list-group-item d-flex justify-content-between align-items-center">
-                        <a href="/football/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
-                            <div>
-                                <strong>{{ item.date }}</strong> <small class="text-muted">({{ item.count }}
-                                    matches)</small>
-                                <span class="badge bg-info text-dark">{{ item.type }}</span>
-                            </div>
-                        </a>
-                        <div class="d-flex align-items-center gap-2">
-                            <a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a>
-                            <form action="/football/delete_file/{{ item.filename }}" method="post"
-                                onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
-                                class="m-0">
-                                <button type="submit" class="btn btn-sm btn-outline-danger px-2"
-                                    title="Archive">📁</button>
-                            </form>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="text-muted">No prediction reports found.</p>
-                {% endif %}
-
-                <h6 class="mt-2 border-bottom pb-1">Verification Reports</h6>
-                {% if verifications %}
-                <div class="list-group">
-                    {% for item in verifications[:3] %}
-                    <div class="list-group-item d-flex justify-content-between align-items-center">
-                        <a href="/football/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
-                            <div>
-                                <strong>{{ item.date }}</strong>
-                                <span class="badge bg-warning text-dark">{{ item.type }}</span>
-                            </div>
-                        </a>
-                        <div class="d-flex align-items-center gap-2">
-                            <a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a>
-                            <form action="/football/delete_file/{{ item.filename }}" method="post"
-                                onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
-                                class="m-0">
-                                <button type="submit" class="btn btn-sm btn-outline-danger px-2"
-                                    title="Archive">📁</button>
-                            </form>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="text-muted">No verification reports found.</p>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -146,63 +84,81 @@
                 </div>
             </div>
             {% else %}
-            <div class="col-md-4 mb-3">
-                <div class="card h-100 border-secondary">
-                    <div class="card-header py-1 bg-light text-center small fw-bold">
-                        {{ item.match }}
-                    </div>
+            <div class="col-12 mb-2">
+                <div class="card border-secondary">
                     <div class="card-body p-2">
-                        <div class="text-center mb-2">
-                            <h6 class="mb-0">{{ item.score }} <small class="text-muted">({{ item.minute }}')</small>
-                            </h6>
-                        </div>
+                        <div class="row g-2 align-items-center">
+                            <!-- Match name + score -->
+                            <div class="col-md-3">
+                                <div class="small fw-bold">{{ item.match }}</div>
+                                <div class="fs-5 fw-bold mt-1">
+                                    {{ item.score }}
+                                    <small class="text-muted fs-6 fw-normal">({{ item.minute }}')</small>
+                                </div>
+                            </div>
 
-                        <!-- Mini Stats -->
-                        <div class="d-flex justify-content-between small mb-2 text-muted">
-                            <span>xG: <b>{{ item.stats.get('xg_home', '-') }}</b></span>
-                            <span>Poss: {{ item.stats.get('possession_home', '-') }}%</span>
-                        </div>
-                        <div class="d-flex justify-content-between small mb-2 text-muted">
-                            <span>xG: <b>{{ item.stats.get('xg_away', '-') }}</b></span>
-                            <span>Poss: {{ item.stats.get('possession_away', '-') }}%</span>
-                        </div>
+                            <!-- Stats -->
+                            <div class="col-md-4">
+                                <table class="table table-sm mb-0 small">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th></th>
+                                            <th class="text-center">xG</th>
+                                            <th class="text-center">Poss</th>
+                                            <th class="text-center">Shots</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="text-muted">Home</td>
+                                            <td class="text-center"><b>{{ item.stats.get('xg_home', '-') }}</b></td>
+                                            <td class="text-center">{{ item.stats.get('possession_home', '-') }}%</td>
+                                            <td class="text-center">{{ item.stats.get('shots_home', '-') }}</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-muted">Away</td>
+                                            <td class="text-center"><b>{{ item.stats.get('xg_away', '-') }}</b></td>
+                                            <td class="text-center">{{ item.stats.get('possession_away', '-') }}%</td>
+                                            <td class="text-center">{{ item.stats.get('shots_away', '-') }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
 
-                        <!-- Adjustment Table -->
-                        <table class="table table-bordered table-sm text-center small mb-0">
-                            <thead>
-                                <tr class="bg-light">
-                                    <th>1X2</th>
-                                    <th>Pre</th>
-                                    <th>Live</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>1</td>
-                                    <td>{{ (item.pre_probs.home * 100)|round(0)|int }}%</td>
-                                    <td
-                                        class="{{ 'table-success fw-bold' if item.adj_probs.home > item.pre_probs.home else '' }}">
-                                        {{ (item.adj_probs.home * 100)|round(0)|int }}%
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>X</td>
-                                    <td>{{ (item.pre_probs.draw * 100)|round(0)|int }}%</td>
-                                    <td
-                                        class="{{ 'table-success fw-bold' if item.adj_probs.draw > item.pre_probs.draw else '' }}">
-                                        {{ (item.adj_probs.draw * 100)|round(0)|int }}%
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>2</td>
-                                    <td>{{ (item.pre_probs.away * 100)|round(0)|int }}%</td>
-                                    <td
-                                        class="{{ 'table-success fw-bold' if item.adj_probs.away > item.pre_probs.away else '' }}">
-                                        {{ (item.adj_probs.away * 100)|round(0)|int }}%
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                            <!-- Pre vs Live adjustment -->
+                            <div class="col-md-5">
+                                <table class="table table-bordered table-sm text-center small mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th></th>
+                                            <th>1 (Home)</th>
+                                            <th>X (Draw)</th>
+                                            <th>2 (Away)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="text-muted">Pre</td>
+                                            <td>{{ (item.pre_probs.home * 100)|round(0)|int }}%</td>
+                                            <td>{{ (item.pre_probs.draw * 100)|round(0)|int }}%</td>
+                                            <td>{{ (item.pre_probs.away * 100)|round(0)|int }}%</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-muted">Live</td>
+                                            <td class="{{ 'table-success fw-bold' if item.adj_probs.home > item.pre_probs.home else ('table-danger' if item.adj_probs.home < item.pre_probs.home else '') }}">
+                                                {{ (item.adj_probs.home * 100)|round(0)|int }}%
+                                            </td>
+                                            <td class="{{ 'table-success fw-bold' if item.adj_probs.draw > item.pre_probs.draw else ('table-danger' if item.adj_probs.draw < item.pre_probs.draw else '') }}">
+                                                {{ (item.adj_probs.draw * 100)|round(0)|int }}%
+                                            </td>
+                                            <td class="{{ 'table-success fw-bold' if item.adj_probs.away > item.pre_probs.away else ('table-danger' if item.adj_probs.away < item.pre_probs.away else '') }}">
+                                                {{ (item.adj_probs.away * 100)|round(0)|int }}%
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -224,7 +180,89 @@
 </div>
 {% endif %}
 
-<!-- Row 3: Cumulative Stats (collapsible) -->
+<!-- Row 3: Recent Reports (collapsible, default open) -->
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center"
+         role="button" data-bs-toggle="collapse" data-bs-target="#recentReportsBody"
+         aria-expanded="true" aria-controls="recentReportsBody"
+         id="recentReportsHeader" style="cursor:pointer;">
+        <span>Recent Reports</span>
+        <span class="small">
+            {% set _p = predictions|length if predictions else 0 %}
+            {% set _v = verifications|length if verifications else 0 %}
+            {% if _p or _v %}<span class="badge bg-light text-dark me-2">{{ _p }} pred · {{ _v }} verif</span>{% endif %}
+            <span id="recentReportsChevron">▴</span>
+        </span>
+    </div>
+    <div id="recentReportsBody" class="collapse show">
+    <div class="card-body">
+        <div class="row g-4">
+            <!-- Prediction Reports (left) -->
+            <div class="col-md-6">
+                <h6 class="mt-0 border-bottom pb-1">Prediction Reports</h6>
+                {% if predictions %}
+                <div class="list-group">
+                    {% for item in predictions[:3] %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="/football/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
+                            <div>
+                                <strong>{{ item.date }}</strong> <small class="text-muted">({{ item.count }}
+                                    matches)</small>
+                                <span class="badge bg-info text-dark">{{ item.type }}</span>
+                            </div>
+                        </a>
+                        <div class="d-flex align-items-center gap-2">
+                            <a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-primary">View</a>
+                            <form action="/football/delete_file/{{ item.filename }}" method="post"
+                                onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
+                                class="m-0">
+                                <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                                    title="Archive">📁</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">No prediction reports found.</p>
+                {% endif %}
+            </div>
+
+            <!-- Verification Reports (right) -->
+            <div class="col-md-6">
+                <h6 class="mt-0 border-bottom pb-1">Verification Reports</h6>
+                {% if verifications %}
+                <div class="list-group">
+                    {% for item in verifications[:3] %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="/football/view/{{ item.filename }}" class="text-decoration-none flex-grow-1">
+                            <div>
+                                <strong>{{ item.date }}</strong>
+                                <span class="badge bg-warning text-dark">{{ item.type }}</span>
+                            </div>
+                        </a>
+                        <div class="d-flex align-items-center gap-2">
+                            <a href="/football/view/{{ item.filename }}" class="btn btn-sm btn-outline-secondary">View</a>
+                            <form action="/football/delete_file/{{ item.filename }}" method="post"
+                                onsubmit="return confirm('Archive {{ item.filename }}? It will move to history/ and disappear from this list.');"
+                                class="m-0">
+                                <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                                    title="Archive">📁</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">No verification reports found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    </div>
+</div>
+
+<!-- Row 4: Cumulative Stats (collapsible) -->
 <div class="card mb-4">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
          role="button" data-bs-toggle="collapse" data-bs-target="#leagueStatsBody"
@@ -276,9 +314,19 @@
     </div>
 </div>
 
-<!-- Row 3.5: Scraper Data -->
+<!-- Row 5: Scraper Data (collapsible, default closed) -->
 <div class="card mb-4 border-info">
-    <div class="card-header bg-info text-dark">Available Scraped Data</div>
+    <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center"
+         role="button" data-bs-toggle="collapse" data-bs-target="#scrapedDataBody"
+         aria-expanded="false" aria-controls="scrapedDataBody"
+         id="scrapedDataHeader" style="cursor:pointer;">
+        <span>Available Scraped Data</span>
+        <span class="small">
+            {% if scraped_data %}<span class="badge bg-light text-dark me-2">{{ scraped_data|length }} files</span>{% endif %}
+            <span id="scrapedDataChevron">▾</span>
+        </span>
+    </div>
+    <div id="scrapedDataBody" class="collapse">
     <div class="card-body p-0">
         {% if scraped_data %}
         <table class="table table-sm table-hover m-0">
@@ -312,6 +360,7 @@
             <p class="mb-0">No scraped data found. Run the pipeline to generate data.</p>
         </div>
         {% endif %}
+    </div>
     </div>
 </div>
 </div>
@@ -421,25 +470,33 @@
 
     setInterval(updateStatus, 2000);
 
-    // Persist league-stats collapse state across visits.
-    (function () {
-        const body = document.getElementById('leagueStatsBody');
-        const chevron = document.getElementById('leagueStatsChevron');
+    // Persist collapse state for each collapsible card across visits.
+    // Each entry: [collapseBodyId, chevronId, localStorageKey, defaultOpen].
+    function wireCollapsible(bodyId, chevronId, key, defaultOpen) {
+        const body = document.getElementById(bodyId);
+        const chevron = document.getElementById(chevronId);
         if (!body || !chevron) return;
-        const KEY = 'leagueStatsOpen';
-        if (localStorage.getItem(KEY) === '1') {
+        const stored = localStorage.getItem(key);
+        const open = stored === null ? defaultOpen : stored === '1';
+        if (open) {
             body.classList.add('show');
             chevron.textContent = '▴';
+        } else {
+            body.classList.remove('show');
+            chevron.textContent = '▾';
         }
         body.addEventListener('shown.bs.collapse', () => {
-            localStorage.setItem(KEY, '1');
+            localStorage.setItem(key, '1');
             chevron.textContent = '▴';
         });
         body.addEventListener('hidden.bs.collapse', () => {
-            localStorage.setItem(KEY, '0');
+            localStorage.setItem(key, '0');
             chevron.textContent = '▾';
         });
-    })();
+    }
+    wireCollapsible('recentReportsBody', 'recentReportsChevron', 'recentReportsOpen', true);
+    wireCollapsible('leagueStatsBody',   'leagueStatsChevron',   'leagueStatsOpen',   false);
+    wireCollapsible('scrapedDataBody',   'scrapedDataChevron',   'scrapedDataOpen',   false);
     updateStatus();
 </script>
 {% endblock %}
