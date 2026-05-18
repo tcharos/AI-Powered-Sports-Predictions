@@ -24,6 +24,11 @@ DEFAULT_SPORT_CONFIG = {
     'stake_multiplier': 0.4,
     'min_stake_eur': 2.0,
     'max_stake_pct': 0.03,
+    # Clamp EV input to the value-lane sizing formula. Stops a single
+    # high-EV pick (often from a low-data league where the model
+    # overstates) from dominating the slip. Per-league recalibration is
+    # the upstream fix — see NEXT_STEPS.md.
+    'ev_cap_value': 0.05,
     # Conviction lane
     'conviction_min_confidence': 0.65,
     'conviction_min_odds': 1.40,

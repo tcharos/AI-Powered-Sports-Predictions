@@ -97,6 +97,32 @@ Question: more granular live stats (xGOT, big chances, touches in opp box, shots
 | Wire new stats into LiveAdjuster heuristics | medium | ⏸ hold | Don't add new handcrafted layers until backtest harness has ≥50 settled bets per lane to score variants against. Premature tuning of weights on a 10-bet sample is just adding parameters to over-fit. |
 | Replace heuristics with a learned model | large | ⏸ hold | Logistic regression or gradient boost on `(snapshot_state, final_outcome)` pairs from `live_history_*.jsonl`. Needs weeks of accumulated history first. Eventual right answer for adjuster v2, but data-gated. |
 
+## Per-league probability recalibration (proposal)
+
+**Why**: The model produces `P(home/draw/away)` and `P(over/under)` per match. EV = `our_prob × odds − 1`. When the model overestimates a probability — typically in leagues with thin training data or high outcome variance — the EV signal it produces is inflated, which can dominate the slip via Option B sizing. The current `ev_cap_value = 0.05` is a downstream guard; this work is the proper upstream fix.
+
+Calibration is an **offline** step: it uses our existing `data_sets/MatchHistory/` corpus (≥1000 matches per major league since ~2010), not real-bet outcomes, so the small settled-bet sample doesn't gate it.
+
+### Phases
+
+- [ ] **C1 — Diagnose per-league miscalibration.** New script `ml_project/calibration/diagnose_per_league.py`. For each league with N ≥ 100 historical matches, compute on a holdout: mean predicted prob per outcome vs actual frequency, Brier score, log loss, 10-bin reliability curve. Output: a Markdown / CSV report ranking leagues by miscalibration severity. Acceptance: report flags which leagues need recalibration most (likely lower-tier ones).
+- [ ] **C2 — Fit Platt scaling per league + market.** For each league with N ≥ 100, fit a per-market calibrator: 1X2 (multi-class softmax with per-class temperature) and O/U 2.5 (binary Platt: `calibrated = sigmoid(a × logit(p) + b)`). Persist parameters to `data_sets/league_calibration.json` keyed by `(league, market)`. Use scikit-learn's `CalibratedClassifierCV` with `method='sigmoid'` as a starting point.
+- [ ] **C3 — Validate on holdout.** Hold out the last 20% of matches per league chronologically (avoid time-leakage). Compare Brier / log loss / accuracy with and without calibration. Acceptance: at least 60% of leagues show Brier improvement on holdout, no league regresses by > 5%.
+- [ ] **C4 — Apply at inference.** In `predict_matches.py`, after `model.predict_proba()`, look up the league's calibrator and apply it. Recompute Conf / EV / Kelly with calibrated probs. Fall back to raw probs if `league_calibration.json` has no entry for that league. New flag `data_sets/betting_config.json:use_league_calibration` (default true) so we can A/B against raw on demand.
+- [ ] **C5 — Wire into retrain pipeline.** `bin/retrain_pipeline.sh` regenerates `league_calibration.json` as a post-train step. Document in `CLAUDE.md`.
+- [ ] **C6 — Revisit `ev_cap_value`.** Once C4 ships, raise `ev_cap_value` back up (or remove it) — the downstream cap exists only to compensate for upstream miscalibration. Decide empirically: re-run the backtest harness with `ev_cap_value ∈ {0.05, 0.08, 0.15, ∞}` on calibrated probs and pick the one that maximises Δ vs baseline.
+
+### Risks and watch-outs
+
+- **Time-leakage**: must split holdout chronologically, not randomly. Random splits leak information from "the future" of a league into "the past" and overstate calibration quality.
+- **Low-data leagues**: with N < 100 matches, Platt scaling is unstable. Fall back to a parent-tier calibrator (e.g., a single "minor European leagues" bucket fitted across pooled data) rather than per-league.
+- **O/U threshold drift**: scoring environments change over years. Older Premier League seasons averaged ~2.5 g/match, recent ones run higher. Consider weighting recent data more heavily (sample weights `exp(-(today - match_date).days / decay_days)`).
+- **Calibration is not bias correction**: Platt scaling fixes calibration (predicted 60% → actual 60%), not accuracy (the model's pick frequency). If a league's model genuinely picks the wrong outcome more often, calibration won't help — that's a feature-engineering problem upstream.
+
+### Sequencing
+
+C1–C2 are independent of every other roadmap item and can start whenever. C3 gates C4 (don't deploy uncalibrated calibration). C5 and C6 wait until C4 has run for a couple of weeks on live predictions.
+
 ## Future analysis ideas (not yet scoped)
 
 - **Scrape real cashout value from the bookmaker** — current dashboard shows an **internal fair-value estimate** (`stake × odds × adj_prob × 0.95`), not what Pamestoixima would actually pay. The real offer is what matters for the decision; the bookie applies their own haircut and may differ materially from our model. The decision rule becomes "their offer > our estimate ⇒ accept; their offer < our estimate ⇒ hold." Implementation: once `real_betting/bookmakers/pamestoixima.py` can navigate to a fixture's bet-slip area (requires real-betting steps 6b/6c to be done first), add a `get_cashout(bet_url)` method that returns the live offer, and surface both side-by-side in the dashboard ("Bookie €X.XX · Est. €Y.YY"). Gated by: real-betting integration maturity + Phase 3 bet schema linking each placed bet to a bookmaker bet/slip ID for lookup.

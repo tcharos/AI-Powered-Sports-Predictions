@@ -1093,6 +1093,7 @@ def auto_wager():
         min_confidence           = config['min_confidence']
         stake_multiplier         = config['stake_multiplier']
         max_stake_pct            = config['max_stake_pct']
+        ev_cap_value             = config['ev_cap_value']
         # Conviction lane
         conv_min_confidence      = config['conviction_min_confidence']
         conv_min_odds            = config['conviction_min_odds']
@@ -1168,12 +1169,18 @@ def auto_wager():
             }
 
         def build_value_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
-            """Option B: EV-gated, stake = bankroll * EV * conf * multiplier, capped & floored."""
+            """Option B: EV-gated, stake = bankroll * min(EV, cap) * conf * multiplier, capped & floored.
+
+            The min(ev, ev_cap_value) clamp prevents a single high-EV pick (often
+            from a low-data league) from dominating the slip. Real fix is
+            per-league probability recalibration upstream — see NEXT_STEPS.md.
+            """
             ev = _to_float(row.get(ev_col, 0))
             conf = _to_float(row.get(conf_col, 0))
             if ev <= 0 or conf < min_confidence:
                 return None
-            raw_stake = value_br * ev * conf * stake_multiplier
+            ev_for_sizing = min(ev, ev_cap_value)
+            raw_stake = value_br * ev_for_sizing * conf * stake_multiplier
             stake = min(raw_stake, max_value_per_bet)
             if stake < min_stake_eur:
                 return None
