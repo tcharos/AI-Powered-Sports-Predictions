@@ -12,11 +12,13 @@ The point of step 1 is to verify the plumbing, not to do anything yet.
 """
 
 import argparse
+import getpass
 import sys
 
 from . import config
 from .credentials import (
-    get_credentials, has_credentials, mask_username, set_credentials,
+    _backend_warning, delete_credentials, get_credentials, has_credentials,
+    mask_username, set_credentials,
 )
 
 
@@ -29,17 +31,57 @@ def _bookmaker_arg(parser):
 
 
 def cmd_set_credentials(args):
-    """Store username + password for a bookmaker in the system Keychain."""
-    print(f"[stub] set-credentials for {args.bookmaker}: not implemented yet.")
-    print("       See NEXT_STEPS.md → 'Real betting integration' step 2.")
-    return 1
+    """Prompt for username + password, store in the macOS Keychain."""
+    warn = _backend_warning()
+    if warn:
+        print(warn, file=sys.stderr)
+
+    print(f"Storing credentials for '{args.bookmaker}' in the system keyring.")
+    print("Password input is hidden; press Enter when done.")
+    try:
+        username = input('Username (email): ').strip()
+        if not username:
+            print("Aborted: username is empty.", file=sys.stderr)
+            return 1
+        password = getpass.getpass('Password: ')
+        if not password:
+            print("Aborted: password is empty.", file=sys.stderr)
+            return 1
+    except (KeyboardInterrupt, EOFError):
+        print("\nAborted.", file=sys.stderr)
+        return 130
+
+    set_credentials(args.bookmaker, username, password)
+    print(f"OK — stored credentials for {mask_username(username)} under "
+          f"service '{config.KEYCHAIN_SERVICE_PREFIX}:{args.bookmaker}'.")
+    return 0
 
 
 def cmd_get_credentials(args):
-    """Print masked credential info for a bookmaker."""
-    print(f"[stub] get-credentials for {args.bookmaker}: not implemented yet.")
-    print("       See NEXT_STEPS.md → 'Real betting integration' step 2.")
-    return 1
+    """Print masked credential info for a bookmaker. Never echoes password."""
+    creds = get_credentials(args.bookmaker)
+    if not creds:
+        print(f"No credentials stored for '{args.bookmaker}'. "
+              f"Run: python -m real_betting.cli set-credentials {args.bookmaker}")
+        return 1
+    print(f"bookmaker: {args.bookmaker}")
+    print(f"username:  {mask_username(creds['username'])}")
+    print(f"password:  *** (set; not displayed by design)")
+    return 0
+
+
+def cmd_delete_credentials(args):
+    """Remove a bookmaker's stored credentials from the keyring."""
+    if not has_credentials(args.bookmaker):
+        print(f"No credentials stored for '{args.bookmaker}'. Nothing to do.")
+        return 0
+    confirm = input(f"Delete stored credentials for '{args.bookmaker}'? [y/N] ").strip().lower()
+    if confirm != 'y':
+        print("Cancelled.")
+        return 1
+    delete_credentials(args.bookmaker)
+    print(f"OK — credentials for '{args.bookmaker}' removed from keyring.")
+    return 0
 
 
 def cmd_login(args):
@@ -72,6 +114,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser('get-credentials', help='Show masked credential info.')
     _bookmaker_arg(sp)
     sp.set_defaults(func=cmd_get_credentials)
+
+    sp = sub.add_parser('delete-credentials', help='Remove stored credentials.')
+    _bookmaker_arg(sp)
+    sp.set_defaults(func=cmd_delete_credentials)
 
     sp = sub.add_parser('login', help='Authenticate against a bookmaker.')
     _bookmaker_arg(sp)
