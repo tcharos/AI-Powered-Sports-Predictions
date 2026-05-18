@@ -666,45 +666,49 @@ class FlashscoreSpider(scrapy.Spider):
                     await page.wait_for_timeout(500)
             except: pass
 
-            # 1. Navigate
-            url = f"https://www.flashscore.com/match/{match_id}/#/match-summary/match-statistics/0"
+            # 1. Navigate to the match page (no URL fragment — Flashscore's
+            # SPA doesn't auto-route #/match-statistics/0 to the stats panel
+            # reliably; we click the STATS tab below instead).
+            url = f"https://www.flashscore.com/match/{match_id}/"
             try:
                 await page.goto(url, timeout=20000, wait_until='domcontentloaded')
-                
+
                 # 2. Wait for Header (Base)
                 try:
                     await page.wait_for_selector('.detailScore__wrapper', timeout=5000)
                 except: pass
-                
-                # 3. Ensure Stats Tab is Active
-                # Sometimes direct URL doesn't work for SPAs, need to click
+
+                # 3. Click the STATS tab. Flashscore's tab labels are
+                # all-caps in the DOM ("STATS") — case-insensitive has-text
+                # handles that. Wait long enough for the stats panel to
+                # populate (it lazy-loads via XHR after click).
                 try:
-                    # Check if stats container is visible using text search for a common stat
-                    stats_visible = await page.evaluate("() => document.body.innerText.includes('Ball Possession') || document.body.innerText.includes('Total shots')")
-                    
-                    if not stats_visible:
-                        stats_tab = page.locator('a[href*="/match-statistics"], button:has-text("Stats")')
-                        if await stats_tab.count() > 0:
-                             await stats_tab.first.click()
-                             await page.wait_for_timeout(2000)
-                except:
-                    pass
+                    stats_tab = page.locator('a:has-text("STATS"), button:has-text("STATS")')
+                    if await stats_tab.count() > 0:
+                        await stats_tab.first.click()
+                        await page.wait_for_timeout(3500)
+                except: pass
 
-                # Debug: Screenshot the first match to see structure
+                # Debug: Screenshot the first match to see structure.
+                # output/ is gitignored so this doesn't pollute the repo root.
                 if match_id == ids[0]:
-                    await page.screenshot(path="debug_live_batch_stats.png")
+                    await page.screenshot(path="output/debug_live_batch_stats.png")
 
-                # 3. Extract Data (Regex on Text - Most Robust)
+                # 3. Extract Data (Regex on Text - Most Robust).
+                # Stats appear as 3 lines: home_value \n label \n away_value.
+                # Possession is "44%" (with % sign), others are plain numbers.
                 data = await page.evaluate(r"""
                     () => {
                         const bodyText = document.body.innerText;
                         const stats = {};
-                        
+
                         function extractStat(label, key) {
-                            // Matches: Value - Label - Value (with optional hyphens/spaces)
-                            // Example: 0.18 - Expected Goals (xG) - 1.31
-                            // Regex: Number ... Label ... Number
-                            const regex = new RegExp(`([\\d\\.]+)[^\\d\\n]*${label}[^\\d\\n]*([\\d\\.]+)`, 'i');
+                            // home_value [newlines/spaces] LABEL [newlines/spaces] away_value
+                            // Values may have a trailing % (possession).
+                            const regex = new RegExp(
+                                `([\\d\\.]+)%?[\\s\\n]*${label}[^\\n]*[\\s\\n]+([\\d\\.]+)%?`,
+                                'i'
+                            );
                             const match = bodyText.match(regex);
                             if (match) {
                                 stats[key + '_home'] = parseFloat(match[1]);
@@ -712,11 +716,12 @@ class FlashscoreSpider(scrapy.Spider):
                             }
                         }
 
-                        extractStat('Expected Goals', 'xg');
+                        extractStat('Expected goals', 'xg');         // "Expected goals (xG)"
                         extractStat('Total shots', 'shots');
-                        extractStat('Goal Attempts', 'shots'); // Alt
-                        extractStat('Ball Possession', 'possession');
-                        extractStat('Corner Kicks', 'corners');
+                        extractStat('Goal Attempts', 'shots');       // Alt name
+                        extractStat('Ball possession', 'possession'); // lowercase 'p'
+                        extractStat('Corner kicks', 'corners');      // lowercase 'k'
+                        extractStat('Shots on target', 'shots_on_target');
                         
                         let scores = document.querySelector('.detailScore__wrapper')?.innerText || '0-0';
                         scores = scores.replace(/\n/g, '').replace(/\s+/g, '').replace(/-/g, '-'); 
