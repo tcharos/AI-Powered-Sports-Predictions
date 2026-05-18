@@ -177,8 +177,9 @@
                                     <div class="d-flex justify-content-between text-muted">
                                         <span>Stake €{{ b.stake }}</span>
                                         {% if b.fair_cashout is not none %}
-                                            <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}">
-                                                Cashout €{{ b.fair_cashout }}
+                                            <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
+                                                  title="Internal fair-value estimate (stake × odds × adj_prob × 0.95). Actual bookmaker cashout offer not yet scraped — see NEXT_STEPS.md.">
+                                                Est. cashout €{{ b.fair_cashout }}
                                             </span>
                                         {% else %}
                                             <span class="text-muted small">O/U cashout n/a</span>

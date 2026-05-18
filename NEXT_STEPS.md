@@ -82,6 +82,8 @@ When/if we revisit the end-goal decision:
 
 ## Future analysis ideas (not yet scoped)
 
+- **Scrape real cashout value from the bookmaker** — current dashboard shows an **internal fair-value estimate** (`stake × odds × adj_prob × 0.95`), not what Pamestoixima would actually pay. The real offer is what matters for the decision; the bookie applies their own haircut and may differ materially from our model. The decision rule becomes "their offer > our estimate ⇒ accept; their offer < our estimate ⇒ hold." Implementation: once `real_betting/bookmakers/pamestoixima.py` can navigate to a fixture's bet-slip area (requires real-betting steps 6b/6c to be done first), add a `get_cashout(bet_url)` method that returns the live offer, and surface both side-by-side in the dashboard ("Bookie €X.XX · Est. €Y.YY"). Gated by: real-betting integration maturity + Phase 3 bet schema linking each placed bet to a bookmaker bet/slip ID for lookup.
+
 - **"Place bet now?" shortcut on live rows** — when a live match has no open bet, show a one-click action that takes you to `/football/auto_wager` (or a future bet-placement modal) pre-filtered to that match. Useful for value-discovery on in-progress games where the score state has shifted the EV. Caveat: couples live analytical view with virtual betting action; needs design before building. Revisit when /auto_wager UI is generalised enough to accept a per-match filter.
 
 ## Open / deferred work (smaller items)
