@@ -26,10 +26,11 @@
                         </tr>
                     </thead>
                     <tbody>
+                        {% set lane_badge = {'value': 'bg-primary', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
                         {% for lane_name, s in lane_stats.items() %}
                         <tr>
                             <td class="text-start fw-bold">
-                                <span class="badge {{ 'bg-primary' if lane_name == 'value' else 'bg-warning text-dark' }}">
+                                <span class="badge {{ lane_badge.get(lane_name, 'bg-secondary') }}">
                                     {{ lane_name|capitalize }}
                                 </span>
                             </td>
@@ -65,22 +66,35 @@
             <div class="card-body">
                 <div class="card bg-light mb-3">
                     <div class="card-body">
-                        <h5>Two-lane Strategy</h5>
+                        <h5>Three-lane Strategy · Independent Bankrolls</h5>
                         <ul class="mb-3 small">
                             <li><strong>Value lane</strong> (Option B) — EV-gated, stake = bankroll × EV × Conf × multiplier, capped per bet & per day.</li>
                             <li><strong>Conviction lane</strong> — Conf ≥ 0.65 AND odds ≥ 1.40, regardless of EV. Flat 0.5% bankroll.</li>
-                            <li>Combined exposure capped at 10% of bankroll/day. Value lane gets priority if over.</li>
+                            <li><strong>Model lane</strong> — bet every prediction; stake = bankroll × base × conf × ev_factor (clamped).</li>
+                            <li>Each lane has its own bankroll and its own daily exposure cap. Override below per session (leave blank to use saved values).</li>
                         </ul>
 
-                        <div class="form-group">
-                            <label for="customBankroll" class="form-label fw-bold">Session Bankroll (override)</label>
-                            <div class="input-group">
-                                <span class="input-group-text">€</span>
-                                <input type="number" class="form-control" id="customBankroll"
-                                    placeholder="Leave empty to use saved bankroll" step="any">
-                                <button class="btn btn-outline-secondary" type="button"
-                                    onclick="loadConfigBankroll()">Clear</button>
+                        <div class="row g-3">
+                            {% for lane in ['value', 'conviction', 'model'] %}
+                            <div class="col-md-4">
+                                <div class="card h-100 border-{{ 'primary' if lane == 'value' else ('warning' if lane == 'conviction' else 'info') }}">
+                                    <div class="card-header bg-{{ 'primary text-white' if lane == 'value' else ('warning text-dark' if lane == 'conviction' else 'info text-dark') }} fw-bold text-capitalize">
+                                        {{ lane }} lane
+                                    </div>
+                                    <div class="card-body p-2">
+                                        <label class="form-label small mb-1">Bankroll (€)</label>
+                                        <input type="number" class="form-control form-control-sm session-bankroll" data-lane="{{ lane }}"
+                                            placeholder="saved" step="any">
+                                        <label class="form-label small mb-1 mt-2">Daily cap (%)</label>
+                                        <input type="number" class="form-control form-control-sm session-cap" data-lane="{{ lane }}"
+                                            placeholder="default" step="any" min="0" max="100">
+                                    </div>
+                                </div>
                             </div>
+                            {% endfor %}
+                        </div>
+                        <div class="mt-2 text-end">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearOverrides()">Clear overrides</button>
                         </div>
                     </div>
                 </div>
@@ -94,7 +108,7 @@
 
                     <div class="row g-3">
                         <!-- Value Lane Slip -->
-                        <div class="col-md-6">
+                        <div class="col-lg-4 col-md-6">
                             <div class="card border-primary h-100">
                                 <div class="card-header bg-primary text-white d-flex justify-content-between">
                                     <strong>Value Lane</strong>
@@ -119,7 +133,7 @@
                             </div>
                         </div>
                         <!-- Conviction Lane Slip -->
-                        <div class="col-md-6">
+                        <div class="col-lg-4 col-md-6">
                             <div class="card border-warning h-100">
                                 <div class="card-header bg-warning text-dark d-flex justify-content-between">
                                     <strong>Conviction Lane</strong>
@@ -139,6 +153,31 @@
                                             </tr>
                                         </thead>
                                         <tbody id="convBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Model Lane Slip -->
+                        <div class="col-lg-4 col-md-12">
+                            <div class="card border-info h-100">
+                                <div class="card-header bg-info text-dark d-flex justify-content-between">
+                                    <strong>Model Lane</strong>
+                                    <span><span id="modelCount">0</span> bets · €<span id="modelStake">0.00</span></span>
+                                </div>
+                                <div class="card-body p-0">
+                                    <table class="table table-sm table-striped mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Match</th>
+                                                <th>Type</th>
+                                                <th>Sel</th>
+                                                <th>Odd</th>
+                                                <th>Conf</th>
+                                                <th>EV</th>
+                                                <th>Stake</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="modelBody"></tbody>
                                     </table>
                                 </div>
                             </div>
@@ -209,9 +248,10 @@
                         <tbody>
                             {% for bet in slip.bets %}
                             <tr class="{{ 'table-success' if bet.result == 'WON' else ('table-danger' if bet.result == 'LOST' else '') }}">
+                                {% set _lane = bet.get('lane', 'value') %}
                                 <td>
-                                    <span class="badge {{ 'bg-warning text-dark' if bet.get('lane') == 'conviction' else 'bg-primary' }}">
-                                        {{ bet.get('lane', 'value')|capitalize }}
+                                    <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-primary') }}">
+                                        {{ _lane|capitalize }}
                                     </span>
                                 </td>
                                 <td>{{ bet.match }}</td>
@@ -255,8 +295,13 @@
     let currentBets = [];
     let currentFilename = "";
 
-    function loadConfigBankroll() {
-        document.getElementById('customBankroll').value = '';
+    const LANES = ['value', 'conviction', 'model'];
+    const LANE_BODY = { value: 'valueBody', conviction: 'convBody', model: 'modelBody' };
+    const LANE_COUNT = { value: 'valueCount', conviction: 'convCount', model: 'modelCount' };
+    const LANE_STAKE = { value: 'valueStake', conviction: 'convStake', model: 'modelStake' };
+
+    function clearOverrides() {
+        document.querySelectorAll('.session-bankroll, .session-cap').forEach(el => el.value = '');
     }
 
     function renderLane(tbodyId, bets) {
@@ -283,38 +328,52 @@
 
     function generateSlip() {
         const resultDiv = document.getElementById('wagerResult');
-        const customBankroll = document.getElementById('customBankroll').value;
-
         resultDiv.style.display = 'none';
         currentBets = [];
 
-        let url = '/auto_wager';
-        if (customBankroll) url += `?bankroll=${encodeURIComponent(customBankroll)}`;
+        const params = new URLSearchParams();
+        document.querySelectorAll('.session-bankroll').forEach(el => {
+            if (el.value) params.set(`bankroll_${el.dataset.lane}`, el.value);
+        });
+        document.querySelectorAll('.session-cap').forEach(el => {
+            if (el.value) {
+                const pct = parseFloat(el.value);
+                if (!isNaN(pct)) params.set(`cap_${el.dataset.lane}`, (pct / 100).toString());
+            }
+        });
+
+        const qs = params.toString();
+        const url = '/football/auto_wager' + (qs ? `?${qs}` : '');
 
         fetch(url)
             .then(res => res.json())
             .then(data => {
                 if (data.error) { alert(data.error); return; }
 
-                const v = data.lanes.value;
-                const c = data.lanes.conviction;
+                LANES.forEach(lane => {
+                    const l = data.lanes[lane] || { count: 0, total_stake: 0, bets: [] };
+                    document.getElementById(LANE_COUNT[lane]).innerText = l.count;
+                    document.getElementById(LANE_STAKE[lane]).innerText = l.total_stake.toFixed(2);
+                    renderLane(LANE_BODY[lane], l.bets);
+                });
+
                 const g = data.guardrails;
+                const capLine = LANES.map(lane => {
+                    const lg = g[lane] || {};
+                    const action = lg.cap_action ? ` <strong>${lg.cap_action}</strong>` : '';
+                    return `${lane[0].toUpperCase() + lane.slice(1)}: €${(lg.daily_cap_eur || 0).toFixed(2)} `
+                         + `(${((lg.daily_cap_pct || 0) * 100).toFixed(0)}%)${action}`;
+                }).join(' · ');
 
-                document.getElementById('valueCount').innerText = v.count;
-                document.getElementById('valueStake').innerText = v.total_stake.toFixed(2);
-                document.getElementById('convCount').innerText = c.count;
-                document.getElementById('convStake').innerText = c.total_stake.toFixed(2);
-
-                renderLane('valueBody', v.bets);
-                renderLane('convBody', c.bets);
-
-                let summary = `<strong>${data.filename}</strong> · Bankroll €${data.bankroll.toFixed(2)} · `
-                            + `Total stake €${data.total_stake.toFixed(2)} `
-                            + `(${(data.total_stake / data.bankroll * 100).toFixed(1)}% of bankroll)<br>`
-                            + `<small>Daily cap €${g.shared.daily_cap_eur.toFixed(2)} `
-                            + `(${(g.shared.max_daily_exposure_pct * 100).toFixed(0)}%) — `
-                            + (g.shared.cap_action ? `<strong>${g.shared.cap_action}</strong>` : 'within cap')
-                            + `</small>`;
+                const totalBr = data.bankroll || 0;
+                const pctOfBr = totalBr > 0 ? (data.total_stake / totalBr * 100) : 0;
+                let summary = `<strong>${data.filename}</strong> · `
+                            + `Combined bankroll €${totalBr.toFixed(2)} · `
+                            + `Total stake €${data.total_stake.toFixed(2)} (${pctOfBr.toFixed(1)}% of combined)<br>`
+                            + `<small>Per-lane bankroll: `
+                            + LANES.map(l => `${l}=€${(data.lanes[l].bankroll || 0).toFixed(2)}`).join(' / ')
+                            + `</small><br>`
+                            + `<small>${capLine}</small>`;
                 document.getElementById('slipSummary').innerHTML = summary;
 
                 currentFilename = data.filename;
@@ -327,7 +386,7 @@
 
     function placeVirtualBets() {
         if (!currentBets.length) return;
-        if (!confirm(`Place ${currentBets.length} virtual bets across both lanes?`)) return;
+        if (!confirm(`Place ${currentBets.length} virtual bets across all lanes?`)) return;
 
         fetch('/football/place_bets', {
             method: 'POST',

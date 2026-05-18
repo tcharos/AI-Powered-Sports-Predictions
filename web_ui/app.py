@@ -14,7 +14,11 @@ from sports_config import (
     get_bankroll,
     update_bankroll,
     all_bankrolls,
+    all_lane_bankrolls,
+    lane_bankrolls,
+    sport_total,
     total_bankroll,
+    LANES,
 )
 
 # Sport blueprints — each sport's routes mount under /<sport>/.
@@ -28,7 +32,7 @@ NBA_TASKS = {}  # kept as empty stub so /status responses don't break
 SPORTS = [
     {'slug': 'football', 'label': 'Football', 'icon': '⚽', 'active': True,
      'bets_dir': 'output',
-     'tagline': 'Daily 1X2 + Over/Under predictions, two-lane betting strategy.'},
+     'tagline': 'Daily 1X2 + Over/Under predictions, three-lane betting strategy.'},
     {'slug': 'nba',      'label': 'NBA',      'icon': '🏀', 'active': False,
      'bets_dir': 'output_basketball',
      'tagline': 'Dormant — code preserved at web_ui/nba/. Reactivation planned for next NBA season.'},
@@ -275,28 +279,32 @@ def process_bet_verification(verification_file_path):
                 'O/U': row['Actual O/U']
             }
             
-        total_pnl = 0.0 # Net Profit/Loss for stats
-        total_return = 0.0 # Amount to return to bankroll (Stake + Profit)
+        total_pnl = 0.0
+        total_return = 0.0
+        return_by_lane = {lane: 0.0 for lane in LANES}
+        pnl_by_lane = {lane: 0.0 for lane in LANES}
         won_bets = 0
         lost_bets = 0
-        
+
         bets = bets_data.get('bets', [])
         for bet in bets:
+            lane = bet.get('lane', 'value')
+            if lane not in LANES:
+                lane = 'value'
             match_key = bet['match']
+            stake = float(bet.get('stake_units', 0))
+
             if match_key not in results_map:
-                bet['status'] = 'VOID' 
-                # If VOID, we return the stake
-                stake = float(bet.get('stake_units', 0))
+                bet['status'] = 'VOID'
+                return_by_lane[lane] += stake
                 total_return += stake
                 bet['pnl'] = 0.0
                 continue
-                
+
             actual = results_map[match_key]
-            stake = float(bet.get('stake_units', 0))
             odds = float(bet.get('odds', 0))
-            selection = bet['selection'] 
-            
-            # Check Win
+            selection = bet['selection']
+
             won = False
             if bet['type'] == '1X2':
                 if str(selection) == str(actual['1X2']):
@@ -304,44 +312,43 @@ def process_bet_verification(verification_file_path):
             elif bet['type'] == 'O/U':
                 if str(selection) == str(actual['O/U']):
                     won = True
-            
+
             if won:
-                # Bankroll Logic: We already deducted stake.
-                # Return = Stake * Odds
                 payout = stake * odds
                 profit = payout - stake
-                
+                return_by_lane[lane] += payout
+                pnl_by_lane[lane] += profit
                 total_return += payout
                 total_pnl += profit
-                
                 bet['result'] = 'WON'
                 bet['pnl'] = profit
                 won_bets += 1
             else:
-                # Loss
-                # Return = 0
-                # PnL = -Stake
-                total_return += 0.0
+                pnl_by_lane[lane] -= stake
                 total_pnl -= stake
-                
                 bet['result'] = 'LOST'
                 bet['pnl'] = -stake
                 lost_bets += 1
-        
-        # Settlement: credit returns back to football's bankroll. Stake was
-        # already deducted at /football/place_bets time, so total_return here
-        # is the gross payout (stake + winnings on wins, refunded stake on
-        # voids, 0 on losses).
-        new_bankroll = update_bankroll('football', total_return)
-            
-        # Update Bets File status
+
+        # Settlement: credit each lane's returns back to its own bankroll.
+        new_lane_br = {}
+        for lane, ret in return_by_lane.items():
+            if ret > 0:
+                new_lane_br[lane] = update_bankroll('football', ret, lane=lane)
+            else:
+                new_lane_br[lane] = get_bankroll('football', lane=lane)
+
         bets_data['status'] = 'CLOSED'
         bets_data['pnl'] = total_pnl
         bets_data['total_return'] = total_return
+        bets_data['return_by_lane'] = {k: round(v, 2) for k, v in return_by_lane.items()}
+        bets_data['pnl_by_lane'] = {k: round(v, 2) for k, v in pnl_by_lane.items()}
         with open(bets_file, 'w') as f:
             json.dump(bets_data, f, indent=4)
-            
-        print(f"Processed Bets for {date_str}: Returns {total_return:.2f} (Net P/L {total_pnl:.2f}). New Balance: {new_bankroll:.2f}")
+
+        new_bankroll = round(sum(new_lane_br.values()), 2)
+        print(f"Processed Bets for {date_str}: Returns {total_return:.2f} (Net P/L {total_pnl:.2f}). "
+              f"Lane balances: {new_lane_br}. Total: {new_bankroll:.2f}")
 
     except Exception as e:
         print(f"Error processing bet verification: {e}")
@@ -687,48 +694,67 @@ def place_bets():
     try:
         data = request.get_json()
         bets = data.get('bets', [])
-        bets = data.get('bets', [])
-        
-        # Determine Date from Bets (First Bet)
+
         extracted_date = None
         if bets:
             first_date = bets[0].get('date', '')
             if first_date:
-                # Expecting YYYY-MM-DD HH:MM or YYYY-MM-DD
                 try:
                     extracted_date = first_date.split(' ')[0]
                 except: pass
-        
+
         date_str = extracted_date if extracted_date else data.get('date', datetime.datetime.now().strftime('%Y-%m-%d'))
-        
+
         if not bets:
             return jsonify({'error': 'No bets provided.'}), 400
-            
-        # Calculate total stake and debit football's bankroll.
-        total_stake = sum(float(b.get('stake_units', 0)) for b in bets)
 
-        current_bankroll = get_bankroll('football')
-        if total_stake > current_bankroll:
-             return jsonify({'error': f"Insufficient funds. Total stake ({total_stake:.2f}) exceeds bankroll ({current_bankroll:.2f})."}), 400
+        # Group stakes by lane, validate funds per lane, then debit each lane.
+        stake_by_lane = {lane: 0.0 for lane in LANES}
+        for b in bets:
+            lane = b.get('lane', 'value')
+            if lane not in LANES:
+                lane = 'value'
+                b['lane'] = lane
+            stake_by_lane[lane] += float(b.get('stake_units', 0))
 
-        new_bankroll = update_bankroll('football', -total_stake)
-            
-        # Save to output/bets_YYYY-MM-DD.json
+        current_lane_br = lane_bankrolls('football')
+        for lane, stake in stake_by_lane.items():
+            if stake > current_lane_br[lane] + 1e-6:
+                return jsonify({'error': (
+                    f"Insufficient {lane} funds. Stake ({stake:.2f}) exceeds "
+                    f"{lane} bankroll ({current_lane_br[lane]:.2f})."
+                )}), 400
+
+        new_lane_br = {}
+        for lane, stake in stake_by_lane.items():
+            if stake > 0:
+                new_lane_br[lane] = update_bankroll('football', -stake, lane=lane)
+            else:
+                new_lane_br[lane] = current_lane_br[lane]
+
+        total_stake = sum(stake_by_lane.values())
+
         filename = f"bets_{date_str}.json"
         filepath = os.path.join(OUTPUT_DIR, filename)
-        
+
         with open(filepath, 'w') as f:
             json.dump({
                 'date': date_str,
                 'count': len(bets),
                 'bets': bets,
-                'total_stake': total_stake, # Store total stake for record
+                'total_stake': total_stake,
+                'stake_by_lane': {k: round(v, 2) for k, v in stake_by_lane.items()},
                 'status': 'OPEN',
                 'pnl': 0.0,
-                'settled': False # Flag to prevent double settlement
+                'settled': False
             }, f, indent=4)
-            
-        return jsonify({'message': f"Successfully placed {len(bets)} virtual bets! Deducted {total_stake:.2f} units from bankroll.", 'file': filename, 'new_balance': new_bankroll})
+
+        return jsonify({
+            'message': f"Successfully placed {len(bets)} virtual bets! Deducted {total_stake:.2f} across lanes.",
+            'file': filename,
+            'new_balance': round(sum(new_lane_br.values()), 2),
+            'lane_bankrolls': {k: round(v, 2) for k, v in new_lane_br.items()},
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -780,7 +806,7 @@ def compute_sport_summary(bets_dir):
     def _empty():
         return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
                 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
-    lane_stats = {'value': _empty(), 'conviction': _empty()}
+    lane_stats = {lane: _empty() for lane in LANES}
 
     for slip in (history + archived_slips):
         for bet in slip.get('bets', []):
@@ -969,17 +995,14 @@ from flask import jsonify
 @football_bp.route('/auto_wager')
 def auto_wager():
     try:
-        # 1. Find latest prediction file
         pred_files = glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv'))
         if not pred_files:
             return jsonify({'error': 'No prediction files found.'})
-        
-        # Sort by date descending
+
         pred_files.sort(reverse=True)
         latest_file = pred_files[0]
-        
         df = pd.read_csv(latest_file)
-        
+
         def _to_float(v):
             try:
                 if isinstance(v, str):
@@ -994,37 +1017,70 @@ def auto_wager():
             v = _to_float(k_str)
             return v / 100.0 if isinstance(k_str, str) and '%' in k_str else v
 
-        # Load football's bankroll + lane tunables.
         config = get_sport_config('football')
-        config_bankroll          = config['current_bankroll']
-        # Value lane (Option B)
+        lane_br = lane_bankrolls('football')
+
+        # Shared
+        min_stake_eur            = config['min_stake_eur']
+        # Value lane
         min_confidence           = config['min_confidence']
         stake_multiplier         = config['stake_multiplier']
-        min_stake_eur            = config['min_stake_eur']
         max_stake_pct            = config['max_stake_pct']
-        max_daily_exposure       = config['max_daily_exposure_pct']
-        # Conviction lane (parallel A/B)
+        # Conviction lane
         conv_min_confidence      = config['conviction_min_confidence']
         conv_min_odds            = config['conviction_min_odds']
         conv_stake_pct           = config['conviction_stake_pct']
+        # Model lane
+        model_base_pct           = config['model_base_pct']
+        model_max_stake_pct      = config['model_max_stake_pct']
+        model_min_stake_eur      = config['model_min_stake_eur']
+        ev_factor_min            = config['model_ev_factor_min']
+        ev_factor_max            = config['model_ev_factor_max']
 
-        # Override if user provided one
-        custom_bankroll = request.args.get('bankroll')
-        if custom_bankroll:
+        def _override_bankroll(lane, default):
+            """Allow ?bankroll_<lane>=N as a per-session override, capped at saved balance."""
+            raw = request.args.get(f'bankroll_{lane}')
+            if raw is None or raw == '':
+                return default, None
             try:
-                val = float(custom_bankroll)
-                if val > config_bankroll:
-                    return jsonify({'error': f"Session bankroll ({val}) cannot exceed your actual current balance ({config_bankroll})."}), 400
-                if val <= 0:
-                    return jsonify({'error': "Session bankroll must be positive."}), 400
-                current_bankroll = val
+                v = float(raw)
             except ValueError:
-                current_bankroll = config_bankroll
-        else:
-            current_bankroll = config_bankroll
+                return default, None
+            if v <= 0:
+                raise ValueError(f"{lane} session bankroll must be positive.")
+            if v > default:
+                raise ValueError(
+                    f"{lane} session bankroll ({v}) cannot exceed saved balance ({default})."
+                )
+            return v, v
 
-        max_stake_per_bet = current_bankroll * max_stake_pct
-        conv_stake_eur = current_bankroll * conv_stake_pct
+        def _override_cap_pct(lane, default):
+            """?cap_<lane>=0.15 overrides this lane's daily exposure pct."""
+            raw = request.args.get(f'cap_{lane}')
+            if raw is None or raw == '':
+                return default
+            try:
+                v = float(raw)
+            except ValueError:
+                return default
+            if v <= 0 or v > 1.0:
+                return default
+            return v
+
+        try:
+            value_br, value_session     = _override_bankroll('value', lane_br['value'])
+            conv_br, conv_session       = _override_bankroll('conviction', lane_br['conviction'])
+            model_br, model_session     = _override_bankroll('model', lane_br['model'])
+        except ValueError as ve:
+            return jsonify({'error': str(ve)}), 400
+
+        value_cap_pct = _override_cap_pct('value', config['value_max_daily_exposure_pct'])
+        conv_cap_pct  = _override_cap_pct('conviction', config['conviction_max_daily_exposure_pct'])
+        model_cap_pct = _override_cap_pct('model', config['model_max_daily_exposure_pct'])
+
+        max_value_per_bet = value_br * max_stake_pct
+        max_model_per_bet = model_br * model_max_stake_pct
+        conv_flat_stake   = conv_br * conv_stake_pct
 
         def _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
             return {
@@ -1050,8 +1106,8 @@ def auto_wager():
             conf = _to_float(row.get(conf_col, 0))
             if ev <= 0 or conf < min_confidence:
                 return None
-            raw_stake = current_bankroll * ev * conf * stake_multiplier
-            stake = min(raw_stake, max_stake_per_bet)
+            raw_stake = value_br * ev * conf * stake_multiplier
+            stake = min(raw_stake, max_value_per_bet)
             if stake < min_stake_eur:
                 return None
             bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
@@ -1064,15 +1120,29 @@ def auto_wager():
             odd = _to_float(row.get(odd_col, 0))
             if conf < conv_min_confidence or odd < conv_min_odds:
                 return None
-            stake = conv_stake_eur
+            stake = conv_flat_stake
             if stake < min_stake_eur:
                 return None
             bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
             bet.update({'lane': 'conviction', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
             return bet
 
-        value_bets = []
-        conviction_bets = []
+        def build_model_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
+            """Model lane: bet every prediction with valid odds. Sized by conf × ev_factor."""
+            conf = _to_float(row.get(conf_col, 0))
+            odd = _to_float(row.get(odd_col, 0))
+            if conf <= 0 or odd <= 1.0:
+                return None
+            ev_factor = max(ev_factor_min, min(ev_factor_max, conf * odd))
+            raw_stake = model_br * model_base_pct * conf * ev_factor
+            stake = min(raw_stake, max_model_per_bet)
+            if stake < model_min_stake_eur:
+                return None
+            bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
+            bet.update({'lane': 'model', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
+            return bet
+
+        value_bets, conviction_bets, model_bets = [], [], []
         for _, row in df.iterrows():
             for bet_type, sel, odd, conf, ev, kelly in [
                 ('1X2', 'Prediction 1X2', 'Prediction 1X2 Odd', 'Conf 1X2', 'EV 1X2', 'Kelly 1X2'),
@@ -1082,79 +1152,91 @@ def auto_wager():
                 if vb: value_bets.append(vb)
                 cb = build_conviction_bet(row, bet_type, sel, odd, conf, ev, kelly)
                 if cb: conviction_bets.append(cb)
+                mb = build_model_bet(row, bet_type, sel, odd, conf, ev, kelly)
+                if mb: model_bets.append(mb)
 
-        # Combined daily exposure cap. Value lane gets priority; conviction lane absorbs the squeeze.
-        value_total = sum(b['stake_units'] for b in value_bets)
+        def _enforce_daily_cap(bets, bankroll, cap_pct, lane_name, floor):
+            """Per-lane daily cap: scale this lane proportionally if it exceeds cap. Drop sub-floor."""
+            cap = bankroll * cap_pct
+            total = sum(b['stake_units'] for b in bets)
+            action = None
+            if cap > 0 and total > cap:
+                scale = cap / total
+                for b in bets:
+                    b['stake_units'] = round(b['stake_units'] * scale, 2)
+                    b['stake'] = b['stake_units']
+                bets = [b for b in bets if b['stake_units'] >= floor]
+                action = f"{lane_name}-scaled"
+            return bets, cap, action
+
+        value_bets, value_cap, value_action     = _enforce_daily_cap(value_bets, value_br, value_cap_pct, 'value', min_stake_eur)
+        conviction_bets, conv_cap, conv_action  = _enforce_daily_cap(conviction_bets, conv_br, conv_cap_pct, 'conviction', min_stake_eur)
+        model_bets, model_cap, model_action     = _enforce_daily_cap(model_bets, model_br, model_cap_pct, 'model', model_min_stake_eur)
+
+        value_total      = sum(b['stake_units'] for b in value_bets)
         conviction_total = sum(b['stake_units'] for b in conviction_bets)
-        daily_cap = current_bankroll * max_daily_exposure
-        cap_action = None
-
-        if (value_total + conviction_total) > daily_cap and daily_cap > 0:
-            if value_total >= daily_cap:
-                # Value alone exceeds the cap. Scale value down, kill conviction entirely.
-                if value_total > 0:
-                    scale = daily_cap / value_total
-                    for b in value_bets:
-                        b['stake_units'] = round(b['stake_units'] * scale, 2)
-                        b['stake'] = b['stake_units']
-                conviction_bets = []
-                cap_action = 'value-scaled, conviction dropped'
-            else:
-                # Value fits; conviction gets whatever budget remains.
-                remaining = daily_cap - value_total
-                if conviction_total > 0:
-                    scale = remaining / conviction_total
-                    for b in conviction_bets:
-                        b['stake_units'] = round(b['stake_units'] * scale, 2)
-                        b['stake'] = b['stake_units']
-                # Drop conviction bets that fall below floor after scaling.
-                conviction_bets = [b for b in conviction_bets if b['stake_units'] >= min_stake_eur]
-                cap_action = 'conviction-scaled'
-
-        value_total = sum(b['stake_units'] for b in value_bets)
-        conviction_total = sum(b['stake_units'] for b in conviction_bets)
-        all_bets = value_bets + conviction_bets
+        model_total      = sum(b['stake_units'] for b in model_bets)
+        all_bets = value_bets + conviction_bets + model_bets
+        total_stake = value_total + conviction_total + model_total
 
         return jsonify({
             'filename': os.path.basename(latest_file),
-            'bankroll': current_bankroll,
+            'bankroll': round(value_br + conv_br + model_br, 2),
             'count': len(all_bets),
-            'total_stake': round(value_total + conviction_total, 2),
+            'total_stake': round(total_stake, 2),
             'bets': all_bets,
             'lanes': {
                 'value': {
                     'count': len(value_bets),
                     'total_stake': round(value_total, 2),
+                    'bankroll': round(value_br, 2),
                     'bets': value_bets,
                 },
                 'conviction': {
                     'count': len(conviction_bets),
                     'total_stake': round(conviction_total, 2),
+                    'bankroll': round(conv_br, 2),
                     'bets': conviction_bets,
+                },
+                'model': {
+                    'count': len(model_bets),
+                    'total_stake': round(model_total, 2),
+                    'bankroll': round(model_br, 2),
+                    'bets': model_bets,
                 },
             },
             'guardrails': {
                 'value': {
                     'min_confidence': min_confidence,
                     'stake_multiplier': stake_multiplier,
-                    'max_stake_per_bet': round(max_stake_per_bet, 2),
+                    'max_stake_per_bet': round(max_value_per_bet, 2),
+                    'daily_cap_pct': value_cap_pct,
+                    'daily_cap_eur': round(value_cap, 2),
+                    'cap_action': value_action,
                 },
                 'conviction': {
                     'min_confidence': conv_min_confidence,
                     'min_odds': conv_min_odds,
-                    'flat_stake_eur': round(conv_stake_eur, 2),
+                    'flat_stake_eur': round(conv_flat_stake, 2),
+                    'daily_cap_pct': conv_cap_pct,
+                    'daily_cap_eur': round(conv_cap, 2),
+                    'cap_action': conv_action,
+                },
+                'model': {
+                    'base_pct': model_base_pct,
+                    'max_stake_per_bet': round(max_model_per_bet, 2),
+                    'ev_factor_range': [ev_factor_min, ev_factor_max],
+                    'daily_cap_pct': model_cap_pct,
+                    'daily_cap_eur': round(model_cap, 2),
+                    'cap_action': model_action,
                 },
                 'shared': {
                     'min_stake_eur': min_stake_eur,
-                    'max_daily_exposure_pct': max_daily_exposure,
-                    'daily_cap_eur': round(daily_cap, 2),
-                    'cap_action': cap_action,
                 },
             },
         })
-        
+
     except Exception as e:
-        # Return error as JSON so frontend displays it instead of raw 500 HTML
         return jsonify({'error': f"Internal Error: {str(e)}"})
 
 @app.context_processor

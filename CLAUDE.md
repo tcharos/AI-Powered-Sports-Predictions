@@ -98,58 +98,52 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 **NBA reactivation** (next NBA season): in `web_ui/app.py` flip `nba` entry's `active: False` → `True`, uncomment the `from nba.routes import nba_bp, NBA_TASKS` and `app.register_blueprint(nba_bp, url_prefix='/nba')` lines.
 
 **Betting flow** (lives in `football_bp`, all under `/football/...`):
-- `/football/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).
-- `/football/place_bets` writes the combined slip to `output/bets_<date>.json` with each bet tagged `lane: 'value' | 'conviction'`, deducts total stake from `data_sets/betting_config.json:current_bankroll`.
-- `process_bet_verification` (called after a verification CSV is produced) settles bets and credits returns. **Only looks in `output/`** — archived slips will not settle.
-- `/football/betting` page shows a per-lane Strategy Comparison table — header reads "Strategy Comparison · Football (cumulative)" so the sport scope is explicit. Aggregation logic lives in `compute_sport_summary(bets_dir)` (module-level in `app.py`); the same helper feeds the landing page's Portfolio Summary table, so figures stay consistent across views. Each `SPORTS` entry includes a `bets_dir` field so adding a new sport's aggregation is just a new entry, no helper changes.
+- `/football/auto_wager` reads the latest `output/predictions_*.csv` and builds three parallel slips:
+  - **Value lane** — EV-gated, Option B sizing (`value_bankroll × EV × Conf × stake_multiplier`), per-bet cap 3%.
+  - **Conviction lane** — Conf ≥ 0.65 AND odds ≥ 1.40 (EV ignored), flat 0.5% of conviction bankroll.
+  - **Model lane** — broad coverage: stakes every prediction with `model_bankroll × model_base_pct × Conf × ev_factor` where `ev_factor = clamp(Conf × odds, 0.5, 1.5)`. Has its own lower min-stake floor (`model_min_stake_eur`, default €1) so wide coverage isn't killed by the shared €2 floor.
+  - Each lane has its **own bankroll** (independent buckets) and its **own daily exposure cap** (defaults: value 10%, conviction 10%, model 15%). Per-session overrides via query params `bankroll_<lane>` / `cap_<lane>` (cap as 0–1 fraction). When a lane's stakes exceed its cap, that lane scales pro-rata; the other lanes are untouched.
+- `/football/place_bets` writes a combined slip to `output/bets_<date>.json` with each bet tagged `lane: 'value' | 'conviction' | 'model'` and a `stake_by_lane` summary. Debits each lane's bankroll separately.
+- `process_bet_verification` (called after a verification CSV is produced) settles bets and credits returns **per lane** back to that lane's bankroll. Stores `return_by_lane` and `pnl_by_lane` on the closed slip. **Only looks in `output/`** — archived slips will not settle.
+- `/football/betting` page shows a three-row Strategy Comparison table ("Strategy Comparison · Football (cumulative)"). Aggregation logic lives in `compute_sport_summary(bets_dir)` (module-level in `app.py`); the same helper feeds the landing page's Portfolio Summary table.
 - `/football/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
 
-**Tunables** live in `data_sets/betting_config.json`, **sport-keyed**:
+**Tunables** live in `data_sets/betting_config.json`, **sport-keyed**, **lane-aware**:
 
 ```json
 {
     "sports": {
-        "football": { "current_bankroll": ..., "min_confidence": ..., ... },
-        "nba":      { "current_bankroll": ..., ... }
+        "football": {
+            "bankrolls": {
+                "value":      {"current": 1000.0, "initial": 1000.0},
+                "conviction": {"current": 1000.0, "initial": 1000.0},
+                "model":      {"current": 1000.0, "initial": 1000.0}
+            },
+            "min_confidence": 0.45, "stake_multiplier": 0.4,
+            "min_stake_eur": 2.0, "max_stake_pct": 0.03,
+            "conviction_min_confidence": 0.65, "conviction_min_odds": 1.4, "conviction_stake_pct": 0.005,
+            "model_base_pct": 0.005, "model_max_stake_pct": 0.015, "model_min_stake_eur": 1.0,
+            "model_ev_factor_min": 0.5, "model_ev_factor_max": 1.5,
+            "value_max_daily_exposure_pct": 0.10,
+            "conviction_max_daily_exposure_pct": 0.10,
+            "model_max_daily_exposure_pct": 0.15
+        }
     }
 }
 ```
 
-Per-sport keys: `current_bankroll`, `initial_bankroll`, `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct`, `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct`. Each sport has its **own bankroll** (no cross-contamination) and its **own tunables** (NBA's optimal `min_confidence` can differ from football's).
+Each sport has three independent lane bankrolls (no cross-contamination between lanes or sports) and its own tunables. Adding a fourth lane = new entry under `bankrolls`, new entry in `LANES` in `sports_config.py`, and a new builder in `/auto_wager`.
 
-**All bankroll/config access goes through `web_ui/sports_config.py`** — never read or mutate the JSON directly:
-- `get_sport_config(slug)` — full per-sport config dict (defaults merged with overrides).
-- `get_bankroll(slug)` / `update_bankroll(slug, delta)` — atomic bankroll mutations.
-- `all_bankrolls()` / `total_bankroll()` — for the landing-page portfolio view.
+**All bankroll/config access goes through `web_ui/sports_config.py`** — never read or mutate the JSON directly. The schema lives only in this module:
+- `get_sport_config(slug)` — full per-sport config dict (defaults merged with overrides, includes `bankrolls`).
+- `get_bankroll(slug, lane='value')` / `update_bankroll(slug, delta, lane='value')` — atomic lane-scoped mutations.
+- `lane_bankrolls(slug)` → `{lane: current}` for one sport.
+- `sport_total(slug)` → sum across lanes.
+- `all_bankrolls()` → `{sport: sport_total}` (flat per-sport view for navbar/landing).
+- `all_lane_bankrolls()` → `{sport: {lane: current}}` (detailed breakdown).
+- `total_bankroll()` → sum across every lane of every sport.
 
-The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) used to live at the root of this file for the orphan `betting_engine.py`; they were dropped in the per-sport migration. The orphan module is now fully dead.
-
-**Betting flow** (active path, all in `web_ui/app.py`):
-- `/auto_wager` reads the latest `output/predictions_*.csv` and builds two parallel slips: a **value lane** (Option B sizing — `bankroll × EV × Conf × stake_multiplier`, EV-gated) and a **conviction lane** (Conf ≥ 0.65 AND odds ≥ 1.40, flat 0.5% bankroll). Both subject to per-bet cap (3% bankroll), min-stake floor (€2), and combined per-day exposure cap (10% bankroll, value lane prioritized when over).
-- `/place_bets` writes the combined slip to `output/bets_<date>.json` with each bet tagged `lane: 'value' | 'conviction'`, deducts total stake from `data_sets/betting_config.json:current_bankroll`.
-- `process_bet_verification` (called after a verification CSV is produced) settles bets and credits returns. **Only looks in `output/`** — archived slips will not settle.
-- `/betting` page shows a per-lane Strategy Comparison table (aggregates from both `output/` and `output/history/`) plus the visible active slip list.
-- `/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. Used by all delete buttons across the UI (slips, predictions, verifications, scraped data). The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
-
-**Tunables** live in `data_sets/betting_config.json`, **sport-keyed**:
-
-```json
-{
-    "sports": {
-        "football": { "current_bankroll": ..., "min_confidence": ..., ... },
-        "nba":      { "current_bankroll": ..., ... }
-    }
-}
-```
-
-Per-sport keys: `current_bankroll`, `initial_bankroll`, `min_confidence`, `stake_multiplier`, `min_stake_eur`, `max_stake_pct`, `max_daily_exposure_pct`, `conviction_min_confidence`, `conviction_min_odds`, `conviction_stake_pct`. Each sport has its **own bankroll** (no cross-contamination) and its **own tunables** (NBA's optimal `min_confidence` can differ from football's).
-
-**All bankroll/config access goes through `web_ui/sports_config.py`** — never read or mutate the JSON directly:
-- `get_sport_config(slug)` — full per-sport config dict (defaults merged with overrides).
-- `get_bankroll(slug)` / `update_bankroll(slug, delta)` — atomic bankroll mutations.
-- `all_bankrolls()` / `total_bankroll()` — for the landing-page portfolio view.
-
-The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) used to live at the root of this file for the orphan `betting_engine.py`; they were dropped in the per-sport migration. The orphan module is now fully dead.
+The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction`, `ev_threshold`, `league_performance_threshold`, `min_matches_for_stats`) used to live at the root for the orphan `betting_engine.py`; dropped in the per-sport migration. The orphan module is fully dead.
 
 ### Data layout cheatsheet
 

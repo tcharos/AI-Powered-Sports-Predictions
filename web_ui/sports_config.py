@@ -1,10 +1,10 @@
 """
-Sport-aware betting config access.
+Sport-aware, lane-aware betting config access.
 
-The on-disk config (`data_sets/betting_config.json`) groups every tunable
-under `sports.<slug>` so each sport has its own bankroll and strategy
-parameters. This module is the only place that knows the schema — every
-route should go through these helpers.
+Each sport carries three independent bankrolls — `value`, `conviction`,
+`model` — under `sports.<slug>.bankrolls.<lane>.{current,initial}`. All
+routes go through these helpers so the JSON schema lives in exactly one
+place.
 """
 
 import json
@@ -13,19 +13,32 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, 'data_sets', 'betting_config.json')
 
-# Defaults that get merged with the per-sport overrides on read. Keeps
-# callers free from None-checks for keys that haven't been set yet.
+LANES = ('value', 'conviction', 'model')
+
+DEFAULT_LANE_BANKROLL = {'current': 0.0, 'initial': 0.0}
+
+# Defaults merged with the per-sport overrides on read. Keeps callers free
+# from None-checks for keys that haven't been set yet.
 DEFAULT_SPORT_CONFIG = {
-    'current_bankroll': 0.0,
-    'initial_bankroll': 0.0,
     'min_confidence': 0.45,
     'stake_multiplier': 0.4,
     'min_stake_eur': 2.0,
     'max_stake_pct': 0.03,
-    'max_daily_exposure_pct': 0.10,
+    # Conviction lane
     'conviction_min_confidence': 0.65,
     'conviction_min_odds': 1.40,
     'conviction_stake_pct': 0.005,
+    # Model lane — broad coverage, confidence/odds-aware sizing.
+    # Uses its own lower min-stake floor so wide coverage isn't killed.
+    'model_base_pct': 0.005,
+    'model_max_stake_pct': 0.015,
+    'model_min_stake_eur': 1.0,
+    'model_ev_factor_min': 0.5,
+    'model_ev_factor_max': 1.5,
+    # Per-lane daily exposure caps (fraction of that lane's bankroll)
+    'value_max_daily_exposure_pct': 0.10,
+    'conviction_max_daily_exposure_pct': 0.10,
+    'model_max_daily_exposure_pct': 0.15,
 }
 
 
@@ -44,42 +57,76 @@ def _save(config):
         json.dump(config, f, indent=4)
 
 
+def _empty_bankrolls():
+    return {lane: dict(DEFAULT_LANE_BANKROLL) for lane in LANES}
+
+
 def get_sport_config(sport_slug):
-    """Return the full per-sport config (defaults + overrides)."""
+    """Full per-sport config (defaults + overrides), including bankrolls."""
     cfg = _load()
     sport_cfg = cfg.get('sports', {}).get(sport_slug, {})
     out = dict(DEFAULT_SPORT_CONFIG)
-    out.update(sport_cfg)
+    out.update({k: v for k, v in sport_cfg.items() if k != 'bankrolls'})
+    bankrolls = sport_cfg.get('bankrolls', {})
+    out['bankrolls'] = {
+        lane: dict(DEFAULT_LANE_BANKROLL, **bankrolls.get(lane, {}))
+        for lane in LANES
+    }
     return out
 
 
-def get_bankroll(sport_slug):
-    """Return current bankroll for a sport (0.0 if sport unknown)."""
-    return get_sport_config(sport_slug).get('current_bankroll', 0.0)
+def get_bankroll(sport_slug, lane='value'):
+    """Current bankroll for one lane of a sport (0.0 if unknown)."""
+    if lane not in LANES:
+        raise ValueError(f"Unknown lane: {lane!r}. Valid lanes: {LANES}")
+    return get_sport_config(sport_slug)['bankrolls'][lane]['current']
 
 
-def update_bankroll(sport_slug, delta):
-    """Add `delta` to a sport's current_bankroll, return the new value.
+def update_bankroll(sport_slug, delta, lane='value'):
+    """Add `delta` to one lane's current bankroll, return the new value.
 
-    Use negative delta when placing bets (debit), positive when settling
+    Negative delta when placing bets (debit); positive when settling
     wins / void refunds (credit).
     """
+    if lane not in LANES:
+        raise ValueError(f"Unknown lane: {lane!r}. Valid lanes: {LANES}")
     cfg = _load()
     sports = cfg.setdefault('sports', {})
     sport = sports.setdefault(sport_slug, {})
-    new_value = round(sport.get('current_bankroll', 0.0) + delta, 2)
-    sport['current_bankroll'] = new_value
+    bankrolls = sport.setdefault('bankrolls', _empty_bankrolls())
+    bucket = bankrolls.setdefault(lane, dict(DEFAULT_LANE_BANKROLL))
+    new_value = round(bucket.get('current', 0.0) + delta, 2)
+    bucket['current'] = new_value
     _save(cfg)
     return new_value
 
 
+def lane_bankrolls(sport_slug):
+    """Return {lane: current_bankroll} for one sport."""
+    cfg = get_sport_config(sport_slug)
+    return {lane: cfg['bankrolls'][lane]['current'] for lane in LANES}
+
+
+def sport_total(sport_slug):
+    """Sum bankrolls across all lanes of one sport."""
+    return round(sum(lane_bankrolls(sport_slug).values()), 2)
+
+
 def all_bankrolls():
-    """Return {sport_slug: current_bankroll} for every sport in config."""
+    """{sport_slug: sport_total} — flat per-sport view for navbar/landing."""
     cfg = _load()
-    return {k: v.get('current_bankroll', 0.0)
-            for k, v in cfg.get('sports', {}).items()}
+    out = {}
+    for slug in cfg.get('sports', {}).keys():
+        out[slug] = sport_total(slug)
+    return out
+
+
+def all_lane_bankrolls():
+    """{sport_slug: {lane: current}} — detailed view for portfolio breakdown."""
+    cfg = _load()
+    return {slug: lane_bankrolls(slug) for slug in cfg.get('sports', {}).keys()}
 
 
 def total_bankroll():
-    """Sum bankroll across all sports — useful for the navbar/landing."""
+    """Sum bankrolls across every lane of every sport."""
     return round(sum(all_bankrolls().values()), 2)
