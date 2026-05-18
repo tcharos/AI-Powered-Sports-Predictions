@@ -33,6 +33,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
 | Download a season of history | `./bin/setup_data.sh 2526` (season code = end year) |
 | NBA predictions / verification / retrain | `./bin/run_nba_predictions.sh`, `./bin/run_nba_verification.sh`, `./bin/retrain_nba_pipeline.sh` |
 | Live in-play snapshot (one-shot) | `python3 scripts/run_live_analysis.py` — also exposed in the UI as the "Refresh Live Snapshot" button |
+| Cashout backtest harness | `python3 scripts/run_backtest.py --start YYYY-MM-DD --end YYYY-MM-DD` (CLI only; see `ml_project/backtest/`) |
 | Start/stop web UI (Flask, port 5001) | `./bin/manage_server.sh {start\|stop\|restart\|status}` — logs to `logs/ui.log` |
 
 Run a single spider manually:
@@ -158,6 +159,7 @@ The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction
 - `output/bets_<date>.json` — placed bet slips (active). Each bet has a `lane` tag.
 - `output/live_data.json` — latest live-snapshot results (overwritten each refresh; what the UI reads).
 - `output/live_history_<date>.jsonl` — append-only per-match snapshots from every Refresh Live Snapshot run. One JSON object per line. Schema: `ts, date, match_id, home_team, away_team, league, minute, score, stats, pre_probs, adj_probs`. Source data for cashout backtesting.
+- `output/backtests/<timestamp>.{json,txt}` — cashout backtest outputs from `scripts/run_backtest.py`. JSON has raw outcomes + aggregate by `(rule, lane)`; .txt is the pretty-printed report. Engine lives in `ml_project/backtest/` (`trajectories.py`, `simulator.py`, `rules.py`, `report.py`). Built-in rules: `null` (self-validation, must equal stored P/L), `lock_in_profit`, `stop_loss`, `late_drift`. O/U bets are currently skipped (the LiveAdjuster doesn't emit O/U keys until Phase 5 ships).
 - `output/history/` — soft-delete destination. Files moved here are hidden from UI lists but still counted by `/betting` Strategy Comparison stats.
 - `output_basketball/` — NBA artifacts (currently empty; old slate archived under `output_basketball/history/`).
 - `models/` — trained XGBoost JSON / sklearn pickle artifacts and tuned hyperparameters.

@@ -2,12 +2,7 @@
 
 {% block content %}
 <h2>Live Match Analysis</h2>
-<p class="text-muted">Experimental: Real-time adjustments based on stats (xG, Shots, Possession).</p>
-
-<div class="alert alert-info">
-    <strong>Note:</strong> This feature requires the scraper to fetch live data. Currently showing mock/pre-loaded data
-    structure.
-</div>
+<p class="text-muted">Real-time adjustments based on stats (xG, Shots, Possession). Refresh on demand.</p>
 
 <div class="row">
     {% if not matches %}
@@ -17,6 +12,13 @@
     {% endif %}
 
     {% for item in matches %}
+    {% if item.message %}
+    <div class="col-12">
+        <div class="alert alert-info text-center mb-3">
+            <i class="bi bi-info-circle"></i> {{ item.message }}
+        </div>
+    </div>
+    {% else %}
     <div class="col-md-6 mb-4">
         <div class="card h-100 border-primary">
             <div class="card-header bg-dark text-white d-flex justify-content-between">
@@ -89,6 +91,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
     {% endfor %}
 </div>
 

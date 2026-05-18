@@ -112,9 +112,7 @@ class LiveAdjuster:
             for k in other_keys: new_probs[k] = remaining_prob / len(other_keys)
         
         return new_probs
-        
-        return new_probs
-        
+
     def _apply_dominance_modifier(self, probs, dominance, h_score, a_score, minute):
         """
         Boosts probable winner based on dominance if they haven't secured the win yet.
