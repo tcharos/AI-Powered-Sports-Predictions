@@ -43,9 +43,11 @@ def baseline_pnl_from_result(bet: dict) -> float:
 
 def selection_key(bet: dict) -> Optional[str]:
     """Map a bet's selection to a LiveAdjuster prob key. None if unsupported."""
-    if bet.get('type') != '1X2':
-        return None
-    return config.SELECTION_MAP_1X2.get(bet.get('selection'))
+    if bet.get('type') == '1X2':
+        return config.SELECTION_MAP_1X2.get(bet.get('selection'))
+    if bet.get('type') == 'O/U':
+        return config.SELECTION_MAP_OU.get(bet.get('selection'))
+    return None
 
 
 def fair_cashout(stake: float, odds: float, adj_prob: float, haircut: Optional[float] = None) -> float:
@@ -80,15 +82,19 @@ def walk_bet(bet: dict,
             baseline_pnl=baseline, rule_pnl=baseline, delta=0.0, note=note,
         )
 
-    if bet_type != '1X2':
-        return _untriggered('unsupported_ou')
-
     sel_key = selection_key(bet)
     if sel_key is None:
         return _untriggered('bad_selection')
 
+    if bet_type == '1X2':
+        adj_fn = adjuster.adjust_probabilities
+    elif bet_type == 'O/U':
+        adj_fn = adjuster.adjust_ou_probabilities
+    else:
+        return _untriggered(f'unsupported_type:{bet_type}')
+
     for snap in trajectory:
-        adj = adjuster.adjust_probabilities(pre_probs, snap.stats, snap.minute, snap.score)
+        adj = adj_fn(pre_probs, snap.stats, snap.minute, snap.score)
         adj_prob = adj.get(sel_key, 0.0)
         fc = fair_cashout(stake, odds, adj_prob, haircut)
         ctx = {

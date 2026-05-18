@@ -159,7 +159,11 @@ The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction
 - `output/bets_<date>.json` — placed bet slips (active). Each bet has a `lane` tag.
 - `output/live_data.json` — latest live-snapshot results (overwritten each refresh; what the UI reads).
 - `output/live_history_<date>.jsonl` — append-only per-match snapshots from every Refresh Live Snapshot run. One JSON object per line. Schema: `ts, date, match_id, home_team, away_team, league, minute, score, stats, pre_probs, adj_probs`. Source data for cashout backtesting.
-- `output/backtests/<timestamp>.{json,txt}` — cashout backtest outputs from `scripts/run_backtest.py`. JSON has raw outcomes + aggregate by `(rule, lane)`; .txt is the pretty-printed report. Engine lives in `ml_project/backtest/` (`trajectories.py`, `simulator.py`, `rules.py`, `report.py`). Built-in rules: `null` (self-validation, must equal stored P/L), `lock_in_profit`, `stop_loss`, `late_drift`. O/U bets are currently skipped (the LiveAdjuster doesn't emit O/U keys until Phase 5 ships).
+- `output/backtests/<timestamp>.{json,txt}` — cashout backtest outputs from `scripts/run_backtest.py`. JSON has raw outcomes + aggregate by `(rule, lane)`; .txt is the pretty-printed report. Engine lives in `ml_project/backtest/` (`trajectories.py`, `simulator.py`, `rules.py`, `report.py`). Built-in rules: `null` (self-validation, must equal stored P/L), `lock_in_profit`, `stop_loss`, `late_drift`. Both 1X2 and O/U bets are evaluated — see `LiveAdjuster.adjust_ou_probabilities` (Poisson goal model from observed xG pace, blended with the pre-match Over % via a sigmoid centred at minute 30).
+
+## Roadmap
+
+Cashout feature is built in phases. See **`NEXT_STEPS.md`** at the repo root for the current state of each phase and the data-accrual wait that gates phases 3, 6, 7. Update that file when phases complete.
 - `output/history/` — soft-delete destination. Files moved here are hidden from UI lists but still counted by `/betting` Strategy Comparison stats.
 - `output_basketball/` — NBA artifacts (currently empty; old slate archived under `output_basketball/history/`).
 - `models/` — trained XGBoost JSON / sklearn pickle artifacts and tuned hyperparameters.

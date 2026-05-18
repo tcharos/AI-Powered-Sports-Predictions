@@ -64,11 +64,9 @@ def pretty_print(groups: Dict[Tuple[str, str], dict], title: str = '') -> str:
         trig_min = ''
         if g.get('trigger_min_med') is not None:
             trig_min = f"{g['trigger_min_p25']}/{g['trigger_min_med']}/{g['trigger_min_p75']}"
-        d = g['delta']
-        sign = '+' if d > 0 else ''
         lines.append(
             f"{rule:<18}{lane:<14}{g['bets']:>6}{g['triggered']:>6}{g['trigger_rate']:>7.1f}%"
-            f"{g['baseline_pnl']:>+16.2f}{g['rule_pnl']:>+14.2f}{sign}{d:>+11.2f}{trig_min:>26}"
+            f"{g['baseline_pnl']:>+16.2f}{g['rule_pnl']:>+14.2f}{g['delta']:>+12.2f}{trig_min:>26}"
         )
 
     # Notes summary (e.g., O/U skipped count)

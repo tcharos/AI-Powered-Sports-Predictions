@@ -1,4 +1,17 @@
+import math
 import numpy as np
+
+
+def _poisson_pmf(k: int, lam: float) -> float:
+    if lam <= 0:
+        return 1.0 if k == 0 else 0.0
+    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+
+def _poisson_cdf(k: int, lam: float) -> float:
+    """P(X <= k) for X ~ Poisson(lam)."""
+    return sum(_poisson_pmf(i, lam) for i in range(k + 1))
+
 
 class LiveAdjuster:
     """
@@ -9,9 +22,71 @@ class LiveAdjuster:
         self.WEIGHT_XG = 1.5
         self.WEIGHT_SOG = 0.5
         self.WEIGHT_POSSESSION = 0.05
-        
+
         # Thresholds
         self.DOMINANCE_THRESHOLD = 1.5 # Significant advantage
+
+        # O/U adjuster tuning. Threshold is 2.5 → over means final ≥ 3 goals.
+        self.OU_THRESHOLD = 2.5
+        # Cap remaining-xG estimate. Very early-minute xG samples are noisy
+        # (xG=1.0 at minute 5 implies a 18-goal full-time pace, which is silly).
+        self.OU_MAX_REMAINING_XG = 6.0
+        # Blend weight on observed-pace vs pre-match. Early game = trust pre-match,
+        # late game = trust the score state. Crossover at ~30 minutes.
+        self.OU_PACE_CROSSOVER_MIN = 30
+
+    def adjust_ou_probabilities(self, pre_ou_probs, live_stats, minute, current_score):
+        """Adjust Over/Under 2.5 probabilities based on score state + xG pace.
+
+        Args:
+            pre_ou_probs (dict): {'over': p, 'under': 1-p} from the model.
+            live_stats (dict): xg_home, xg_away as observed so far.
+            minute (int): 0-90+.
+            current_score (str): "1-0", etc.
+
+        Returns:
+            dict: {'over': p, 'under': 1-p} adjusted.
+        """
+        try:
+            h, a = map(int, current_score.split('-'))
+        except (ValueError, AttributeError):
+            return dict(pre_ou_probs)
+
+        current_goals = h + a
+        # Already past threshold → Over is locked in.
+        if current_goals >= 3:
+            return {'over': 0.99, 'under': 0.01}
+        # No time left to score → Under is locked in.
+        if minute >= 90:
+            return {'over': 0.01, 'under': 0.99}
+
+        # Estimate remaining goals from observed xG pace.
+        xg_so_far = live_stats.get('xg_home', 0) + live_stats.get('xg_away', 0)
+        if minute > 0 and xg_so_far > 0:
+            pace_per_min = xg_so_far / minute
+            remaining_xg = min(pace_per_min * (90 - minute), self.OU_MAX_REMAINING_XG)
+        else:
+            # Fall back to a league-average ~2.6 goals/match pace.
+            remaining_xg = 2.6 * (90 - minute) / 90
+
+        # P(at least N more goals) where N = 3 - current_goals.
+        need = max(0, 3 - current_goals)
+        if need == 0:
+            p_over_pace = 0.99
+        else:
+            p_over_pace = 1.0 - _poisson_cdf(need - 1, remaining_xg)
+
+        # Blend with pre-match: early minutes trust pre-match, late minutes trust
+        # observed-pace. Smooth crossover via sigmoid centered at OU_PACE_CROSSOVER_MIN.
+        # Weight on pace goes 0→1 as minute goes 0→90.
+        x = (minute - self.OU_PACE_CROSSOVER_MIN) / 15.0
+        pace_weight = 1.0 / (1.0 + math.exp(-x))
+        pre_over = float(pre_ou_probs.get('over', 0.5))
+        p_over = pace_weight * p_over_pace + (1 - pace_weight) * pre_over
+
+        # Clamp to keep callers safe.
+        p_over = max(0.01, min(0.99, p_over))
+        return {'over': p_over, 'under': 1.0 - p_over}
         
     def adjust_probabilities(self, pre_probs, live_stats, minute, current_score):
         """

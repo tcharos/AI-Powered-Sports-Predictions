@@ -186,11 +186,21 @@ def main():
             except (ValueError, AttributeError):
                 continue
 
-            pre_probs = {
-                'home': float(pred['Home Win %']),
-                'draw': float(pred['Draw %']),
-                'away': float(pred['Away Win %']),
-            }
+            bet_type = bet.get('type', '1X2')
+            if bet_type == '1X2':
+                pre_probs = {
+                    'home': float(pred['Home Win %']),
+                    'draw': float(pred['Draw %']),
+                    'away': float(pred['Away Win %']),
+                }
+            elif bet_type == 'O/U':
+                pre_probs = {
+                    'over':  float(pred['Over %']),
+                    'under': float(pred['Under %']),
+                }
+            else:
+                continue
+
             bet['_bet_id'] = f"{os.path.basename(slip_path)}:{idx}"
             counters['evaluated'] += 1
 

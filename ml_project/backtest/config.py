@@ -30,3 +30,9 @@ SELECTION_MAP_1X2 = {
     'X': 'draw', 'x': 'draw',
     '2': 'away', 2: 'away',
 }
+
+# Over/Under 2.5 selection → adjust_ou_probabilities key.
+SELECTION_MAP_OU = {
+    'Over 2.5':  'over',  'Over': 'over',  'over': 'over',
+    'Under 2.5': 'under', 'Under': 'under', 'under': 'under',
+}
