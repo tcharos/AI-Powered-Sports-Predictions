@@ -80,6 +80,18 @@ When/if we revisit the end-goal decision:
 - [ ] **10. Settlement reconciliation** — match Pamestoixima's settled-bet history against our `bets_*.json`.
 - [ ] **11. Withdrawal flow** — **never automated**. Manual only, by design.
 
+## Enriched live stats & adjuster v2 (proposal)
+
+Question: more granular live stats (xGOT, big chances, touches in opp box, shots inside/outside box, woodwork, etc.) should improve cashout decisions. Approach is phased to avoid over-fitting heuristics on a small sample.
+
+| Step | Effort | Status | Notes |
+| ---- | ------ | ------ | ----- |
+| Scrape all available extended stats; persist to JSONL | small | ✅ done | `flashscore_spider.py` now extracts xgot, big_chances, shots_inside_box, shots_outside_box, woodwork, touches_opp_box, saves, yellow_cards, fouls. Misses leave the key absent (no crash). Every refresh appends to `live_history_<date>.jsonl`, future-proofing the backtest harness regardless of which stats we currently use in rules. |
+| Display 3 best new stats in dashboard | small | ✅ done | Stats table on each live row shows xG / **xGOT** / **BigCh** / Poss / Sh / **Tch** (touches in opp box). Headers have full-name tooltips. |
+| Browser-driven auto-refresh while tab open | small | ✅ done | "Auto 5m" checkbox in the Live header. Polls `/football/refresh_live` every 5 min while `document.visibilityState === 'visible'`. Pauses when tab is hidden or minimised. State persists via `localStorage`. Skips when a previous run is still in `'running'` state (re-checks `/status` before each trigger). No server-side daemon. |
+| Wire new stats into LiveAdjuster heuristics | medium | ⏸ hold | Don't add new handcrafted layers until backtest harness has ≥50 settled bets per lane to score variants against. Premature tuning of weights on a 10-bet sample is just adding parameters to over-fit. |
+| Replace heuristics with a learned model | large | ⏸ hold | Logistic regression or gradient boost on `(snapshot_state, final_outcome)` pairs from `live_history_*.jsonl`. Needs weeks of accumulated history first. Eventual right answer for adjuster v2, but data-gated. |
+
 ## Future analysis ideas (not yet scoped)
 
 - **Scrape real cashout value from the bookmaker** — current dashboard shows an **internal fair-value estimate** (`stake × odds × adj_prob × 0.95`), not what Pamestoixima would actually pay. The real offer is what matters for the decision; the bookie applies their own haircut and may differ materially from our model. The decision rule becomes "their offer > our estimate ⇒ accept; their offer < our estimate ⇒ hold." Implementation: once `real_betting/bookmakers/pamestoixima.py` can navigate to a fixture's bet-slip area (requires real-betting steps 6b/6c to be done first), add a `get_cashout(bet_url)` method that returns the live offer, and surface both side-by-side in the dashboard ("Bookie €X.XX · Est. €Y.YY"). Gated by: real-betting integration maturity + Phase 3 bet schema linking each placed bet to a bookmaker bet/slip ID for lookup.

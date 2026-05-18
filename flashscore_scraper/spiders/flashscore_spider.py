@@ -716,12 +716,29 @@ class FlashscoreSpider(scrapy.Spider):
                             }
                         }
 
+                        // Core stats (verified labels from live Flashscore DOM).
                         extractStat('Expected goals', 'xg');         // "Expected goals (xG)"
                         extractStat('Total shots', 'shots');
-                        extractStat('Goal Attempts', 'shots');       // Alt name
-                        extractStat('Ball possession', 'possession'); // lowercase 'p'
-                        extractStat('Corner kicks', 'corners');      // lowercase 'k'
+                        extractStat('Goal Attempts', 'shots');       // Alt name (old layout)
+                        extractStat('Ball possession', 'possession');
+                        extractStat('Corner kicks', 'corners');
                         extractStat('Shots on target', 'shots_on_target');
+
+                        // Extended stats — future-proofs live_history_*.jsonl.
+                        // Labels are best-guess based on Flashscore's typical
+                        // shot/dominance panel headings. Misses (label not on
+                        // page for this match) leave the key absent; the
+                        // dashboard handles that with '-' fallback.
+                        extractStat('xG on target', 'xgot');         // "xG on target (xGOT)"
+                        extractStat('Big chances', 'big_chances');
+                        extractStat('Shots inside the box', 'shots_inside_box');
+                        extractStat('Shots outside the box', 'shots_outside_box');
+                        extractStat('Hit woodwork', 'woodwork');
+                        extractStat('Touches in opposition box', 'touches_opp_box');
+                        extractStat('Touches in opposition’s box', 'touches_opp_box'); // curly apostrophe
+                        extractStat('Saves', 'saves');
+                        extractStat('Yellow cards', 'yellow_cards');
+                        extractStat('Fouls', 'fouls');
                         
                         let scores = document.querySelector('.detailScore__wrapper')?.innerText || '0-0';
                         scores = scores.replace(/\n/g, '').replace(/\s+/g, '').replace(/-/g, '-'); 
