@@ -55,7 +55,7 @@ revision before proceeding.
 
 ### Checklist
 
-- [ ] **1. Module skeleton** — `real_betting/` package: abstract `Bookmaker` base class, `credentials.py`, `session.py`, CLI entrypoint. No bookmaker-specific logic yet. Acceptance: `python -m real_betting.cli --help` works.
+- [x] **1. Module skeleton** — `real_betting/` package with `Bookmaker` ABC, `credentials.py` (Keychain stubs + working `mask_username`), `session.py` (working `session_lock` context manager + `BrowserSession` stub), CLI entrypoint with four subcommands stubbed. `python -m real_betting.cli --help` works; subcommands return exit 1 with NEXT_STEPS pointers. `.env` + `*.session_state` added to `.gitignore`.
 - [ ] **2. Credentials wired** — `keyring`-backed macOS Keychain access. `set-credentials` / `get-credentials` CLI subcommands. `.env.example` committed; `.env`, `*.session_state`, `output/real_betting/` added to `.gitignore`.
 - [ ] **3. Pamestoixima login (headed mode)** — `bookmakers/pamestoixima.py:login()` reaches the post-login dashboard, scrapes visible balance. Screenshot saved to `output/real_betting/<ts>_login.png`. Headed Chromium, realistic 800–2500ms delays, single-session lockfile, no retry on auth failure.
 - [ ] **4. Session persistence** — save Playwright storage state to encrypted, gitignored file. Second run reuses cookie until expiry; falls back to fresh login on cookie rejection.
