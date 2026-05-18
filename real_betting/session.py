@@ -23,6 +23,7 @@ from typing import Optional
 from playwright.sync_api import (
     Browser, BrowserContext, Page, Playwright, sync_playwright,
 )
+from playwright_stealth import Stealth
 
 from . import config
 
@@ -114,10 +115,12 @@ class BrowserSession:
         self._context.set_default_timeout(config.PAGE_LOAD_TIMEOUT_MS)
         self._context.set_default_navigation_timeout(config.NAVIGATION_TIMEOUT_MS)
 
-        # Hide the navigator.webdriver flag (most basic bot signal).
-        self._context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
+        # Apply playwright-stealth evasions to the context. Covers the bulk
+        # of JS-level fingerprinting vectors (navigator.webdriver, plugins,
+        # languages, hardware concurrency, WebGL vendor, chrome runtime,
+        # iframe contentWindow, etc.). One call covers every page opened
+        # from this context. Defence-in-depth alongside our launch flags.
+        Stealth().apply_stealth_sync(self._context)
 
         self._page = self._context.new_page()
 

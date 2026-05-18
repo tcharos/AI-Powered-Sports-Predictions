@@ -71,6 +71,11 @@ revision before proceeding.
 - Single-session lockfile prevents concurrent runs from the same machine.
 - No auth retries — one failed login attempt, stop and surface for human.
 - Screenshot + DOM dump on failure to `output/real_betting/failures/`.
+- **playwright-stealth (`Stealth().apply_stealth_sync`)** applied to every browser context — covers navigator.webdriver, plugins, languages, hardware concurrency, WebGL vendor, chrome runtime, iframe contentWindow, and a dozen other JS-level fingerprint vectors. Verified against bot.sannysoft.com (4 passed / 0 failed in headless mode).
+
+### Optional escalation if anti-bot becomes a problem
+
+If we ever hit consistent challenge pages or behavioural detection that playwright-stealth can't defeat, the next escalation is **[CloakBrowser](https://github.com/CloakHQ/CloakBrowser)** — a Chromium fork with **C++-source-level fingerprint patches** (49 patches covering canvas, WebGL, audio, fonts, GPU, screen, WebRTC, network timing, automation signals + humanised mouse curves and per-character keyboard timing). Free, self-hosted, no API costs, ~200MB auto-downloaded binary, MIT wrapper. Compatible with Playwright via patchright backend. Trade-off: another dependency + binary auto-download + macOS Gatekeeper `xattr -cr` one-time step + headed mode recommended for aggressive sites. **Don't adopt preemptively** — the current playwright-stealth + launch flags handle most cases; reach for CloakBrowser only if specific detection persists (Imperva/Datadome/Akamai walls). Even with CloakBrowser, behavioural detection (regular polling, identical action timings, navigation patterns) is **not** addressed — the real fix is "infrequent, demand-driven, single-session" usage, not "more stealth".
 
 ### Eventually (placeholder — DO NOT START)
 
