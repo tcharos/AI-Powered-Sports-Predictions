@@ -43,6 +43,43 @@ Easiest reminder: macOS Calendar / Reminders entry for each checkpoint date. Aft
 2. Note Δ trends vs the 2026-05-18 baseline: `late_drift/value = +21.80`, `stop_loss/value = +16.83`, `lock_in_profit/value = −5.81` (n=10).
 3. If a rule's Δ flips sign or shifts >50% as bets accumulate, that's a signal the synthetic trajectories are misleading and we should wait for more real `live_history_*.jsonl` data before trusting the harness.
 
+## Real betting integration — Pamestoixima (DORMANT)
+
+Target bookmaker: `pamestoixima.gr` (OPAP). Main account, **read-only operations only**.
+End-goal deferred — revisit after dormant steps stay green for several weeks with no
+anti-bot flags. Real bet placement, settlement, withdrawal are **explicitly out of scope**
+until that re-evaluation.
+
+Account confirmed to **not** use 2FA. If that changes, step 3 needs a manual cookie-bootstrap
+revision before proceeding.
+
+### Checklist
+
+- [ ] **1. Module skeleton** — `real_betting/` package: abstract `Bookmaker` base class, `credentials.py`, `session.py`, CLI entrypoint. No bookmaker-specific logic yet. Acceptance: `python -m real_betting.cli --help` works.
+- [ ] **2. Credentials wired** — `keyring`-backed macOS Keychain access. `set-credentials` / `get-credentials` CLI subcommands. `.env.example` committed; `.env`, `*.session_state`, `output/real_betting/` added to `.gitignore`.
+- [ ] **3. Pamestoixima login (headed mode)** — `bookmakers/pamestoixima.py:login()` reaches the post-login dashboard, scrapes visible balance. Screenshot saved to `output/real_betting/<ts>_login.png`. Headed Chromium, realistic 800–2500ms delays, single-session lockfile, no retry on auth failure.
+- [ ] **4. Session persistence** — save Playwright storage state to encrypted, gitignored file. Second run reuses cookie until expiry; falls back to fresh login on cookie rejection.
+- [ ] **5. 6a — Locale handling** — switch UI language to English if Pamestoixima supports it; otherwise extend `entity_resolver.py` with a Greek↔English team-name normalisation table. Validate against today's `predictions_*.csv`.
+- [ ] **6. 6b — Fixture discovery** — navigate today's football fixtures, scrape `{home, away, league, kickoff, fixture_url, market_ids}`. Output JSON to `output/real_betting/fixtures_<date>.json`.
+- [ ] **7. 6c — Predictions ↔ Pamestoixima fixtures matching** — fuzzy-match against `predictions_*.csv`. Fetch current 1X2 + O/U 2.5 odds per matched fixture; compare to the odds we used in the prediction. Report on stdout + saved to `output/real_betting/match_report_<date>.json`. Acceptance: ≥80% fixture-match rate on a typical 20-match day.
+- [ ] **8. 6d — Headless mode validation** — once steps 3–7 are stable in headed mode for ~1 week, re-run end-to-end with `--headless`. Watch for selector failures, behavioural detection, captcha challenges. If clean for another week, headless becomes default.
+
+### Anti-bot mitigations baked in from day one
+
+- Headed mode default for steps 3–7. Headless gated by step 8.
+- 800–2500ms randomised delays between any action.
+- Single-session lockfile prevents concurrent runs from the same machine.
+- No auth retries — one failed login attempt, stop and surface for human.
+- Screenshot + DOM dump on failure to `output/real_betting/failures/`.
+
+### Eventually (placeholder — DO NOT START)
+
+When/if we revisit the end-goal decision:
+
+- [ ] **9. Bet placement** — design phase. New plan required. Conviction-lane only as starting point per earlier recommendation.
+- [ ] **10. Settlement reconciliation** — match Pamestoixima's settled-bet history against our `bets_*.json`.
+- [ ] **11. Withdrawal flow** — **never automated**. Manual only, by design.
+
 ## Open / deferred work (smaller items)
 
 - **Calibration spot-check on real data** — once we have ~3 days of `live_history`, write a quick script that runs `LiveAdjuster` on real snapshots from games we know the outcome of, to see if "aggressive prob swings near full-time" survives real-game noise or was a synthetic-trajectory artifact.
