@@ -245,14 +245,15 @@ def _attach_open_bets(live_matches):
             selection = bet.get('selection')
             prob_key = _SELECTION_TO_PROB_KEY.get(selection)
 
-            # For 1X2 we have adj_probs in the live snapshot. For O/U
-            # we don't (the LiveAdjuster has the method but the snapshot
-            # doesn't currently persist over/under adj probs). Mark
-            # those as no live-adjusted estimate.
+            # 1X2 reads adj_probs; O/U reads adj_ou_probs (persisted by
+            # run_live_analysis.py via LiveAdjuster.adjust_ou_probabilities).
             adj_prob = None
             fair_cashout = None
             if bet_type == '1X2' and prob_key in ('home', 'draw', 'away'):
                 adj_prob = float(m.get('adj_probs', {}).get(prob_key, 0))
+                fair_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
+            elif bet_type == 'O/U' and prob_key in ('over', 'under'):
+                adj_prob = float(m.get('adj_ou_probs', {}).get(prob_key, 0))
                 fair_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
 
             # Status badge (informational only; no auto-action attached).

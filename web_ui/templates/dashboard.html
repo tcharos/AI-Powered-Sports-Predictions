@@ -2,6 +2,13 @@
 
 {% block content %}
 
+<style>
+    /* Separator between 1X2 and O/U columns in the live Pre/Live table. */
+    .markets-table .market-divider {
+        border-right: 1px solid #444 !important;
+    }
+</style>
+
 <!-- Row 1: Actions (full width, Prediction + Verification side-by-side) -->
 <div class="card mb-4">
     <div class="card-header bg-primary text-white py-2">Actions</div>
@@ -95,16 +102,20 @@
                 <div class="card border-secondary">
                     <div class="card-body p-2">
                         <div class="row g-2 align-items-center">
-                            <!-- Match name + score -->
+                            <!-- Match: home team + home score, away team + away score, minute -->
+                            {% set _teams = item.match.split(' vs ') %}
+                            {% set _home_team = _teams[0] if _teams|length == 2 else item.match %}
+                            {% set _away_team = _teams[1] if _teams|length == 2 else '' %}
+                            {% set _scores = item.score.split('-') %}
+                            {% set _home_score = _scores[0]|trim if _scores|length == 2 else '0' %}
+                            {% set _away_score = _scores[1]|trim if _scores|length == 2 else '0' %}
                             <div class="col-md-2">
-                                <div class="small fw-bold">{{ item.match }}</div>
-                                <div class="fs-5 fw-bold mt-1">
-                                    {{ item.score }}
-                                    <small class="text-muted fs-6 fw-normal">({{ item.minute }}')</small>
-                                </div>
+                                <div class="fs-6 fw-bold">{{ _home_team }}<span class="ms-3">{{ _home_score }}</span></div>
+                                <div class="fs-6 fw-bold">{{ _away_team }}<span class="ms-3">{{ _away_score }}</span></div>
+                                <div class="small text-muted mt-1">{{ item.minute }}'</div>
                             </div>
 
-                            <!-- Stats -->
+                            <!-- Stats (xG/xGOT capture shot quality; Poss + Tch capture territory) -->
                             <div class="col-md-3">
                                 <table class="table table-sm mb-0 small">
                                     <thead class="table-light">
@@ -112,44 +123,42 @@
                                             <th></th>
                                             <th class="text-center" title="Expected goals">xG</th>
                                             <th class="text-center" title="xG on target">xGOT</th>
-                                            <th class="text-center" title="Big chances">BigCh</th>
                                             <th class="text-center" title="Ball possession">Poss</th>
-                                            <th class="text-center" title="Total shots">Sh</th>
                                             <th class="text-center" title="Touches in opposition box">Tch</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <tr>
                                             <td class="text-muted">H</td>
-                                            <td class="text-center"><b>{{ item.stats.get('xg_home', '-') }}</b></td>
+                                            <td class="text-center">{{ item.stats.get('xg_home', '-') }}</td>
                                             <td class="text-center">{{ item.stats.get('xgot_home', '-') }}</td>
-                                            <td class="text-center">{{ item.stats.get('big_chances_home', '-') }}</td>
                                             <td class="text-center">{{ item.stats.get('possession_home', '-') }}%</td>
-                                            <td class="text-center">{{ item.stats.get('shots_home', '-') }}</td>
                                             <td class="text-center">{{ item.stats.get('touches_opp_box_home', '-') }}</td>
                                         </tr>
                                         <tr>
                                             <td class="text-muted">A</td>
-                                            <td class="text-center"><b>{{ item.stats.get('xg_away', '-') }}</b></td>
+                                            <td class="text-center">{{ item.stats.get('xg_away', '-') }}</td>
                                             <td class="text-center">{{ item.stats.get('xgot_away', '-') }}</td>
-                                            <td class="text-center">{{ item.stats.get('big_chances_away', '-') }}</td>
                                             <td class="text-center">{{ item.stats.get('possession_away', '-') }}%</td>
-                                            <td class="text-center">{{ item.stats.get('shots_away', '-') }}</td>
                                             <td class="text-center">{{ item.stats.get('touches_opp_box_away', '-') }}</td>
                                         </tr>
                                     </tbody>
                                 </table>
                             </div>
 
-                            <!-- Pre vs Live adjustment -->
+                            <!-- Pre vs Live adjustment (1X2 + O/U markets) -->
                             <div class="col-md-4">
-                                <table class="table table-bordered table-sm text-center small mb-0">
+                                {% set _ou_pre  = item.pre_ou_probs or {'over': 0, 'under': 0} %}
+                                {% set _ou_live = item.adj_ou_probs or _ou_pre %}
+                                <table class="table table-bordered table-sm text-center small mb-0 markets-table">
                                     <thead class="table-light">
                                         <tr>
                                             <th></th>
                                             <th>1</th>
                                             <th>X</th>
-                                            <th>2</th>
+                                            <th class="market-divider">2</th>
+                                            <th title="Over 2.5">O</th>
+                                            <th title="Under 2.5">U</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -157,7 +166,9 @@
                                             <td class="text-muted">Pre</td>
                                             <td>{{ (item.pre_probs.home * 100)|round(0)|int }}%</td>
                                             <td>{{ (item.pre_probs.draw * 100)|round(0)|int }}%</td>
-                                            <td>{{ (item.pre_probs.away * 100)|round(0)|int }}%</td>
+                                            <td class="market-divider">{{ (item.pre_probs.away * 100)|round(0)|int }}%</td>
+                                            <td>{{ (_ou_pre.over * 100)|round(0)|int }}%</td>
+                                            <td>{{ (_ou_pre.under * 100)|round(0)|int }}%</td>
                                         </tr>
                                         <tr>
                                             <td class="text-muted">Live</td>
@@ -167,8 +178,14 @@
                                             <td class="{{ 'table-success fw-bold' if item.adj_probs.draw > item.pre_probs.draw else ('table-danger' if item.adj_probs.draw < item.pre_probs.draw else '') }}">
                                                 {{ (item.adj_probs.draw * 100)|round(0)|int }}%
                                             </td>
-                                            <td class="{{ 'table-success fw-bold' if item.adj_probs.away > item.pre_probs.away else ('table-danger' if item.adj_probs.away < item.pre_probs.away else '') }}">
+                                            <td class="market-divider {{ 'table-success fw-bold' if item.adj_probs.away > item.pre_probs.away else ('table-danger' if item.adj_probs.away < item.pre_probs.away else '') }}">
                                                 {{ (item.adj_probs.away * 100)|round(0)|int }}%
+                                            </td>
+                                            <td class="{{ 'table-success fw-bold' if _ou_live.over > _ou_pre.over else ('table-danger' if _ou_live.over < _ou_pre.over else '') }}">
+                                                {{ (_ou_live.over * 100)|round(0)|int }}%
+                                            </td>
+                                            <td class="{{ 'table-success fw-bold' if _ou_live.under > _ou_pre.under else ('table-danger' if _ou_live.under < _ou_pre.under else '') }}">
+                                                {{ (_ou_live.under * 100)|round(0)|int }}%
                                             </td>
                                         </tr>
                                     </tbody>

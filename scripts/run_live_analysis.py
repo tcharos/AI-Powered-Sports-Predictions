@@ -162,8 +162,23 @@ def main():
         except:
              pre_probs = {'home':0.33, 'draw':0.33, 'away':0.33}
 
+        try:
+            pre_ou_probs = {
+                'over':  float(pred_row['Over %']),
+                'under': float(pred_row['Under %']),
+            }
+        except (KeyError, ValueError, TypeError):
+            pre_ou_probs = {'over': 0.5, 'under': 0.5}
+
         adjusted = adjuster.adjust_probabilities(
             pre_probs,
+            item.get('stats', {}),
+            item.get('minute', 0),
+            item.get('score', '0-0')
+        )
+
+        adjusted_ou = adjuster.adjust_ou_probabilities(
+            pre_ou_probs,
             item.get('stats', {}),
             item.get('minute', 0),
             item.get('score', '0-0')
@@ -176,6 +191,8 @@ def main():
             'stats': item.get('stats', {}),
             'pre_probs': pre_probs,
             'adj_probs': adjusted,
+            'pre_ou_probs': pre_ou_probs,
+            'adj_ou_probs': adjusted_ou,
         }
         final_results.append(record)
 
@@ -191,6 +208,8 @@ def main():
             'stats': item.get('stats', {}),
             'pre_probs': pre_probs,
             'adj_probs': adjusted,
+            'pre_ou_probs': pre_ou_probs,
+            'adj_ou_probs': adjusted_ou,
         })
 
     if history_lines:
