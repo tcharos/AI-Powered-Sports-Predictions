@@ -27,6 +27,22 @@ While waiting:
 - Keep clicking **Refresh Live Snapshot** when matches we predicted are live. Builds `output/live_history_*.jsonl` for real-trajectory backtests.
 - Re-run `scripts/run_backtest.py` weekly. If a rule's Δ stays positive across multiple weekly runs, it's a candidate for default-on at Phase 7.
 
+### Weekly backtest re-run — must be local
+
+Tried a remote `/schedule` routine for this; it won't work. `output/` (bets, predictions, verifications, live history) is gitignored and lives only on the local machine — a cloud agent would see an empty `output/`. Run it yourself on the dates in the checkpoint table:
+
+```bash
+cd ~/Documents/projects/sports_predictor && \
+  source venv/bin/activate && \
+  PYTHONPATH="$(pwd):$(pwd)/ml_project" python3 scripts/run_backtest.py --paths 50
+```
+
+Easiest reminder: macOS Calendar / Reminders entry for each checkpoint date. After the run:
+
+1. Update the checkpoint row's third column with actual settled bets per lane (from the run's "Skipped — unsettled=N" line + the per-lane bet counts in the report).
+2. Note Δ trends vs the 2026-05-18 baseline: `late_drift/value = +21.80`, `stop_loss/value = +16.83`, `lock_in_profit/value = −5.81` (n=10).
+3. If a rule's Δ flips sign or shifts >50% as bets accumulate, that's a signal the synthetic trajectories are misleading and we should wait for more real `live_history_*.jsonl` data before trusting the harness.
+
 ## Open / deferred work (smaller items)
 
 - **Calibration spot-check on real data** — once we have ~3 days of `live_history`, write a quick script that runs `LiveAdjuster` on real snapshots from games we know the outcome of, to see if "aggressive prob swings near full-time" survives real-game noise or was a synthetic-trajectory artifact.
