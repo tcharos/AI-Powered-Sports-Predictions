@@ -39,7 +39,7 @@ def cmd_set_credentials(args):
     print(f"Storing credentials for '{args.bookmaker}' in the system keyring.")
     print("Password input is hidden; press Enter when done.")
     try:
-        username = input('Username (email): ').strip()
+        username = input('Username: ').strip()
         if not username:
             print("Aborted: username is empty.", file=sys.stderr)
             return 1
@@ -86,9 +86,22 @@ def cmd_delete_credentials(args):
 
 def cmd_login(args):
     """Attempt login (headed by default). Saves screenshot + balance."""
-    print(f"[stub] login {args.bookmaker} (headless={args.headless}): not implemented yet.")
-    print("       See NEXT_STEPS.md → 'Real betting integration' step 3.")
-    return 1
+    from .bookmakers import get_bookmaker_class
+    from .session import session_lock
+
+    cls = get_bookmaker_class(args.bookmaker)
+    try:
+        with session_lock():
+            bm = cls(headless=args.headless,
+                     reuse_session=not args.fresh_session)
+            try:
+                ok = bm.login()
+            finally:
+                bm.close()
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    return 0 if ok else 1
 
 
 def cmd_find_fixtures(args):
@@ -123,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     _bookmaker_arg(sp)
     sp.add_argument('--headless', action='store_true',
                     help='Run Chromium headless. Default: headed (see NEXT_STEPS step 8).')
+    sp.add_argument('--fresh-session', action='store_true',
+                    help='Ignore saved storage state; always start from a blank browser.')
     sp.set_defaults(func=cmd_login)
 
     sp = sub.add_parser('find-fixtures', help="Scrape today's fixtures.")
