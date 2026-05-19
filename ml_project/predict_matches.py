@@ -40,24 +40,20 @@ class MatchPredictor:
         self.model_ou = xgb.XGBRegressor() 
         self.model_ou.load_model("models/xgb_model_ou.json")
         
-        # Load Draw Model (Stage A)
-        self.model_draw = xgb.XGBClassifier()
-        if os.path.exists("models/xgb_model_draw.json"):
-            self.model_draw.load_model("models/xgb_model_draw.json")
-        else:
-            print("Warning: Draw model not found. Drawing detection will be disabled.")
-            self.model_draw = None
+        # Draw Model (Stage A): no longer used in the prediction loop —
+        # the 2-stage average was acting as an implicit base-rate regularizer,
+        # made redundant by per-league Platt calibration (Phase C4). The
+        # trained model file is left on disk for backward compatibility / a
+        # future reactivation; not loaded here.
+        self.model_draw = None
         
         # Load Features
         with open("models/features_1x2.json", 'r') as f:
             self.features_1x2 = json.load(f)
         with open("models/features_ou.json", 'r') as f:
             self.features_ou = json.load(f)
-        if os.path.exists("models/features_draw.json"):
-            with open("models/features_draw.json", 'r') as f:
-                self.features_draw = json.load(f)
-        else:
-             self.features_draw = []
+        # Draw features kept as empty list — see note on model_draw above.
+        self.features_draw = []
             
         self.output_file = scraper_output
         self.fe = FeatureEngineer()
@@ -349,39 +345,21 @@ class MatchPredictor:
             input_df = pd.DataFrame([input_row])
             input_df['league_cat'] = input_df['league_cat'].astype('category')
             
-            # --- 2-STAGE PREDICTION ---
-            
-            # 1. Standard 1X2 Probabilities (Conditional H/A source)
+            # --- 1X2 PROBABILITIES (single-stage; the binary draw model
+            # used to average in here, but it acted as an implicit
+            # regularizer toward the base draw rate — exactly what the
+            # downstream per-league Platt calibrator (Phase C4) handles
+            # in a statistically grounded way. See NEXT_STEPS D0 for
+            # the diagnosis and reasoning behind dropping the 2-stage
+            # combination.) ---
+
             for c in self.features_1x2:
                 if c not in input_df.columns: input_df[c] = 0
-            
-            probs_1x2_raw = self.model_1x2.predict_proba(input_df[self.features_1x2])[0]
-            # [P(H), P(D), P(A)]
-            
-            # 2. Draw Probability from Stage A
-            if self.model_draw:
-                for c in self.features_draw:
-                    if c not in input_df.columns: input_df[c] = 0
-                prob_draw_binary = self.model_draw.predict_proba(input_df[self.features_draw])[0][1] # Class 1 = Draw
-            else:
-                prob_draw_binary = probs_1x2_raw[1] # Fallback
-            
-            # 3. Combine
-            # P(Draw) = Average(P(Draw_Binary), P(Draw_Raw))
-            # P(Not Draw) = 1 - P(Draw)
-            # P(Home) = P(Not Draw) * (P(Home_Raw) / (P(Home_Raw) + P(Away_Raw)))
-            
-            prob_draw_final = (prob_draw_binary + probs_1x2_raw[1]) / 2.0
-            prob_not_draw = 1.0 - prob_draw_final
-            
-            sum_ha_raw = probs_1x2_raw[0] + probs_1x2_raw[2]
-            if sum_ha_raw < 0.001: sum_ha_raw = 1.0 # Avoid div/0
-            
-            prob_home_final = prob_not_draw * (probs_1x2_raw[0] / sum_ha_raw)
-            prob_away_final = prob_not_draw * (probs_1x2_raw[2] / sum_ha_raw)
-            
-            probs_1x2 = np.array([prob_home_final, prob_draw_final, prob_away_final])
-            
+
+            probs_1x2 = self.model_1x2.predict_proba(input_df[self.features_1x2])[0]
+            # [P(H), P(D), P(A)] — Platt calibration is applied below
+            # to correct per-league bias.
+
             # Decision
             pred_1x2_idx = probs_1x2.argmax()
             pred_1x2_label = ['Home', 'Draw', 'Away'][pred_1x2_idx]
