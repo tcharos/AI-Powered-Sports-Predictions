@@ -12,6 +12,24 @@ import glob
 
 from heuristic_adjuster import HeuristicAdjuster
 
+# Per-league Platt calibration (Phase C4). Loaded once at construction.
+from ml_project.calibration.apply import (
+    apply_platt_1x2, apply_platt_ou, load_calibration_data,
+)
+
+
+def _load_league_calibration_flag(default: bool = True) -> bool:
+    """Read `use_league_calibration` from `data_sets/betting_config.json`
+    (football's sport entry). Falls back to `default` on any error."""
+    try:
+        with open('data_sets/betting_config.json', 'r') as f:
+            cfg = json.load(f)
+        return bool(cfg.get('sports', {}).get('football', {}).get(
+            'use_league_calibration', default))
+    except Exception:
+        return default
+
+
 class MatchPredictor:
     def __init__(self, history_dir="data_sets/MatchHistory", scraper_output="output/output.json"):
         # Load Models
@@ -51,6 +69,19 @@ class MatchPredictor:
         self.history_df = self.history_df.sort_values('date')
         
         self.adjuster = HeuristicAdjuster()
+
+        # Per-league Platt calibrators (C4). Empty dict if file missing.
+        # Applied to raw probs *before* the heuristic adjuster.
+        self.calibration_data = load_calibration_data('data_sets/league_calibration.json')
+        self.use_league_calibration = _load_league_calibration_flag()
+        if self.calibration_data and self.use_league_calibration:
+            n_leagues = len(self.calibration_data.get('leagues', {}))
+            print(f"Loaded calibration for {n_leagues} leagues "
+                  f"(generated {self.calibration_data.get('generated_at', '?')}).")
+        elif not self.use_league_calibration:
+            print("League calibration disabled via betting_config.json:use_league_calibration=false")
+        else:
+            print("No league_calibration.json found — predictions will use raw probs.")
 
     # ... (existing methods) ...
 
@@ -378,7 +409,20 @@ class MatchPredictor:
             
             # Construct probs array [Under, Over] to match old interface
             probs_ou = np.array([prob_under, prob_over])
-            
+
+            # --- PER-LEAGUE PLATT CALIBRATION (C4) ---
+            # Correct systematic per-league probability bias *before* the
+            # heuristic adjuster does its work. The adjuster's domain rules
+            # then operate on already-calibrated probs.
+            raw_probs_1x2 = probs_1x2.copy()
+            raw_probs_ou = probs_ou.copy()
+            probs_1x2, applied_1x2, cal_src_1x2 = apply_platt_1x2(
+                probs_1x2, league_name, self.calibration_data,
+                enabled=self.use_league_calibration)
+            probs_ou, applied_ou, cal_src_ou = apply_platt_ou(
+                probs_ou, league_name, self.calibration_data,
+                enabled=self.use_league_calibration)
+
             # Extract O/U Odds (Moved Up)
             try:
                 ov_str = match.get('over_2_5', '0.0')
@@ -476,7 +520,14 @@ class MatchPredictor:
                 'Away Win %': f"{adj_1x2[2]:.2f}",
                 'Over %': f"{adj_ou[1]:.2f}",
                 'Under %': f"{adj_ou[0]:.2f}",
-                'Under %': f"{adj_ou[0]:.2f}",
+                # Raw probabilities (pre-calibration, pre-heuristic) for audit.
+                'Home Win % (raw)': f"{raw_probs_1x2[0]:.2f}",
+                'Draw % (raw)': f"{raw_probs_1x2[1]:.2f}",
+                'Away Win % (raw)': f"{raw_probs_1x2[2]:.2f}",
+                'Over % (raw)': f"{raw_probs_ou[1]:.2f}",
+                'Under % (raw)': f"{raw_probs_ou[0]:.2f}",
+                'Cal 1X2 Source': cal_src_1x2 or '',
+                'Cal O/U Source': cal_src_ou or '',
                 'Adj Logs': "; ".join(adj_logs),
                 'match_id': match.get('match_id', '')
             })
@@ -509,7 +560,14 @@ class MatchPredictor:
         res_df = pd.DataFrame(predictions)
         if not res_df.empty:
              # Reorder cols
-             desired = ['Date', 'League', 'Home Team', 'Away Team', 'Home ELO', 'Away ELO', 'Prediction 1X2', 'Prediction 1X2 Odd', 'Conf 1X2', 'EV 1X2', 'Kelly 1X2', 'Prediction O/U', 'Prediction O/U Odd', 'Conf O/U', 'EV O/U', 'Kelly O/U', 'Home Win %', 'Draw %', 'Away Win %', 'Over %', 'Under %', 'Adj Logs', 'match_id']
+             desired = ['Date', 'League', 'Home Team', 'Away Team', 'Home ELO', 'Away ELO',
+                        'Prediction 1X2', 'Prediction 1X2 Odd', 'Conf 1X2', 'EV 1X2', 'Kelly 1X2',
+                        'Prediction O/U', 'Prediction O/U Odd', 'Conf O/U', 'EV O/U', 'Kelly O/U',
+                        'Home Win %', 'Draw %', 'Away Win %', 'Over %', 'Under %',
+                        'Home Win % (raw)', 'Draw % (raw)', 'Away Win % (raw)',
+                        'Over % (raw)', 'Under % (raw)',
+                        'Cal 1X2 Source', 'Cal O/U Source',
+                        'Adj Logs', 'match_id']
              existing = [c for c in desired if c in res_df.columns]
              print("\n--- PREDICTIONS ---")
              print(res_df[existing].to_string(index=False))

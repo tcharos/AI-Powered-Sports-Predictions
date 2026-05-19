@@ -29,6 +29,10 @@ DEFAULT_SPORT_CONFIG = {
     # overstates) from dominating the slip. Per-league recalibration is
     # the upstream fix — see NEXT_STEPS.md.
     'ev_cap_value': 0.05,
+    # Phase C4: apply per-league Platt calibrators from
+    # data_sets/league_calibration.json before the heuristic adjuster
+    # in predict_matches.py. Toggle off to A/B against raw probs.
+    'use_league_calibration': True,
     # Conviction lane
     'conviction_min_confidence': 0.65,
     'conviction_min_odds': 1.40,
