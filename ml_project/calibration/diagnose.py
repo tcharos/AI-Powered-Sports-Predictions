@@ -179,6 +179,8 @@ def write_markdown_report(out_path: str,
     lines.append('')
     lines.append(f"Generated: {meta['generated_at']}")
     lines.append(f"Source: {meta['source']}")
+    if 'mode' in meta:
+        lines.append(f"Mode: {meta['mode']}")
     lines.append(f"OOF predictions via TimeSeriesSplit(n_splits={meta['n_splits']})")
     lines.append(f"Minimum matches per league for inclusion: {meta['min_n']}")
     lines.append('')

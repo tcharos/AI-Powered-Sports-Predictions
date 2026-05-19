@@ -5,12 +5,24 @@ trainer's pipeline exactly. Runs the same 5-fold TimeSeriesSplit the
 trainer uses, collects out-of-fold predictions for every match, then
 aggregates per-league calibration metrics.
 
-Outputs CSV + Markdown to output/calibration/.
+Two modes:
+    (default)            — full feature set (matches train_model.py). 20 leagues
+                            survive dropna; reflects calibration of the production
+                            model on leagues whose CSVs include shot/corner data.
+    --minimal-features   — strips shot/corner-dependent features. Every league
+                            survives, including thin-data leagues like Veikkausliiga
+                            (Finland), Argentina, Brazil. Reflects a hypothetical
+                            simpler model; used to source calibration for leagues
+                            the full-features run can't see.
+
+Outputs CSV + Markdown to output/calibration/, filenames include the mode tag.
 
 Usage:
     PYTHONPATH=$(pwd):$(pwd)/ml_project python3 scripts/run_diagnose_calibration.py
+    PYTHONPATH=$(pwd):$(pwd)/ml_project python3 scripts/run_diagnose_calibration.py --minimal-features
 """
 
+import argparse
 import datetime
 import json
 import os
@@ -34,6 +46,18 @@ OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output', 'calibration')
 N_SPLITS = 5
 MIN_N_PER_LEAGUE = 100
 
+# Features that require shot/corner data — present only in football-data.co.uk's
+# "standard" league CSVs (England, Germany, Italy, Spain, France, etc.). Extra
+# leagues (Finland, Argentina, Brazil, MLS, Japan, etc.) ship without HS/AS/HC/AC
+# so any rolling feature derived from those columns comes out NaN and the row
+# dies in dropna. Strip these in --minimal-features mode.
+SHOT_CORNER_FEATURES = {
+    'H_form_sf', 'H_form_sa', 'H_form_cf', 'H_form_ca',
+    'A_form_sf', 'A_form_sa', 'A_form_cf', 'A_form_ca',
+    'H_home_sf', 'H_home_sa',
+    'A_away_sf', 'A_away_sa',
+}
+
 
 def _load_params(name: str, default: dict) -> dict:
     p = os.path.join(PROJECT_ROOT, 'models', f'best_params_{name}.json')
@@ -44,16 +68,31 @@ def _load_params(name: str, default: dict) -> dict:
 
 
 def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--minimal-features', action='store_true',
+                    help='Strip shot/corner-dependent features so thin-data leagues '
+                         '(Finland, Argentina, Brazil, MLS, etc.) survive dropna.')
+    args = ap.parse_args()
 
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    mode_tag = 'minimal' if args.minimal_features else 'full'
+
+    print(f'Mode: {mode_tag} features')
     print('Preparing training data (this may take a few minutes)...')
     trainer = ModelTrainer(data_dir=os.path.join(PROJECT_ROOT, 'data_sets', 'MatchHistory'))
     df_train = trainer.prepare_data()
     print(f'Prepared {len(df_train)} rows across {df_train["league"].nunique()} leagues.')
 
+    common = trainer.common_features
+    if args.minimal_features:
+        common = [f for f in common if f not in SHOT_CORNER_FEATURES]
+        print(f'Stripped {len(SHOT_CORNER_FEATURES)} shot/corner features; '
+              f'common feature count: {len(common)}')
+
     # --- 1X2 OOF ---
     print('\n=== 1X2: running 5-fold OOF predictions ===')
-    features_1x2 = ['B365H', 'B365D', 'B365A'] + trainer.common_features
+    features_1x2 = ['B365H', 'B365D', 'B365A'] + common
     features_1x2 = list(dict.fromkeys(features_1x2))
     params_1x2 = _load_params('1x2', {
         'objective': 'multi:softprob', 'num_class': 3,
@@ -72,7 +111,7 @@ def main():
 
     # --- O/U OOF ---
     print('\n=== O/U 2.5: running 5-fold OOF predictions ===')
-    features_ou = trainer.common_features.copy()
+    features_ou = common.copy()
     features_ou = list(dict.fromkeys(features_ou))
     params_ou = _load_params('ou', {
         'objective': 'binary:logistic',
@@ -91,9 +130,9 @@ def main():
 
     # --- write outputs ---
     ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-    csv_1x2 = os.path.join(OUTPUT_DIR, f'diagnose_{ts}_1x2.csv')
-    csv_ou  = os.path.join(OUTPUT_DIR, f'diagnose_{ts}_ou.csv')
-    md_path = os.path.join(OUTPUT_DIR, f'diagnose_{ts}.md')
+    csv_1x2 = os.path.join(OUTPUT_DIR, f'diagnose_{ts}_{mode_tag}_1x2.csv')
+    csv_ou  = os.path.join(OUTPUT_DIR, f'diagnose_{ts}_{mode_tag}_ou.csv')
+    md_path = os.path.join(OUTPUT_DIR, f'diagnose_{ts}_{mode_tag}.md')
 
     df_1x2_metrics.to_csv(csv_1x2, index=False)
     df_ou_metrics.to_csv(csv_ou, index=False)
@@ -102,6 +141,7 @@ def main():
         meta={
             'generated_at': datetime.datetime.now().isoformat(timespec='seconds'),
             'source': 'data_sets/MatchHistory/',
+            'mode': f'{mode_tag} features',
             'n_splits': N_SPLITS,
             'min_n': MIN_N_PER_LEAGUE,
         },
