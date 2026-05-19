@@ -123,6 +123,43 @@ Calibration is an **offline** step: it uses our existing `data_sets/MatchHistory
 
 C1–C2 are independent of every other roadmap item and can start whenever. C3 gates C4 (don't deploy uncalibrated calibration). C5 and C6 wait until C4 has run for a couple of weeks on live predictions.
 
+## Future model improvements (proposal — NOT scheduled)
+
+Recorded here so it doesn't get lost; not on the active queue. Captured 2026-05-19 after a "should we try non-XGBoost models / ensemble / multimodal?" question. **TL;DR**: XGBoost is hard to beat on tabular; the cheap wins still on the table beat any architectural pivot for at least the next quarter.
+
+### Cheap wins worth doing first
+
+- [ ] **D1 — Re-run `tune_model.py`.** Last run was **2025-12-12** (5+ months stale, training data grew ~30% since). Likely 2–5% Brier improvement available, ~30 min compute. **Side bug to fix while at it**: `tune_model.py`'s `common_features` list is missing `'A_form_sa'` (only `'A_form_sf'` present) — the tuner has been searching on a slightly different feature set than the trainer uses. Align the lists.
+- [ ] **D2 — Feature engineering pass.** Each ~1–2 days, often 1–3% Brier each:
+  - **Variable rolling windows per league** (currently fixed last-5 globally — Premier League is more stable than Brazil; window should reflect that).
+  - **Opponent-adjusted form** — currently form is "vs anyone"; adjusting by opponent strength would distinguish "won 5 in a row against relegation candidates" from "won 5 in a row against top six".
+  - **Head-to-head specifics** — last 2–3 H2H matches as features (rivalries, stylistic matchups).
+  - **Manager-change indicator** — binary flag for "new manager in last N games" (well-documented predictive signal).
+  - **Promoted-team indicator** for league-rookies in their first season (model usually mis-prices these).
+
+### Architectural pivots — only if cheap wins are exhausted
+
+- [ ] **D3 — Bivariate Poisson / Dixon-Coles.** The football-domain inductive bias for joint home/away goal counts. Properties: single model produces 1X2 + O/U + BTTS + correct-score consistently; per-league attack/defence strength parameters that mean something; per-league fitting natural (auto-calibrated by construction, likely makes the C* Platt layer redundant). Catch: native form is parametric and can't use ELO / xG / shots; would need a hybrid (Karlis-Ntzoufras: XGBoost-derived strength estimates feeding Poisson rates). ~3–4 weeks for a working v1. Best candidate IF we eventually want to outgrow XGBoost.
+- [ ] **D4 — More data, not different model.** "Multimodal" in our context = ingest non-tabular signal. Each is a data-acquisition project, not a model project; any signal added would benefit XGBoost too:
+  - **News sentiment** features (manager statements, injury reports).
+  - **Player availability** / lineup feeds (key player out is highly predictive but currently invisible to the model).
+  - **Bookmaker line movement** as a derived feature (line drifts before kickoff carry signal).
+
+### Things explicitly NOT worth doing pre-emptively
+
+- **Ensemble stacking with XGBoost + LightGBM + CatBoost.** All three are gradient boosting variants — too correlated to give diversity gains. ~2 weeks of work for sub-1% Brier improvement.
+- **Tabular neural networks** (TabNet, FT-Transformer). Decade of evidence: GBT > NN on tabular unless you're combining with non-tabular features.
+- **Generic ensembling / model stacking** without genuine model-family diversity. Diminishing returns.
+
+### Decision rule for when to revisit
+
+Pull D3 (bivariate Poisson) off the shelf if **and only if**:
+1. D1 + D2 have been done (within the last ~6 months), AND
+2. Current Brier is stable across multiple retrains (no easy headroom left), AND
+3. Per-market inconsistencies (1X2 says one thing, O/U says another for the same match) become an observed problem.
+
+Until then, keep XGBoost + Platt calibration + ev_cap_value as the deployed stack.
+
 ## Future analysis ideas (not yet scoped)
 
 - **Scrape real cashout value from the bookmaker** — current dashboard shows an **internal fair-value estimate** (`stake × odds × adj_prob × 0.95`), not what Pamestoixima would actually pay. The real offer is what matters for the decision; the bookie applies their own haircut and may differ materially from our model. The decision rule becomes "their offer > our estimate ⇒ accept; their offer < our estimate ⇒ hold." Implementation: once `real_betting/bookmakers/pamestoixima.py` can navigate to a fixture's bet-slip area (requires real-betting steps 6b/6c to be done first), add a `get_cashout(bet_url)` method that returns the live offer, and surface both side-by-side in the dashboard ("Bookie €X.XX · Est. €Y.YY"). Gated by: real-betting integration maturity + Phase 3 bet schema linking each placed bet to a bookmaker bet/slip ID for lookup.
