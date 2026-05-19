@@ -111,7 +111,7 @@
 
                     <div class="row g-3">
                         <!-- Value Lane Slip -->
-                        <div class="col-lg-4 col-md-6">
+                        <div class="col-12">
                             <div class="card border-lane-value h-100">
                                 <div class="card-header bg-lane-value text-dark d-flex justify-content-between">
                                     <strong>Value Lane</strong>
@@ -137,7 +137,7 @@
                             </div>
                         </div>
                         <!-- Conviction Lane Slip -->
-                        <div class="col-lg-4 col-md-6">
+                        <div class="col-12">
                             <div class="card border-warning h-100">
                                 <div class="card-header bg-warning text-dark d-flex justify-content-between">
                                     <strong>Conviction Lane</strong>
@@ -163,7 +163,7 @@
                             </div>
                         </div>
                         <!-- Model Lane Slip -->
-                        <div class="col-lg-4 col-md-12">
+                        <div class="col-12">
                             <div class="card border-info h-100">
                                 <div class="card-header bg-info text-dark d-flex justify-content-between">
                                     <strong>Model Lane</strong>
@@ -355,8 +355,16 @@
             document.getElementById(LANE_COUNT[lane]).innerText = bets.length;
             document.getElementById(LANE_STAKE[lane]).innerText = (totals[lane] || 0).toFixed(2);
             renderLane(LANE_BODY[lane], bets);
+            // Hide the lane card if its bets were all removed; show otherwise.
+            const card = document.getElementById(LANE_BODY[lane]).closest('.col-12, .col-md-6, .col-lg-4');
+            if (card) card.style.display = bets.length ? '' : 'none';
         });
         document.getElementById('placeBetsBtn').disabled = (currentBets.length === 0);
+        // Hide the whole slip area if every lane is empty. The user can re-open
+        // it by clicking Generate Slip again.
+        if (currentBets.length === 0) {
+            document.getElementById('wagerResult').style.display = 'none';
+        }
     }
 
     function removeBet(btn) {
@@ -403,6 +411,12 @@
                     document.getElementById(LANE_COUNT[lane]).innerText = l.count;
                     document.getElementById(LANE_STAKE[lane]).innerText = l.total_stake.toFixed(2);
                     renderLane(LANE_BODY[lane], l.bets);
+                    // Restore card visibility — removeBet() may have hidden this
+                    // lane's card in a prior session, and a fresh generate should
+                    // always show all three lane cards (even empty ones, so the
+                    // "no bets matched value-lane criteria" empty state is visible).
+                    const card = document.getElementById(LANE_BODY[lane]).closest('.col-12, .col-md-6, .col-lg-4');
+                    if (card) card.style.display = '';
                 });
 
                 const g = data.guardrails;
