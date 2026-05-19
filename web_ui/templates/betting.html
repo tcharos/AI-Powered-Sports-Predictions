@@ -128,6 +128,7 @@
                                                 <th>Conf</th>
                                                 <th>EV</th>
                                                 <th>Stake</th>
+                                                <th></th>
                                             </tr>
                                         </thead>
                                         <tbody id="valueBody"></tbody>
@@ -153,6 +154,7 @@
                                                 <th>Conf</th>
                                                 <th>EV</th>
                                                 <th>Stake</th>
+                                                <th></th>
                                             </tr>
                                         </thead>
                                         <tbody id="convBody"></tbody>
@@ -178,6 +180,7 @@
                                                 <th>Conf</th>
                                                 <th>EV</th>
                                                 <th>Stake</th>
+                                                <th></th>
                                             </tr>
                                         </thead>
                                         <tbody id="modelBody"></tbody>
@@ -311,11 +314,12 @@
         const tbody = document.getElementById(tbodyId);
         tbody.innerHTML = '';
         if (!bets.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
             return;
         }
         bets.forEach(b => {
             const tr = document.createElement('tr');
+            const typeAttr = String(b.type).replace(/"/g, '&quot;');
             tr.innerHTML = `
                 <td class="small">${b.match}</td>
                 <td><span class="badge ${b.type === '1X2' ? 'bg-secondary' : 'bg-info text-dark'}">${b.type}</span></td>
@@ -324,9 +328,50 @@
                 <td>${b.conf}</td>
                 <td>${b.ev}</td>
                 <td class="fw-bold text-success">€${b.stake_units.toFixed(2)}</td>
+                <td class="text-end">
+                    <button type="button" class="btn btn-sm btn-link text-danger p-0"
+                            title="Remove this bet from the slip"
+                            data-lane="${b.lane}" data-match-id="${b.match_id || ''}"
+                            data-bet-type="${typeAttr}" data-selection="${b.selection}"
+                            onclick="removeBet(this)">✕</button>
+                </td>
             `;
             tbody.appendChild(tr);
         });
+    }
+
+    function _laneTotals() {
+        const out = { value: 0, conviction: 0, model: 0 };
+        currentBets.forEach(b => { out[b.lane] = (out[b.lane] || 0) + b.stake_units; });
+        return out;
+    }
+
+    function _refreshLanes() {
+        const byLane = { value: [], conviction: [], model: [] };
+        currentBets.forEach(b => (byLane[b.lane] = byLane[b.lane] || []).push(b));
+        const totals = _laneTotals();
+        LANES.forEach(lane => {
+            const bets = byLane[lane] || [];
+            document.getElementById(LANE_COUNT[lane]).innerText = bets.length;
+            document.getElementById(LANE_STAKE[lane]).innerText = (totals[lane] || 0).toFixed(2);
+            renderLane(LANE_BODY[lane], bets);
+        });
+        document.getElementById('placeBetsBtn').disabled = (currentBets.length === 0);
+    }
+
+    function removeBet(btn) {
+        const lane = btn.dataset.lane;
+        const mid = btn.dataset.matchId;
+        const typ = btn.dataset.betType;
+        const sel = btn.dataset.selection;
+        // Unique within a lane: (match_id, bet type, selection). selection is
+        // included to handle the rare case of multiple selections on the
+        // same market for the same match.
+        currentBets = currentBets.filter(b => !(
+            b.lane === lane && (b.match_id || '') === mid &&
+            String(b.type) === typ && String(b.selection) === sel
+        ));
+        _refreshLanes();
     }
 
     function generateSlip() {
