@@ -26,7 +26,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% set lane_badge = {'value': 'bg-primary', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
+                        {% set lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
                         {% for lane_name, s in lane_stats.items() %}
                         <tr>
                             <td class="text-start fw-bold">
@@ -78,8 +78,8 @@
                             {% for lane in ['value', 'conviction', 'model'] %}
                             {% set _def = lane_defaults[lane] %}
                             <div class="col-md-4">
-                                <div class="card h-100 border-{{ 'primary' if lane == 'value' else ('warning' if lane == 'conviction' else 'info') }}">
-                                    <div class="card-header bg-{{ 'primary text-white' if lane == 'value' else ('warning text-dark' if lane == 'conviction' else 'info text-dark') }} fw-bold text-capitalize">
+                                <div class="card h-100 border-{{ 'lane-value' if lane == 'value' else ('warning' if lane == 'conviction' else 'info') }}">
+                                    <div class="card-header bg-{{ 'lane-value text-dark' if lane == 'value' else ('warning text-dark' if lane == 'conviction' else 'info text-dark') }} fw-bold text-capitalize">
                                         {{ lane }} lane
                                     </div>
                                     <div class="card-body p-2">
@@ -112,8 +112,8 @@
                     <div class="row g-3">
                         <!-- Value Lane Slip -->
                         <div class="col-lg-4 col-md-6">
-                            <div class="card border-primary h-100">
-                                <div class="card-header bg-primary text-white d-flex justify-content-between">
+                            <div class="card border-lane-value h-100">
+                                <div class="card-header bg-lane-value text-dark d-flex justify-content-between">
                                     <strong>Value Lane</strong>
                                     <span><span id="valueCount">0</span> bets · €<span id="valueStake">0.00</span></span>
                                 </div>

@@ -84,15 +84,17 @@ body, .card, .table, .navbar, .badge, .btn,
     --bs-danger:      #d65a4d;
     --bs-danger-rgb:  214, 90, 77;
 
-    /* Surface tokens — Bootstrap 5.3's defaults work but we tighten them. */
-    --bs-body-bg:        #1c1f24;
-    --bs-body-color:     #d4d8de;
-    --bs-secondary-bg:   #262a30;
-    --bs-tertiary-bg:    #1f2226;
-    --bs-border-color:   #353a42;
+    /* Surface tokens — body sits in dark-grey territory (not near-black),
+     * cards lift ~8% off body so components stand out clearly without
+     * needing prominent borders. */
+    --bs-body-bg:        #2e333a;
+    --bs-body-color:     #dde0e5;
+    --bs-secondary-bg:   #3a3f48;
+    --bs-tertiary-bg:    #353a42;
+    --bs-border-color:   #4a5060;
 
-    /* Cards lose the white background — give them a slight lift over body. */
-    --bs-card-bg:        #23272e;
+    /* Cards: clearly lighter than body so they "float". */
+    --bs-card-bg:        #404553;
 }
 
 /* Dark-mode card outline is barely visible on the body bg by default. */
@@ -102,27 +104,37 @@ body, .card, .table, .navbar, .badge, .btn,
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Soften the table tinting in dark mode — Bootstrap's default
- * dark-mode tints lean blue/green/red and clash with our palette. */
+/* Table-success / -danger tints — keep readable against the lifted card bg
+ * (#404553). Slightly lighter than before so they still pop on cards. */
 [data-bs-theme="dark"] .table-success {
-    --bs-table-bg:    #1d3a2c;
-    --bs-table-color: #b9e2c8;
+    --bs-table-bg:    #335c48;
+    --bs-table-color: #cdedd9;
 }
 [data-bs-theme="dark"] .table-danger {
-    --bs-table-bg:    #3a1d18;
-    --bs-table-color: #ecbeb6;
+    --bs-table-bg:    #5c332b;
+    --bs-table-color: #f3d0c8;
 }
 [data-bs-theme="dark"] .table-light,
 [data-bs-theme="dark"] thead.table-light {
-    --bs-table-bg:    #2a2e35;
+    --bs-table-bg:    #3a3f48;
     --bs-table-color: var(--bs-body-color);
+}
+
+/* Bootstrap's .bg-light is hardcoded #f8f9fa — in dark mode it traps
+ * inherited text in a light-on-light unreadable state. Remap to the
+ * lifted-surface token and force body-color text (beats any inline
+ * .text-dark utility on the same element, e.g. badges). */
+[data-bs-theme="dark"] .bg-light,
+[data-bs-theme="dark"] .bg-light.text-dark {
+    background-color: var(--bs-secondary-bg) !important;
+    color: var(--bs-body-color) !important;
 }
 
 /* The static .high-confidence class in layout.html is hardcoded green;
  * provide a dark variant so it doesn't blast pale green on dark. */
 [data-bs-theme="dark"] .high-confidence {
-    background-color: #1d3a2c !important;
-    color: #b9e2c8 !important;
+    background-color: #335c48 !important;
+    color: #cdedd9 !important;
 }
 
 /* Navbar is already navbar-dark bg-dark in markup, so it stays the
@@ -130,4 +142,29 @@ body, .card, .table, .navbar, .badge, .btn,
  * outline-light border doesn't look out of place. */
 [data-bs-theme="dark"] .btn-outline-light:hover {
     background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Cumulative League Performance % badges (.acc-badge): default Bootstrap
+ * gives bg-success white text and bg-warning dark text. In dark mode the
+ * white-on-darker-green can read low-contrast, so force dark text on both.
+ * Light-mode appearance unchanged. */
+[data-bs-theme="dark"] .acc-badge {
+    color: #000 !important;
+}
+
+/* Custom lane-badge background: Value lane gets a soft lavender so the
+ * three lanes (value/conviction/model) read as visually distinct in the
+ * comparison table, slip history, override panel, and slip preview cards.
+ * Pairs with text-dark in both themes. */
+.bg-lane-value {
+    background-color: #b48fd9 !important;
+}
+.border-lane-value {
+    border-color: #b48fd9 !important;
+}
+[data-bs-theme="dark"] .bg-lane-value {
+    background-color: #a37dc9 !important;
+}
+[data-bs-theme="dark"] .border-lane-value {
+    border-color: #a37dc9 !important;
 }

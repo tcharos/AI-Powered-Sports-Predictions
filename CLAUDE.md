@@ -90,6 +90,8 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 - `/nba/*` — NBA blueprint (currently DETACHED; code at `web_ui/nba/routes.py`, see "NBA reactivation" below).
 - `/status`, `/stop/<task>`, `/server/<action>` — sport-agnostic, registered directly on `app`.
 
+**Theme (light + dark)**: visual styling lives in `web_ui/static/css/theme.css`, loaded after Bootstrap 5.3 in `layout.html`. Overrides Bootstrap's semantic CSS custom properties (`--bs-primary`, `--bs-warning`, `--bs-info`, `--bs-success`, `--bs-danger`, plus surface tokens `--bs-body-bg`, `--bs-card-bg`, `--bs-border-color`) with a calmer palette. Dark mode rides Bootstrap 5.3's native `data-bs-theme` attribute: an inline `<script>` in `<head>` reads `localStorage['theme']` (falls back to `prefers-color-scheme: dark`) and sets the attribute *before* CSS evaluates so there's no flash. A 🌙/☀️ toggle in the navbar flips and persists choice. OS-level theme changes are reflected live while no manual override is stored. Custom utility classes added by the theme: `.bg-lane-value` / `.border-lane-value` (soft lavender for the Value lane so it reads distinct from the Model lane's sky blue) and `.acc-badge` (forces dark text on the Cumulative League Performance % badges in dark mode only). The navbar uses `sticky-top` so it stays pinned while scrolling.
+
 **Adding a new sport** (forward-compatible by design):
 1. Create `web_ui/<sport>/routes.py` with a `Blueprint('<sport>', __name__)` and the routes you want.
 2. Add an entry to `SPORTS` in `app.py`: `{'slug': '<sport>', 'label': '...', 'icon': '...', 'active': True, 'tagline': '...'}`.

@@ -194,7 +194,7 @@
 
                             <!-- Open bets on this match (Phase 6 display-only) -->
                             <div class="col-md-3">
-                                {% set _lane_badge = {'value': 'bg-primary', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
+                                {% set _lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
                                 {% set _state_badge = {'lock_in': 'bg-success', 'stop_loss': 'bg-danger', 'hold': 'bg-secondary'} %}
                                 {% set _state_label = {'lock_in': '🟢 Lock in', 'stop_loss': '🔴 Stop loss', 'hold': '🟡 Hold'} %}
                                 {% if item.open_bets %}
@@ -257,7 +257,7 @@
 
 <!-- Row 3: Recent Reports (collapsible, default open) -->
 <div class="card mb-4">
-    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center"
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
          role="button" data-bs-toggle="collapse" data-bs-target="#recentReportsBody"
          aria-expanded="true" aria-controls="recentReportsBody"
          id="recentReportsHeader" style="cursor:pointer;">
@@ -367,12 +367,12 @@
                         <td>{{ stat['League'] }}</td>
                         <td>{{ stat['Count'] }}</td>
                         <td>
-                            <span class="badge {{ 'bg-success' if stat['Acc_1X2'] > 50 else 'bg-warning' }}">
+                            <span class="badge acc-badge {{ 'bg-success' if stat['Acc_1X2'] > 50 else 'bg-warning' }}">
                                 {{ stat['Acc_1X2'] }}%
                             </span>
                         </td>
                         <td>
-                            <span class="badge {{ 'bg-success' if stat['Acc_OU'] > 50 else 'bg-warning' }}">
+                            <span class="badge acc-badge {{ 'bg-success' if stat['Acc_OU'] > 50 else 'bg-warning' }}">
                                 {{ stat['Acc_OU'] }}%
                             </span>
                         </td>
@@ -390,8 +390,8 @@
 </div>
 
 <!-- Row 5: Scraper Data (collapsible, default closed) -->
-<div class="card mb-4 border-info">
-    <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center"
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
          role="button" data-bs-toggle="collapse" data-bs-target="#scrapedDataBody"
          aria-expanded="false" aria-controls="scrapedDataBody"
          id="scrapedDataHeader" style="cursor:pointer;">
