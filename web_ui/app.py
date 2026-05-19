@@ -946,9 +946,22 @@ def compute_sport_summary(bets_dir):
 @football_bp.route('/betting')
 def betting_page():
     summary = compute_sport_summary(OUTPUT_DIR)
+    # Per-lane defaults for the override form (so the placeholder shows
+    # the actual saved value, not the generic word "default").
+    cfg = get_sport_config('football')
+    lane_br = lane_bankrolls('football')
+    lane_defaults = {
+        'value':      {'bankroll': lane_br['value'],
+                       'cap_pct':  cfg['value_max_daily_exposure_pct'] * 100},
+        'conviction': {'bankroll': lane_br['conviction'],
+                       'cap_pct':  cfg['conviction_max_daily_exposure_pct'] * 100},
+        'model':      {'bankroll': lane_br['model'],
+                       'cap_pct':  cfg['model_max_daily_exposure_pct'] * 100},
+    }
     return render_template('betting.html',
                            history=summary['history'],
                            lane_stats=summary['lane_stats'],
+                           lane_defaults=lane_defaults,
                            sport_label='Football')
 
 @football_bp.route('/update_data', methods=['POST'])

@@ -76,6 +76,7 @@
 
                         <div class="row g-3">
                             {% for lane in ['value', 'conviction', 'model'] %}
+                            {% set _def = lane_defaults[lane] %}
                             <div class="col-md-4">
                                 <div class="card h-100 border-{{ 'primary' if lane == 'value' else ('warning' if lane == 'conviction' else 'info') }}">
                                     <div class="card-header bg-{{ 'primary text-white' if lane == 'value' else ('warning text-dark' if lane == 'conviction' else 'info text-dark') }} fw-bold text-capitalize">
@@ -84,10 +85,12 @@
                                     <div class="card-body p-2">
                                         <label class="form-label small mb-1">Bankroll (€)</label>
                                         <input type="number" class="form-control form-control-sm session-bankroll" data-lane="{{ lane }}"
-                                            placeholder="saved" step="any">
+                                            placeholder="{{ _def.bankroll|round(2) }}" step="any"
+                                            title="Saved bankroll: €{{ _def.bankroll|round(2) }}">
                                         <label class="form-label small mb-1 mt-2">Daily cap (%)</label>
                                         <input type="number" class="form-control form-control-sm session-cap" data-lane="{{ lane }}"
-                                            placeholder="default" step="any" min="0" max="100">
+                                            placeholder="{{ _def.cap_pct|round(1) }}" step="any" min="0" max="100"
+                                            title="Default daily cap: {{ _def.cap_pct|round(1) }}% of bankroll">
                                     </div>
                                 </div>
                             </div>
