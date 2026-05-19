@@ -26,7 +26,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
 | Football predictions for a date | `./bin/run_predictions.sh 2026-05-15` |
 | Force-rescrape (ignore cached JSON) | `./bin/run_predictions.sh --force` |
 | Verify yesterday's predictions | `./bin/run_verification.sh` |
-| Full football retrain pipeline | `./bin/retrain_pipeline.sh` (data update → standings → train → fit calibrators → validate calibrators) |
+| Full football retrain pipeline | `./bin/retrain_pipeline.sh` (data update → standings → train → fit calibrators → validate calibrators) — recommended cadence: **weekly** (see Operational cadence below) |
 | Train football models only | `python3 ml_project/train_model.py` |
 | Tune football hyperparameters | `python3 ml_project/tune_model.py` |
 | Update standings/form only | `./bin/update_leagues_data.sh` |
@@ -168,6 +168,20 @@ Cashout feature is built in phases. See **`NEXT_STEPS.md`** at the repo root for
 - `output_basketball/` — NBA artifacts (currently empty; old slate archived under `output_basketball/history/`).
 - `models/` — trained XGBoost JSON / sklearn pickle artifacts and tuned hyperparameters.
 - `logs/` — pipeline, scraper status, UI logs.
+
+### Operational cadence (suggested)
+
+Different parts of the pipeline benefit from different cadences:
+
+| Task | Cadence | Why |
+| ---- | ------- | --- |
+| `./bin/run_predictions.sh` | **daily** (typically the night before, for next-day fixtures) | Predictions are produced for matches happening tomorrow. |
+| `./bin/run_verification.sh` | **daily** (after yesterday's matches finish) | Settles bet slips and updates `league_analytics.json`. |
+| `./bin/update_leagues_data.sh` | **daily before predictions** | Standings + form are inputs to feature engineering at inference time. |
+| `./bin/retrain_pipeline.sh` | **weekly** | Steps 1–2 refresh fresh CSV results (~50–100 new matches/day, ~0.6% training-set growth/week — too slow to matter daily, fast enough that monthly lags). Steps 3–5 retrain the model + refit calibrators, ~20–30 min total. Reasonable to run on a fixed day (e.g., Monday morning), or any time training data has materially grown. |
+| `python3 ml_project/tune_model.py` | **every 3–6 months** | Hyperparameters are stable; tuning takes ~30–60 min and grids are coarse. Pulling forward when training data has grown >50% since the last tune (e.g., end of season, new league imports). |
+
+The minimum-viable run cadence is: daily predict/verify, weekly retrain, quarterly tune. Skipping the weekly retrain doesn't break anything — production keeps using the last-trained model, which is still calibration-correct because the calibrators were fit against it.
 
 ### Date handling gotcha
 
