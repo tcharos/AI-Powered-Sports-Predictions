@@ -63,3 +63,71 @@ body, .card, .table, .navbar, .badge, .btn,
                 color 0.15s ease,
                 border-color 0.15s ease;
 }
+
+/* ============================================================
+ * Phase C — dark mode (engaged via <html data-bs-theme="dark">)
+ * ============================================================ */
+[data-bs-theme="dark"] {
+    /* Slightly lifted accent colors for readability on dark backgrounds. */
+    --bs-primary:     #5b8bc0;
+    --bs-primary-rgb: 91, 139, 192;
+
+    --bs-warning:     #e8b75a;
+    --bs-warning-rgb: 232, 183, 90;
+
+    --bs-info:        #7abee8;
+    --bs-info-rgb:    122, 190, 232;
+
+    --bs-success:     #4ca877;
+    --bs-success-rgb: 76, 168, 119;
+
+    --bs-danger:      #d65a4d;
+    --bs-danger-rgb:  214, 90, 77;
+
+    /* Surface tokens — Bootstrap 5.3's defaults work but we tighten them. */
+    --bs-body-bg:        #1c1f24;
+    --bs-body-color:     #d4d8de;
+    --bs-secondary-bg:   #262a30;
+    --bs-tertiary-bg:    #1f2226;
+    --bs-border-color:   #353a42;
+
+    /* Cards lose the white background — give them a slight lift over body. */
+    --bs-card-bg:        #23272e;
+}
+
+/* Dark-mode card outline is barely visible on the body bg by default. */
+[data-bs-theme="dark"] .card {
+    background-color: var(--bs-card-bg);
+    border-color: var(--bs-border-color);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Soften the table tinting in dark mode — Bootstrap's default
+ * dark-mode tints lean blue/green/red and clash with our palette. */
+[data-bs-theme="dark"] .table-success {
+    --bs-table-bg:    #1d3a2c;
+    --bs-table-color: #b9e2c8;
+}
+[data-bs-theme="dark"] .table-danger {
+    --bs-table-bg:    #3a1d18;
+    --bs-table-color: #ecbeb6;
+}
+[data-bs-theme="dark"] .table-light,
+[data-bs-theme="dark"] thead.table-light {
+    --bs-table-bg:    #2a2e35;
+    --bs-table-color: var(--bs-body-color);
+}
+
+/* The static .high-confidence class in layout.html is hardcoded green;
+ * provide a dark variant so it doesn't blast pale green on dark. */
+[data-bs-theme="dark"] .high-confidence {
+    background-color: #1d3a2c !important;
+    color: #b9e2c8 !important;
+}
+
+/* Navbar is already navbar-dark bg-dark in markup, so it stays the
+ * same colour in both themes — but make sure the toggle button's
+ * outline-light border doesn't look out of place. */
+[data-bs-theme="dark"] .btn-outline-light:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
