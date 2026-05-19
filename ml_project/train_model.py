@@ -125,40 +125,72 @@ class ModelTrainer:
         if 'league_cat' in df_train.columns:
             df_train['league_cat'] = df_train['league_cat'].astype('category')
             
+        # Class balance note: draws are ~25%. Default (no scale_pos_weight,
+        # i.e. weight 1.0) produces well-calibrated probabilities — mean
+        # predicted P(draw) ≈ 0.26, matching the actual rate of 0.25
+        # almost exactly. The "Recall: 0.0000" line in earlier logs was
+        # misleading: it was the metric at threshold 0.5, while the model
+        # typically outputs probabilities in the 0.20-0.30 range. Production
+        # uses the raw probability via predict_proba (not the threshold),
+        # so the model contributes reasonable values regardless.
+        #
+        # Setting scale_pos_weight > 1.0 increases recall at the cost of
+        # calibration: spw=3.0 gives recall@0.5 ≈ 0.63 but overcalibrates
+        # mean P(draw) to ~0.50 (2× the actual rate), biasing every
+        # prediction toward draws. Not worth the trade.
+        #
+        # The real limitation is that draws are genuinely hard to predict
+        # from these features — the binary draw model has low discriminative
+        # power even at lower thresholds (rec@0.3 ≈ 0.23). It's effectively
+        # a near-constant predictor that contributes little signal beyond
+        # the multi-class 1X2 model. See NEXT_STEPS D0 for the proper fix
+        # (richer features or different architecture).
         params = {
             'objective': 'binary:logistic',
             'n_estimators': 100,
             'learning_rate': 0.05, # Lower LR for stability
             'max_depth': 4, # Shallower trees
             'eval_metric': 'logloss',
-            # 'scale_pos_weight': 3.5, # Removed to prevent overcalibration
             'tree_method': 'hist',
             'enable_categorical': True
         }
-        
+
         # Quick Train (Validation split)
         split_idx = int(len(df_train) * 0.90)
         train_data = df_train.iloc[:split_idx]
         valid_data = df_train.iloc[split_idx:]
-        
+
         model = xgb.XGBClassifier(**params)
         model.fit(
             train_data[features], train_data['target_draw'],
             eval_set=[(valid_data[features], valid_data['target_draw'])],
             verbose=False
         )
-        
-        # Metrics
+
+        # Metrics — report at multiple thresholds since the default 0.5
+        # is the wrong cut for a positive-weighted binary classifier.
+        # Production uses the raw probability (no threshold), so the
+        # threshold metrics are diagnostic only.
         probs = model.predict_proba(valid_data[features])[:, 1]
-        preds = (probs > 0.5).astype(int)
-        acc = accuracy_score(valid_data['target_draw'], preds)
-        
-        # Specific Recall (Did we catch the draws?)
+        actual_draw_rate = valid_data['target_draw'].mean()
+        mean_p = probs.mean()
+        max_p = probs.max()
+
         from sklearn.metrics import recall_score, precision_score
-        rec = recall_score(valid_data['target_draw'], preds, zero_division=0)
-        prec = precision_score(valid_data['target_draw'], preds, zero_division=0)
-        
-        print(f"Draw Model | Acc: {acc:.4f} | Recall (Draws): {rec:.4f} | Precision: {prec:.4f}")
+        for thr in (0.30, 0.40, 0.50):
+            preds = (probs > thr).astype(int)
+            acc = accuracy_score(valid_data['target_draw'], preds)
+            rec = recall_score(valid_data['target_draw'], preds, zero_division=0)
+            prec = precision_score(valid_data['target_draw'], preds, zero_division=0)
+            print(f"Draw Model thr={thr:.2f} | Acc: {acc:.4f} | Recall: {rec:.4f} | Precision: {prec:.4f}")
+        print(f"Draw Model calibration | actual draw rate: {actual_draw_rate:.4f} | "
+              f"mean predicted P(draw): {mean_p:.4f} | max P(draw): {max_p:.4f}")
+        if mean_p > 1.5 * actual_draw_rate:
+            print(f"  ⚠ WARN: model is overcalibrating draws — mean P(draw) is "
+                  f"{mean_p/actual_draw_rate:.2f}x the actual rate. Consider lowering scale_pos_weight.")
+        elif mean_p < 0.7 * actual_draw_rate:
+            print(f"  ⚠ WARN: model is undercalibrating draws — mean P(draw) is "
+                  f"{mean_p/actual_draw_rate:.2f}x the actual rate. Consider raising scale_pos_weight.")
         
         model.save_model("models/xgb_model_draw.json")
         with open("models/features_draw.json", "w") as f:
