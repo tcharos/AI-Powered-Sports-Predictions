@@ -16,16 +16,26 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 class StepwiseTuner:
     def __init__(self, data_dir="data_sets/MatchHistory"):
         self.data_dir = data_dir
+        # Must match ModelTrainer.common_features exactly — otherwise the
+        # tuned hyperparameters are optimised for a different feature set
+        # than the trainer actually uses at production time. Previous
+        # divergence (missing A_form_sa + the ppg/strength block) cost us
+        # an unknown amount of tuning quality.
         self.common_features = [
             'H_form_pts', 'H_form_gf', 'H_form_ga',
             'A_form_pts', 'A_form_gf', 'A_form_ga',
-            'H_elo', 'A_elo', 
+            'H_elo', 'A_elo',
             'league_cat',
             'H_home_pts', 'H_home_gf', 'H_home_ga', 'H_home_sf', 'H_home_sa',
             'A_away_pts', 'A_away_gf', 'A_away_ga', 'A_away_sf', 'A_away_sa',
             'H_form_sf', 'H_form_sa', 'H_form_cf', 'H_form_ca',
-            'A_form_sf', 'A_form_cf', 'A_form_ca',
+            'A_form_sf', 'A_form_sa', 'A_form_cf', 'A_form_ca',
             'IP_H', 'IP_D', 'IP_A',
+            'abs_elo_diff', 'abs_ppg_diff', 'abs_form_pts_diff',
+            'elo_diff',
+            'H_ppg', 'A_ppg', 'ppg_diff',
+            'H_att', 'A_att', 'H_def', 'A_def',
+            'att_def_diff',
         ]
         self.tscv = TimeSeriesSplit(n_splits=5)
     
