@@ -1,0 +1,65 @@
+/* Sports Predictor — calm/professional palette refresh (Phase B).
+ *
+ * Overrides Bootstrap 5.3's semantic colors via CSS custom properties.
+ * Lane meaning preserved (value=primary, conviction=warning, model=info)
+ * but with lower saturation for easier long-session reading.
+ *
+ * Dark-mode variants live in this same file under [data-bs-theme="dark"]
+ * and ship in Phase C.
+ */
+
+:root {
+    /* Primary — steel blue, replaces Bootstrap's electric #0d6efd */
+    --bs-primary:     #3b6ea5;
+    --bs-primary-rgb: 59, 110, 165;
+
+    /* Warning — warm amber, replaces vivid #ffc107 */
+    --bs-warning:     #e0a847;
+    --bs-warning-rgb: 224, 168, 71;
+
+    /* Info — soft sky blue, replaces cyan #0dcaf0 */
+    --bs-info:        #5dade2;
+    --bs-info-rgb:    93, 173, 226;
+
+    /* Success — deeper forest, replaces #198754 */
+    --bs-success:     #2d8659;
+    --bs-success-rgb: 45, 134, 89;
+
+    /* Danger — terracotta, replaces alarm-red #dc3545 */
+    --bs-danger:      #c0392b;
+    --bs-danger-rgb:  192, 57, 43;
+
+    /* Body — off-white reduces eye strain vs pure white */
+    --bs-body-bg:     #fafafa;
+    --bs-body-color:  #2c3e50;
+
+    /* Slightly softer card corners */
+    --bs-border-radius: 0.5rem;
+    --bs-border-color:  #e3e6ea;
+}
+
+/* Subtle card shadow — replaces the heavier shadow in layout.html. */
+.card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+    border-color: var(--bs-border-color);
+}
+
+/* Table-success / table-danger row tinting (used in live match probs).
+ * Bootstrap's defaults are quite saturated. Soften them slightly. */
+.table-success {
+    --bs-table-bg:    #e6f2eb;
+    --bs-table-color: #1a4d36;
+}
+.table-danger {
+    --bs-table-bg:    #f7e3e0;
+    --bs-table-color: #6b1f15;
+}
+
+/* Smooth transitions for the dark-mode toggle in Phase C. Safe in light
+ * mode — just makes any color change less jarring. */
+body, .card, .table, .navbar, .badge, .btn,
+.list-group-item, .form-control {
+    transition: background-color 0.15s ease,
+                color 0.15s ease,
+                border-color 0.15s ease;
+}

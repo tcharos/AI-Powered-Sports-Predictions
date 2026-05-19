@@ -7,24 +7,11 @@
     <title>Sports Predictor</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Project theme overrides (Phase B). Must come after Bootstrap. -->
+    <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
     <style>
-        body {
-            background-color: #f8f9fa;
-        }
-
-        .navbar {
-            margin-bottom: 20px;
-        }
-
-        .card {
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .high-confidence {
-            background-color: #d4edda !important;
-        }
-
-        /* Green */
+        .navbar { margin-bottom: 20px; }
+        .high-confidence { background-color: #d4edda !important; }
     </style>
 </head>
 
