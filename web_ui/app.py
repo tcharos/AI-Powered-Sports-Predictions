@@ -268,14 +268,18 @@ def _attach_open_bets(live_matches):
         except OSError as e:
             print(f"Warning: could not persist bet_id backfill: {e}")
 
-    # Build lookup: match_str → list of OPEN bets
+    # Build lookup: match_str → list of OPEN bets.
+    # IMPORTANT: only OPEN bets show on live rows. Any terminal status
+    # (WON, LOST, VOID, CASHED_OUT) is excluded — including a per-bet
+    # CASHED_OUT inside a match that has other still-open bets on it
+    # (different lane, different market). The earlier "skip if result
+    # in WON/LOST/VOID" form leaked CASHED_OUT through because
+    # result='CASHED_OUT' wasn't in that set. Be explicit instead.
     by_match = {}
     for bet in slip.get('bets', []):
         status = bet.get('status', '')
-        # Skip already-settled bets (LOST/WON/VOID); only OPEN are cashable.
         if status not in ('OPEN', ''):
-            if bet.get('result') in ('WON', 'LOST', 'VOID'):
-                continue
+            continue
         match_str = bet.get('match', '').strip()
         if match_str:
             by_match.setdefault(match_str, []).append(bet)
