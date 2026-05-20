@@ -63,7 +63,7 @@ class MatchPredictor:
         self.loader = DataLoader(history_dir)
         self.history_df = self.loader.load_historical_data()
         self.history_df = self.history_df.sort_values('date')
-        
+
         self.adjuster = HeuristicAdjuster()
 
         # Per-league Platt calibrators (C4). Empty dict if file missing.
@@ -116,10 +116,10 @@ class MatchPredictor:
             sa = row['AST'] if is_home else row['HST']
             cf = row['HC'] if is_home else row['AC']
             ca = row['AC'] if is_home else row['HC']
-            
+
             # OU Logic: 1 if > 2.5 else 0
             ou = 1 if (row['FTHG'] + row['FTAG']) > 2.5 else 0
-            
+
             return {'pts': pts, 'gf': gf, 'ga': ga, 'sf': sf, 'sa': sa, 'cf': cf, 'ca': ca, 'ou': ou}
 
         # 1. Overall Form (Last 5)
@@ -127,12 +127,12 @@ class MatchPredictor:
         # Calculate means
         sums = {'pts': 0, 'gf': 0, 'ga': 0, 'sf': 0, 'sa': 0, 'cf': 0, 'ca': 0, 'ou': 0}
         count = 0
-        
+
         for _, row in last_5.iterrows():
             s = extract_match_stats(row, team_name)
             for k in sums: sums[k] += s.get(k, 0) # Handle missing stats (NaN -> 0)
             count += 1
-            
+
         if count > 0:
             stats['form_pts'] = sums['pts'] / count
             stats['form_gf'] = sums['gf'] / count

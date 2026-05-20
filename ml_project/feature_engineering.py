@@ -235,7 +235,7 @@ class FeatureEngineer:
             h_stats[f'H_form_ou{suffix}'].append(stats['form_ou'])
             h_stats[f'H_form_str{suffix}'].append(stats['form_str'])
             # Shot/Corner logic (if standard fields exist) - simplified for now
-            h_stats[f'H_form_sf{suffix}'].append(stats.get('form_sf', 0)) 
+            h_stats[f'H_form_sf{suffix}'].append(stats.get('form_sf', 0))
             h_stats[f'H_form_sa{suffix}'].append(stats.get('form_sa', 0))
             h_stats[f'H_form_cf{suffix}'].append(stats.get('form_cf', 0))
             h_stats[f'H_form_ca{suffix}'].append(stats.get('form_ca', 0))
@@ -250,7 +250,7 @@ class FeatureEngineer:
             a_stats[f'A_form_str{suffix}'].append(stats['form_str'])
             a_stats[f'A_form_sf{suffix}'].append(stats.get('form_sf', 0))
             a_stats[f'A_form_sa{suffix}'].append(stats.get('form_sa', 0))
-            a_stats[f'A_form_cf{suffix}'].append(stats.get('form_cf', 0)) 
+            a_stats[f'A_form_cf{suffix}'].append(stats.get('form_cf', 0))
             a_stats[f'A_form_ca{suffix}'].append(stats.get('form_ca', 0))
             
         # Assign columns
@@ -269,7 +269,7 @@ class FeatureEngineer:
                 'form_pts': 0, 'form_gf': 0, 'form_ga': 0, 'form_ou': 0, 'form_str': '',
                 'form_sf': 0, 'form_sa': 0, 'form_cf': 0, 'form_ca': 0
             }
-            
+
         pts = []
         gf = []
         ga = []
@@ -284,26 +284,26 @@ class FeatureEngineer:
             try:
                 h_score = m['FTHG']
                 a_score = m['FTAG']
-                
+
                 is_home_game = (m['home_team'] == target_team)
-                
+
                 # Stats
                 my_goals = h_score if is_home_game else a_score
                 opp_goals = a_score if is_home_game else h_score
-                
+
                 total_goals = h_score + a_score
-                
+
                 # Points
-                if my_goals > opp_goals: 
+                if my_goals > opp_goals:
                     p = 3
                     res_char = 'W'
-                elif my_goals == opp_goals: 
+                elif my_goals == opp_goals:
                     p = 1
                     res_char = 'D'
-                else: 
+                else:
                     p = 0
                     res_char = 'L'
-                
+
                 pts.append(p)
                 gf.append(my_goals)
                 ga.append(opp_goals)
@@ -316,7 +316,7 @@ class FeatureEngineer:
                 sa.append(m.get('AST', 0) if is_home_game else m.get('HST', 0))
                 cf.append(m.get('HC', 0) if is_home_game else m.get('AC', 0))
                 ca.append(m.get('AC', 0) if is_home_game else m.get('HC', 0))
-                
+
             except KeyError:
                 # Handle cases where FTHG, FTAG, HST, etc. might be missing
                 # For now, just skip this match or use default values

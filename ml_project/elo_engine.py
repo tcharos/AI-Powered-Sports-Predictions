@@ -2,9 +2,10 @@ import pandas as pd
 import numpy as np
 
 class EloTracker:
-    def __init__(self, k_factor=20, start_rating=1500):
+    def __init__(self, k_factor=20, start_rating=1500, hfa=100):
         self.k_factor = k_factor
         self.start_rating = start_rating
+        self.hfa = hfa
         self.ratings = {}  # team -> rating
 
     def get_rating(self, team):
@@ -21,11 +22,15 @@ class EloTracker:
         """
         Update ratings based on match result.
         result_home: 1 (Win), 0.5 (Draw), 0 (Loss)
+
+        Home-field advantage is applied to the home team's *effective* rating
+        for the expected-result calculation only. The stored ratings remain
+        the intrinsic team strengths (HFA is not baked into the rating).
         """
         r_home = self.get_rating(home_team)
         r_away = self.get_rating(away_team)
 
-        we_home = self.expected_result(r_home, r_away)
+        we_home = self.expected_result(r_home + self.hfa, r_away)
         
         # Goal difference multiplier (G)
         # 1 for draw or 1 goal win
@@ -70,11 +75,16 @@ class EloTracker:
             away = row.away_team
             fthg = row.FTHG
             ftag = row.FTAG
-            
+
             # Record CURRENT ratings (before match)
             h_elos.append(self.get_rating(home))
             a_elos.append(self.get_rating(away))
-            
+
+            # Skip rows with missing scores (postponed / malformed). Without this
+            # NaN comparisons silently fall through to res=0.0 (home loss).
+            if pd.isna(fthg) or pd.isna(ftag):
+                continue
+
             # Determine Result index
             if fthg > ftag:
                 res = 1.0
