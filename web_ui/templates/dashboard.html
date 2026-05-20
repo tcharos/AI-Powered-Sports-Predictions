@@ -274,7 +274,17 @@
         <div class="row g-4">
             <!-- Prediction Reports (left) -->
             <div class="col-md-6">
-                <h6 class="mt-0 border-bottom pb-1">Prediction Reports</h6>
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-2">
+                    <h6 class="m-0">Prediction Reports</h6>
+                    {% if predictions %}
+                    <form action="/football/archive_all/predictions" method="post"
+                        onsubmit="return confirm('Archive ALL {{ predictions|length }} prediction file(s)? They will move to history/ and disappear from this list.');"
+                        class="m-0">
+                        <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                            title="Archive all predictions">📁 Archive all</button>
+                    </form>
+                    {% endif %}
+                </div>
                 {% if predictions %}
                 <div class="list-group">
                     {% for item in predictions[:3] %}
@@ -305,7 +315,17 @@
 
             <!-- Verification Reports (right) -->
             <div class="col-md-6">
-                <h6 class="mt-0 border-bottom pb-1">Verification Reports</h6>
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-2">
+                    <h6 class="m-0">Verification Reports</h6>
+                    {% if verifications %}
+                    <form action="/football/archive_all/verifications" method="post"
+                        onsubmit="return confirm('Archive ALL {{ verifications|length }} verification file(s)? They will move to history/ and disappear from this list.');"
+                        class="m-0">
+                        <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                            title="Archive all verifications">📁 Archive all</button>
+                    </form>
+                    {% endif %}
+                </div>
                 {% if verifications %}
                 <div class="list-group">
                     {% for item in verifications[:3] %}
@@ -402,6 +422,17 @@
         </span>
     </div>
     <div id="scrapedDataBody" class="collapse">
+    {% if scraped_data %}
+    <div class="card-body py-2 border-bottom d-flex justify-content-end">
+        <form action="/football/archive_all/scraped" method="post"
+            onsubmit="return confirm('Archive ALL {{ scraped_data|length }} scraped data file(s)? They will move to history/ and disappear from this list.');"
+            onclick="event.stopPropagation();"
+            class="m-0">
+            <button type="submit" class="btn btn-sm btn-outline-danger px-2"
+                title="Archive all scraped data files">📁 Archive all</button>
+        </form>
+    </div>
+    {% endif %}
     <div class="card-body p-0">
         {% if scraped_data %}
         <table class="table table-sm table-hover m-0">

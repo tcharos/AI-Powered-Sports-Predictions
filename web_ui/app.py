@@ -586,6 +586,56 @@ def delete_file(filename):
 
     return redirect(request.referrer or url_for('football.index'))
 
+
+# Bulk soft-delete: archive every file of the given kind. Each kind maps
+# to one or more glob patterns. `predictions` covers both the CSV and the
+# matching `report_<date>.txt` summary (generated together by every
+# prediction run).
+_ARCHIVE_ALL_PATTERNS = {
+    'predictions':   ('predictions_*.csv', 'report_*.txt'),
+    'verifications': ('verification_*.csv',),
+    'scraped':       ('matches_*.json',),
+}
+
+
+@football_bp.route('/archive_all/<kind>', methods=['POST'])
+def archive_all(kind):
+    """Archive every file of `kind` (predictions / verifications / scraped)
+    to output/history/. Per-file failures are collected and reported but
+    don't abort the batch."""
+    patterns = _ARCHIVE_ALL_PATTERNS.get(kind)
+    if not patterns:
+        flash(f'Unknown archive kind: {kind!r}.', 'danger')
+        return redirect(url_for('football.index'))
+
+    files = []
+    for pattern in patterns:
+        files.extend(glob.glob(os.path.join(OUTPUT_DIR, pattern)))
+    files = sorted(set(files))
+
+    if not files:
+        flash(f'No {kind} files to archive.', 'info')
+        return redirect(request.referrer or url_for('football.index'))
+
+    archived = 0
+    errors = []
+    for f in files:
+        try:
+            _archive_file(f, os.path.basename(f))
+            archived += 1
+        except OSError as e:
+            errors.append(f"{os.path.basename(f)}: {e}")
+
+    if archived:
+        flash(f'Archived {archived} {kind} file(s) to history/.', 'success')
+    if errors:
+        # Cap displayed errors so a wholesale failure doesn't flood the UI.
+        shown = '; '.join(errors[:3])
+        suffix = '' if len(errors) <= 3 else f' (+{len(errors) - 3} more)'
+        flash(f'Errors: {shown}{suffix}', 'warning')
+
+    return redirect(request.referrer or url_for('football.index'))
+
 @football_bp.route('/view/<filename>')
 def view_file(filename):
     filepath = os.path.join(OUTPUT_DIR, filename)
