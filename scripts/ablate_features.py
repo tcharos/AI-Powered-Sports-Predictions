@@ -389,6 +389,17 @@ def main() -> None:
         json.dump(out, f, indent=2)
     print(f"\nResults saved to {out_path}")
 
+    # Prune older ablation outputs — keep latest 3 (rare runs; small
+    # buffer in case of comparison across consecutive iterations).
+    _KEEP = 3
+    import glob as _glob
+    _old = sorted(_glob.glob(str(out_dir / "ablate_oppform_*.json")))[:-_KEEP]
+    for _f in _old:
+        try: os.remove(_f)
+        except OSError: pass
+    if _old:
+        print(f"Pruned {len(_old)} older ablation output(s) (kept latest {_KEEP}).")
+
     # Verdict heuristic.
     print("\n" + "=" * 72)
     print("Acceptance gate (≥1% Brier improvement = ✅):")

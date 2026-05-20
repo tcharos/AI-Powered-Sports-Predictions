@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import sys
@@ -286,6 +287,16 @@ def main():
         f.write('\n'.join(lines))
 
     print(f'\nSaved:\n  {json_path}\n  {md_path}')
+
+    # Prune older audit outputs — keep only the most recent pair. Each
+    # retrain produces a fresh pair via this script; older ones are
+    # superseded the moment a new retrain finishes.
+    for _patt in ('validate_*.json', 'validate_*.md'):
+        _old = sorted(glob.glob(os.path.join(args.out_dir, _patt)))[:-1]
+        for _f in _old:
+            try: os.remove(_f)
+            except OSError: pass
+    print(f'Pruned older validate_* outputs (kept latest pair).')
 
     # --- filter step: rewrite league_calibration.json without failing entries ---
     if args.no_filter:

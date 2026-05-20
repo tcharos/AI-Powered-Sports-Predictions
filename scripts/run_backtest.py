@@ -254,6 +254,18 @@ def main():
         f.write(report + skipped_msg + '\n')
     print(f"\nSaved:\n  {json_out}\n  {txt_out}")
 
+    # Prune older backtest outputs — keep latest 3 runs for short-term
+    # Δ-trend comparison. The 2026-05-18 baseline values are recorded
+    # in NEXT_STEPS.md ('The data wait' section) so dropping older files
+    # doesn't lose the comparison anchor.
+    _KEEP = 3
+    for _patt in ('*.json', '*.txt'):
+        _old = sorted(glob.glob(os.path.join(args.output_dir, _patt)))[:-_KEEP]
+        for _f in _old:
+            try: os.remove(_f)
+            except OSError: pass
+    print(f"Pruned older backtest outputs (kept latest {_KEEP}).")
+
 
 if __name__ == '__main__':
     main()

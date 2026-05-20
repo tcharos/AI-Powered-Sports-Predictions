@@ -24,6 +24,7 @@ Usage:
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import sys
@@ -148,6 +149,19 @@ def main():
     )
 
     print(f'\nSaved:\n  {csv_1x2}\n  {csv_ou}\n  {md_path}')
+
+    # Prune older diagnose outputs — keep only the most recent set for
+    # this mode. Each diagnose run is mode-tagged (full / minimal), so
+    # we glob with the mode in the pattern and let the other mode's
+    # files survive.
+    for _patt in (f'diagnose_*_{mode_tag}_1x2.csv',
+                  f'diagnose_*_{mode_tag}_ou.csv',
+                  f'diagnose_*_{mode_tag}.md'):
+        _old = sorted(glob.glob(os.path.join(OUTPUT_DIR, _patt)))[:-1]
+        for _f in _old:
+            try: os.remove(_f)
+            except OSError: pass
+    print(f'Pruned older diagnose_*_{mode_tag}_* outputs (kept latest set).')
 
     if not df_1x2_metrics.empty:
         print('\n=== Top 5 leagues by 1X2 miscalibration (severity) ===')
