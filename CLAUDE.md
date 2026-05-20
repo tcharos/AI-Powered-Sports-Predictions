@@ -115,7 +115,7 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 - `OPEN` — placed but match not yet settled. Eligible for cashout (Phase 7) or normal settlement.
 - `WON` / `LOST` — set by `process_bet_verification` once the verification CSV is available. `pnl` reflects payout − stake or −stake.
 - `VOID` — match in slip but not in the verification map (cancelled / not played). Stake is returned, `pnl = 0`.
-- `CASHED_OUT` — bet manually cashed out via Phase 7 endpoint. Carries `cashout_amount` (bookmaker payout), `cashout_timestamp`, and `pnl = cashout_amount − stake`. `process_bet_verification` skips these (already resolved); `compute_sport_summary` aggregates them via a separate `cashed_out` counter and uses the stored values rather than recomputing.
+- `CASHED_OUT` — bet manually cashed out via Phase 7 endpoint. Carries `cashout_amount` (bookmaker payout), `cashout_timestamp`, and `pnl = cashout_amount − stake`. **Bankroll is credited at cashout time** (inside `VirtualBettingBackend.execute_cashout`), NOT at settlement. `process_bet_verification` *includes* CASHED_OUT bets in `return_by_lane` / `pnl_by_lane` for reporting parity but tracks `cashed_out_already_credited` and subtracts it from the per-lane bankroll update so the amount isn't credited twice. `compute_sport_summary` aggregates them via a separate `cashed_out` counter.
 
 **Tunables** live in `data_sets/betting_config.json`, **sport-keyed**, **lane-aware**:
 

@@ -442,6 +442,12 @@ def process_bet_verification(verification_file_path):
         lost_bets = 0
 
         bets = bets_data.get('bets', [])
+        # Track amounts already credited to lane bankrolls at cashout
+        # time so we don't double-credit when iterating the slip below.
+        # The bankroll credit for CASHED_OUT bets happens inside
+        # VirtualBettingBackend.execute_cashout — by the time settlement
+        # runs, the money is already in the lane.
+        cashed_out_already_credited = {lane: 0.0 for lane in LANES}
         for bet in bets:
             lane = bet.get('lane', 'value')
             if lane not in LANES:
@@ -451,8 +457,10 @@ def process_bet_verification(verification_file_path):
 
             # CASHED_OUT bets (Phase 3 schema) were already resolved at
             # cashout time — their pnl/return is the bookmaker's cashout
-            # amount, not the match outcome. Fold them into the lane totals
-            # using the stored values, do not re-settle.
+            # amount, not the match outcome. Fold them into the lane
+            # totals for reporting (return_by_lane / pnl_by_lane / slip
+            # summary), and remember the credited amount so the final
+            # bankroll-credit step skips it.
             if bet.get('status') == 'CASHED_OUT':
                 cashout_amount = float(bet.get('cashout_amount', stake))
                 cashout_pnl = float(bet.get('pnl', cashout_amount - stake))
@@ -460,6 +468,7 @@ def process_bet_verification(verification_file_path):
                 pnl_by_lane[lane] += cashout_pnl
                 total_return += cashout_amount
                 total_pnl += cashout_pnl
+                cashed_out_already_credited[lane] += cashout_amount
                 continue
 
             if match_key not in results_map:
@@ -499,10 +508,13 @@ def process_bet_verification(verification_file_path):
                 lost_bets += 1
 
         # Settlement: credit each lane's returns back to its own bankroll.
+        # Subtract amounts already credited at cashout time (Phase 7) so
+        # CASHED_OUT bets aren't double-credited.
         new_lane_br = {}
         for lane, ret in return_by_lane.items():
-            if ret > 0:
-                new_lane_br[lane] = update_bankroll('football', ret, lane=lane)
+            net = ret - cashed_out_already_credited.get(lane, 0.0)
+            if net > 1e-6:
+                new_lane_br[lane] = update_bankroll('football', net, lane=lane)
             else:
                 new_lane_br[lane] = get_bankroll('football', lane=lane)
 
