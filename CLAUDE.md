@@ -169,6 +169,10 @@ The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction
 - `output/live_history_<date>.jsonl` — append-only per-match snapshots from every Refresh Live Snapshot run. One JSON object per line. Schema: `ts, date, match_id, home_team, away_team, league, minute, score, stats, pre_probs, adj_probs, pre_ou_probs, adj_ou_probs`. `stats` carries xg, xgot, possession, shots, shots_on_target, shots_inside_box, shots_outside_box, big_chances, corners, touches_opp_box, woodwork, saves, yellow_cards, fouls (each `_home` and `_away`; absent stats omitted, not nulled). Source data for cashout backtesting and adjuster v2 work.
 - `output/backtests/<timestamp>.{json,txt}` — cashout backtest outputs from `scripts/run_backtest.py`. JSON has raw outcomes + aggregate by `(rule, lane)`; .txt is the pretty-printed report. Engine lives in `ml_project/backtest/` (`trajectories.py`, `simulator.py`, `rules.py`, `report.py`). Built-in rules: `null` (self-validation, must equal stored P/L), `lock_in_profit`, `stop_loss`, `late_drift`. Both 1X2 and O/U bets are evaluated — see `LiveAdjuster.adjust_ou_probabilities` (Poisson goal model from observed xG pace, blended with the pre-match Over % via a sigmoid centred at minute 30).
 
+### 4. Real-betting integration — `real_betting/` (DORMANT)
+
+Playwright-driven bookmaker automation. Currently scoped to read-only operations against `pamestoixima.gr` (OPAP). Module skeleton + login flow + Keychain credentials work. Bet placement is officially out of scope per `NEXT_STEPS.md` until a separate re-evaluation. A one-off end-to-end placement test was run on 2026-05-20 (single €10 bet, verified the full plumbing) — the working selectors, DOM structures, and anti-patterns are preserved in **`real_betting/PAMESTOIXIMA_NOTES.md`**. Start there before adding any new Pamestoixima-driving code.
+
 ## Roadmap
 
 Cashout feature is built in phases. See **`NEXT_STEPS.md`** at the repo root for the current state of each phase and the data-accrual wait that gates phases 3, 6, 7. Update that file when phases complete.

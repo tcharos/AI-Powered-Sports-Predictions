@@ -44,6 +44,27 @@ class Pamestoixima(Bookmaker):
         'button[id*="accept" i]',
     )
 
+    # Promotional / ad modals frequently cover the Login button on first load
+    # (welcome bonus, deposit promo, etc.). Best-effort dismissal — none of
+    # these are fatal if absent, but if present they block everything below.
+    # ESC key is tried first because it closes the bulk of Vue-mounted modals
+    # for free; the explicit close selectors are the fallback.
+    PROMO_DISMISS_SELECTORS = (
+        'button[aria-label*="close" i]',
+        'button[aria-label*="κλείσιμο" i]',      # Greek "close"
+        'button[aria-label="X"]',
+        'button:has-text("No thanks")',
+        'button:has-text("Όχι ευχαριστώ")',      # Greek "no thanks"
+        'button:has-text("Close")',
+        'button:has-text("Κλείσιμο")',
+        'button:has-text("Skip")',
+        'button:has-text("Παράλειψη")',
+        '[class*="modal" i] [class*="close" i]',
+        '[class*="popup" i] [class*="close" i]',
+        '[class*="overlay" i] button:has-text("X")',
+        '[class*="dialog" i] button[class*="close" i]',
+    )
+
     LOGIN_OPEN_SELECTORS = (
         '#quick_login_login',                    # stable Vue-generated ID
         'button:has-text("LOGIN")',              # uppercase EN
@@ -173,13 +194,51 @@ class Pamestoixima(Bookmaker):
                 continue
         return False
 
+    def _dismiss_overlays(self, max_passes: int = 3) -> int:
+        """Dismiss promo / ad / consent modals that block the page.
+
+        Strategy: press ESC (kills most Vue-mounted modals for free), then
+        try each PROMO_DISMISS_SELECTORS. Multiple passes because closing
+        one modal sometimes reveals another underneath. Returns the count
+        of overlays that were actually dismissed.
+        """
+        page = self._session.page
+        dismissed = 0
+        for _ in range(max_passes):
+            # ESC is cheap; harmless if no modal is open.
+            try:
+                page.keyboard.press('Escape')
+            except Exception:
+                pass
+
+            # Try each close selector; if anything is clickable, click it.
+            progress = False
+            for sel in self.PROMO_DISMISS_SELECTORS:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=500):
+                        loc.click(timeout=2000)
+                        dismissed += 1
+                        progress = True
+                        self._session.human_pause()
+                        break  # restart the pass — modal stack may have shifted
+                except PlaywrightTimeoutError:
+                    continue
+                except Exception:
+                    continue
+            if not progress:
+                break  # nothing left to dismiss
+        if dismissed:
+            print(f"[{self.SLUG}] Dismissed {dismissed} overlay(s).")
+        return dismissed
+
     # --- login ------------------------------------------------------------
 
     def login(self) -> bool:
         creds = get_credentials(self.SLUG)
         if not creds:
             print(f"[{self.SLUG}] No credentials stored. Run: "
-                  f"python -m real_betting.cli set-credentials {self.SLUG}")
+                  f"python -m real_betting set-credentials {self.SLUG}")
             return False
 
         print(f"[{self.SLUG}] Logging in as {mask_username(creds['username'])} "
@@ -214,12 +273,30 @@ class Pamestoixima(Bookmaker):
             print(f"[{self.SLUG}] Accepted cookie banner.")
             self._session.human_pause()
 
+        # 2b. Promotional / ad modals (welcome bonus etc.) sometimes cover
+        # the Login button on first load. Dismiss any that appear before
+        # we try to interact with the page underneath.
+        self._dismiss_overlays()
+
         # 3. Open the login form (modal or page).
         if not self._try_click(self.LOGIN_OPEN_SELECTORS, timeout_ms=8000):
-            print(f"[{self.SLUG}] Could not find the Login button. "
-                  f"Selectors tried: {self.LOGIN_OPEN_SELECTORS}")
-            self._session.dump_failure('login_button_not_found')
-            return False
+            # One more dismissal pass in case a slow-loading modal arrived
+            # between the first dismissal and now.
+            if self._dismiss_overlays() > 0:
+                print(f"[{self.SLUG}] Dismissed late-arriving overlay; retrying Login button.")
+                if self._try_click(self.LOGIN_OPEN_SELECTORS, timeout_ms=5000):
+                    self._session.human_pause()
+                    # Fall through to step 4 (credentials).
+                else:
+                    print(f"[{self.SLUG}] Could not find the Login button after retry. "
+                          f"Selectors tried: {self.LOGIN_OPEN_SELECTORS}")
+                    self._session.dump_failure('login_button_not_found')
+                    return False
+            else:
+                print(f"[{self.SLUG}] Could not find the Login button. "
+                      f"Selectors tried: {self.LOGIN_OPEN_SELECTORS}")
+                self._session.dump_failure('login_button_not_found')
+                return False
         self._session.human_pause()
 
         # 4. Fill credentials.

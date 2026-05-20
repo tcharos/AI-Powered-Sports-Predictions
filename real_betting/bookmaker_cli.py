@@ -1,10 +1,11 @@
-"""Command-line entrypoint for the real-betting module.
+"""Command-line entrypoint for the real-betting bookmaker module.
 
-Usage:
-    python -m real_betting.cli --help
-    python -m real_betting.cli set-credentials <bookmaker>
-    python -m real_betting.cli login <bookmaker> [--headless]
-    python -m real_betting.cli find-fixtures <bookmaker> [--date YYYY-MM-DD]
+Usage (either invocation works — `__main__.py` re-exports `main`):
+    python -m real_betting --help
+    python -m real_betting.bookmaker_cli --help
+    python -m real_betting.bookmaker_cli set-credentials <bookmaker>
+    python -m real_betting.bookmaker_cli login <bookmaker> [--headless]
+    python -m real_betting.bookmaker_cli find-fixtures <bookmaker> [--date YYYY-MM-DD]
 
 Step 1 (module skeleton): every subcommand wires up cleanly but raises
 NotImplementedError with a pointer to the relevant NEXT_STEPS.md step.
@@ -62,7 +63,7 @@ def cmd_get_credentials(args):
     creds = get_credentials(args.bookmaker)
     if not creds:
         print(f"No credentials stored for '{args.bookmaker}'. "
-              f"Run: python -m real_betting.cli set-credentials {args.bookmaker}")
+              f"Run: python -m real_betting set-credentials {args.bookmaker}")
         return 1
     print(f"bookmaker: {args.bookmaker}")
     print(f"username:  {mask_username(creds['username'])}")
@@ -111,9 +112,16 @@ def cmd_find_fixtures(args):
     return 1
 
 
+def cmd_dry_run_freiburg_villa(args):
+    """ONE-SHOT dry-run: prep a specific Pamestoixima bet to the
+    ready-to-place state, then STOP. Cannot place a real bet."""
+    from .dryrun_freiburg_villa import cmd_dry_run_freiburg_villa as _impl
+    return _impl(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog='python -m real_betting.cli',
+        prog='python -m real_betting',
         description='Dormant real-betting integration. Read-only operations '
                     'against a bookmaker. See NEXT_STEPS.md.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -145,6 +153,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument('--date', default=None,
                     help='Target date YYYY-MM-DD (default: today).')
     sp.set_defaults(func=cmd_find_fixtures)
+
+    # One-shot dry-run for Phase 9 plumbing. Hardcoded match / stake.
+    # Cannot place a real bet — code path stops at slip-ready state.
+    sp = sub.add_parser(
+        'dry-run-freiburg-villa',
+        help='ONE-SHOT: prep Freiburg vs Aston Villa O/U Over 2.5 €10 on Pamestoixima. '
+             'Stops before "Place bet". Headed mode forced.',
+    )
+    sp.set_defaults(func=cmd_dry_run_freiburg_villa)
 
     return p
 
