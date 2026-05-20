@@ -236,6 +236,38 @@ def _attach_open_bets(live_matches):
             m['open_bets'] = []
         return
 
+    # One-time backfill: stamp bet_id + mode='virtual' onto any pre-Phase-7
+    # OPEN bets in this slip. Without bet_id the Cash Out button can't
+    # target them (the cashout endpoint looks bets up by bet_id). Persist
+    # the slip if we stamped anything.
+    slip_date = slip.get('date') or datetime.date.today().isoformat()
+    mutated = False
+    for bet in slip.get('bets', []):
+        if bet.get('status') != 'OPEN':
+            continue
+        if not bet.get('bet_id'):
+            match_str = bet.get('match', '')
+            home = bet.get('home') or (match_str.split(' vs ')[0].strip()
+                                       if ' vs ' in match_str else '')
+            away = bet.get('away') or (match_str.split(' vs ')[1].strip()
+                                       if ' vs ' in match_str else '')
+            if home and away:
+                bet['bet_id'] = make_bet_id(
+                    slip_date, home, away,
+                    bet.get('type', '1X2'),
+                    bet.get('selection', ''),
+                )
+                mutated = True
+        if not bet.get('mode'):
+            bet['mode'] = 'virtual'
+            mutated = True
+    if mutated:
+        try:
+            with open(today_slip, 'w') as f:
+                json.dump(slip, f, indent=4)
+        except OSError as e:
+            print(f"Warning: could not persist bet_id backfill: {e}")
+
     # Build lookup: match_str → list of OPEN bets
     by_match = {}
     for bet in slip.get('bets', []):
