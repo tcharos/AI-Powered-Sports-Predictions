@@ -256,8 +256,11 @@ bet_id = "<date>:<home>:<away>:<type>:<selection>"
 
 Example:
 ```
-2026-05-20:sc_freiburg:aston_villa:ou:over_2_5
+2026-05-20:sc_freiburg:aston_villa:o_u:over_2_5
 ```
+(The `O/U` type slug becomes `o_u` because `/` is non-alphanumeric and
+slugifies to `_`. Same uniform rule for every component — no special-
+casing.)
 
 **Properties:**
 - **Stable across modes**: the same wager has the same ID whether

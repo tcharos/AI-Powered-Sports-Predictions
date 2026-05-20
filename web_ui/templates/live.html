@@ -19,10 +19,26 @@
         </div>
     </div>
     {% else %}
+    {# Phase 7: matches with at least one OPEN bet get a warning border
+       + a 💰 badge in the header. Synthesized-priors get a soft note. #}
+    {% set _has_bet = item.open_bets and item.open_bets|length > 0 %}
     <div class="col-md-6 mb-4">
-        <div class="card h-100 border-primary">
+        <div class="card h-100 {{ 'border-warning border-2' if _has_bet else 'border-primary' }}">
             <div class="card-header bg-dark text-white d-flex justify-content-between">
-                <span>{{ item.match }}</span>
+                <span>{{ item.match }}
+                    {% if _has_bet %}
+                    <span class="badge bg-warning text-dark ms-2"
+                          title="You have {{ item.open_bets|length }} open bet(s) on this match.">
+                        💰 {{ item.open_bets|length }}
+                    </span>
+                    {% endif %}
+                    {% if item.priors_synthesized %}
+                    <span class="badge bg-light text-dark border ms-1"
+                          title="Pre-match probabilities synthesized from this bet's odds (no prediction row for this match in today's predictions CSV).">
+                        🛈 priors from odds
+                    </span>
+                    {% endif %}
+                </span>
                 <span class="badge bg-danger">LIVE</span>
             </div>
             <div class="card-body">
@@ -51,7 +67,14 @@
                     </div>
                 </div>
 
-                <h6 class="border-bottom pb-2">Prediction Adjustment</h6>
+                {# Phase 6 + Phase 7: open bets on this match + Cash Out button.
+                   Shared fragment with the dashboard's live rows. #}
+                <h6 class="border-bottom pb-2">Open Bets</h6>
+                {% with open_bets = item.open_bets %}
+                    {% include '_open_bets_fragment.html' %}
+                {% endwith %}
+
+                <h6 class="border-bottom pb-2 mt-3">Prediction Adjustment</h6>
                 <table class="table table-sm table-bordered text-center">
                     <thead class="table-light">
                         <tr>

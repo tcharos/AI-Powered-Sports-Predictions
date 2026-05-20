@@ -17,6 +17,83 @@ LIVE_OUTPUT = os.path.join(OUTPUT_DIR, "live_data.json")
 # Feeds the (forthcoming) cashout backtest harness.
 LIVE_HISTORY = os.path.join(OUTPUT_DIR, f"live_history_{TODAY_FILE_DATE}.jsonl")
 
+def _open_bet_priors_by_team():
+    """Build minimal prediction-like rows for matches with open bets but
+    no entry in today's prediction CSV. Lets the live snapshot cover
+    bets that don't trace back to today's predictions — e.g. a bet
+    placed weeks ago for today's match, where the prediction CSV from
+    that date is no longer the current `predictions_<TODAY>.csv`.
+
+    Each synthesized row carries `_synthesized=True` so downstream
+    records can flag the priors as weak (odds-derived rather than
+    full-model probabilities).
+
+    Returns {home_team_name: row_dict}.
+    """
+    bets_path = os.path.join(OUTPUT_DIR, f"bets_{TODAY_FILE_DATE}.json")
+    out = {}
+    if not os.path.exists(bets_path):
+        return out
+    try:
+        with open(bets_path) as f:
+            slip = json.load(f)
+    except (OSError, ValueError):
+        return out
+
+    for b in slip.get('bets', []):
+        if b.get('status') != 'OPEN':
+            continue
+        match_str = b.get('match', '')
+        home = b.get('home') or (match_str.split(' vs ')[0].strip()
+                                  if ' vs ' in match_str else '')
+        away = b.get('away') or (match_str.split(' vs ')[1].strip()
+                                  if ' vs ' in match_str else '')
+        if not home or not away:
+            continue
+        try:
+            odds = float(b.get('odds', 0) or 0)
+        except (TypeError, ValueError):
+            odds = 0
+        if odds <= 1.0:
+            continue
+        impl = 1.0 / odds
+        bet_type = b.get('type', '1X2')
+        selection = str(b.get('selection', ''))
+
+        row = out.setdefault(home, {
+            'Home Team': home,
+            'Away Team': away,
+            # Uniform priors as a baseline. Specific bets override below.
+            'Home Win %': 0.33, 'Draw %': 0.33, 'Away Win %': 0.34,
+            'Over %': 0.50, 'Under %': 0.50,
+            'League': b.get('league', ''),
+            '_synthesized': True,
+        })
+
+        if bet_type == '1X2':
+            other = max(0.0, (1.0 - impl) / 2.0)
+            if selection in ('1', 'Home', 'home'):
+                row['Home Win %'] = impl
+                row['Draw %'] = other
+                row['Away Win %'] = other
+            elif selection in ('X', 'x', 'Draw', 'draw'):
+                row['Draw %'] = impl
+                row['Home Win %'] = other
+                row['Away Win %'] = other
+            elif selection in ('2', 'Away', 'away'):
+                row['Away Win %'] = impl
+                row['Home Win %'] = other
+                row['Draw %'] = other
+        elif bet_type == 'O/U':
+            if 'Over' in selection:
+                row['Over %'] = impl
+                row['Under %'] = max(0.0, 1.0 - impl)
+            elif 'Under' in selection:
+                row['Under %'] = impl
+                row['Over %'] = max(0.0, 1.0 - impl)
+    return out
+
+
 def main():
     if not os.path.exists(PREDICTIONS_FILE):
         print(f"No predictions file found for {TODAY_FILE_DATE}")
@@ -76,7 +153,8 @@ def main():
     
     predicted_teams = df['Home Team'].tolist()
     live_pairs = []
-    
+    matched_live_ids = set()
+
     for m in live_matches_raw:
         h_team = m['home_team']
         # Fuzzy match
@@ -86,12 +164,37 @@ def main():
             # Verify Away team too?
             row = df[df['Home Team'] == match].iloc[0]
             a_team_pred = row['Away Team']
-            
+
             # Simple check on away team
             if fuzz.token_sort_ratio(m['away_team'], a_team_pred) > 70:
                 print(f"MATCH FOUND: {h_team} vs {m['away_team']} (ID: {m['match_id']})")
                 live_pairs.append((m, row))
-                
+                matched_live_ids.add(m['match_id'])
+
+    # Phase 7 — also include live matches with open bets but no entry in
+    # today's predictions CSV. Uses synthesized priors derived from the
+    # bet's odds. Downstream code reads the same fields (Home Win %,
+    # Draw %, Away Win %, Over %, Under %).
+    synthesized_rows = _open_bet_priors_by_team()
+    if synthesized_rows:
+        bet_teams = list(synthesized_rows.keys())
+        for m in live_matches_raw:
+            if m['match_id'] in matched_live_ids:
+                continue
+            h_team = m['home_team']
+            bm, score = process.extractOne(h_team, bet_teams, scorer=fuzz.token_sort_ratio)
+            if score <= 80:
+                continue
+            row_dict = synthesized_rows[bm]
+            if fuzz.token_sort_ratio(m['away_team'], row_dict['Away Team']) <= 70:
+                continue
+            print(f"OPEN-BET MATCH FOUND: {h_team} vs {m['away_team']} "
+                  f"(ID: {m['match_id']}) [synthesized priors from bet odds]")
+            # Wrap as a pandas Series so it behaves like a prediction-CSV row.
+            row = pd.Series(row_dict)
+            live_pairs.append((m, row))
+            matched_live_ids.add(m['match_id'])
+
     if not live_pairs:
         msg = "No live matches we have predictions for found on Flashscore"
         print(msg)
@@ -186,6 +289,7 @@ def main():
 
         record = {
             'match': f"{live_meta['home_team']} vs {live_meta['away_team']}",
+            'match_id': m_id,
             'score': item.get('score', '0-0'),
             'minute': item.get('minute', 0),
             'stats': item.get('stats', {}),
@@ -193,6 +297,11 @@ def main():
             'adj_probs': adjusted,
             'pre_ou_probs': pre_ou_probs,
             'adj_ou_probs': adjusted_ou,
+            # Phase 7: surface whether this match's priors came from a
+            # real prediction row or were synthesized from open-bet odds
+            # (open-bet matches without a prediction entry). UI uses this
+            # to label weak-prior records distinctly.
+            'priors_synthesized': bool(pred_row.get('_synthesized', False)),
         }
         final_results.append(record)
 

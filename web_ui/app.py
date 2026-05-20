@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Blueprint
+from flask import Flask, render_template, request, redirect, url_for, flash, Blueprint, g
 import pandas as pd
 import os
 import subprocess
@@ -20,6 +20,11 @@ from sports_config import (
     total_bankroll,
     LANES,
 )
+
+# Betting backend abstraction (Phase 7 + transition to live betting —
+# see docs/LIVE_BETTING_TRANSITION.md). Today only the virtual
+# implementation is wired; live blueprint isn't registered.
+from betting_backend import VirtualBettingBackend, make_bet_id
 
 # Sport blueprints — each sport's routes mount under /<sport>/.
 # Sport-agnostic routes (/, /status, /stop/<task>, /server/<action>) stay
@@ -43,6 +48,7 @@ app.secret_key = 'super_secret_key_flashscore'
 
 football_bp = Blueprint('football', __name__)
 
+
 # Register Blueprints
 # from nba.routes import nba_bp, NBA_TASKS  # uncomment to reactivate NBA
 # app.register_blueprint(nba_bp, url_prefix='/nba')
@@ -64,6 +70,18 @@ app.config['DATA_SETS_DIR'] = DATA_SETS_DIR
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
+
+
+# Inject the appropriate BettingBackend on every football request.
+# `g.backend` is the abstraction routes use for cashout (Phase 7) and,
+# eventually, for balance + place + settle (Phase 9, when the
+# `/football/live/` blueprint lands with the same hook returning
+# `PamestoiximaBackend`). See docs/LIVE_BETTING_TRANSITION.md.
+@football_bp.before_request
+def _inject_backend():
+    g.backend = VirtualBettingBackend(output_dir=OUTPUT_DIR)
+    g.mode = 'virtual'
+
 
 @app.template_filter('to_float')
 def to_float_filter(value):
@@ -273,6 +291,11 @@ def _attach_open_bets(live_matches):
                 'adj_prob': round(adj_prob, 3) if adj_prob is not None else None,
                 'fair_cashout': fair_cashout,
                 'badge': badge,
+                # Pass bet_id through so the dashboard's Cash Out button
+                # can target the right bet via /football/cashout/<bet_id>.
+                # Pre-Phase-7 slips don't carry bet_id; the template
+                # hides the button in that case.
+                'bet_id': bet.get('bet_id'),
             })
         m['open_bets'] = enriched
 
@@ -563,6 +586,111 @@ def _archive_file(filepath, filename):
     return target
 
 
+# --- Phase 7: manual cashout endpoint -------------------------------------
+# Lets the user commit a cashout on an OPEN bet via the dashboard's
+# Cash Out button. Delegates to `g.backend.execute_cashout()` so the
+# call site is mode-agnostic — Phase 9 will register an identical
+# endpoint under `/football/live/cashout/<bet_id>` against the live
+# backend. See docs/LIVE_BETTING_TRANSITION.md for the full design.
+
+def _find_bet_and_live_match(bet_id: str):
+    """Locate a bet in any output/bets_*.json by its bet_id, plus the
+    matching live_data entry. Returns (bet_dict, live_match_dict) or
+    (None, None) if either can't be found."""
+    # The bet_id starts with `<YYYY-MM-DD>:` — fast-path the right slip.
+    date_prefix = bet_id.split(':', 1)[0] if ':' in bet_id else ''
+    slip_candidates = []
+    if date_prefix and len(date_prefix) == 10:
+        slip_candidates.append(os.path.join(OUTPUT_DIR, f'bets_{date_prefix}.json'))
+    # Fallback: any slip in output/ (NOT history — cashed-out bets can't
+    # exist there because OPEN-only is the soft-delete invariant).
+    slip_candidates.extend(sorted(glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json'))))
+
+    target_bet = None
+    for slip_path in slip_candidates:
+        if not os.path.exists(slip_path):
+            continue
+        try:
+            with open(slip_path) as f:
+                slip = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for b in slip.get('bets', []):
+            if b.get('bet_id') == bet_id:
+                target_bet = b
+                # Ensure the bet record carries a `date` field for the
+                # backend (older records may not have one explicitly).
+                if 'date' not in target_bet:
+                    target_bet['date'] = slip.get('date') or date_prefix
+                break
+        if target_bet is not None:
+            break
+    if target_bet is None:
+        return (None, None)
+
+    # Find the matching live match (by 'match' string equality).
+    live_path = os.path.join(OUTPUT_DIR, 'live_data.json')
+    if not os.path.exists(live_path):
+        return (target_bet, None)
+    try:
+        with open(live_path) as f:
+            live_data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return (target_bet, None)
+
+    match_str = (target_bet.get('match') or '').strip()
+    live_match = None
+    for m in (live_data.get('matches', []) or []):
+        if (m.get('match') or '').strip() == match_str:
+            live_match = m
+            break
+    return (target_bet, live_match)
+
+
+@football_bp.route('/cashout/<bet_id>', methods=['POST'])
+def cashout(bet_id):
+    """Cash out the bet identified by `bet_id`. Sets the Phase 3 schema
+    fields (status='CASHED_OUT', cashout_amount, cashout_profit,
+    cashout_timestamp), credits the lane bankroll with the cashout
+    amount, persists the slip."""
+    # Safety: bet_id is opaque text, but URL-pathing might be exploited.
+    if '/' in bet_id or '..' in bet_id:
+        flash('Invalid bet_id.', 'danger')
+        return redirect(request.referrer or url_for('football.index'))
+
+    bet, live_match = _find_bet_and_live_match(bet_id)
+    if bet is None:
+        flash(f'Bet not found: {bet_id}.', 'warning')
+        return redirect(request.referrer or url_for('football.index'))
+    if bet.get('status') != 'OPEN':
+        flash(f'Bet is not OPEN (currently {bet.get("status")}). '
+              f'Cashout only applies to open bets.', 'info')
+        return redirect(request.referrer or url_for('football.index'))
+    if live_match is None:
+        flash(f'No live data for this match — cashout requires the match '
+              f'to be in-play with current adjusted probabilities.', 'warning')
+        return redirect(request.referrer or url_for('football.index'))
+
+    # Compute the offer once for the flash message, then execute.
+    amount = g.backend.get_cashout_amount(bet, live_match)
+    if amount is None:
+        flash('Cashout unavailable for this bet right now.', 'warning')
+        return redirect(request.referrer or url_for('football.index'))
+
+    ok = g.backend.execute_cashout(bet, live_match)
+    if not ok:
+        flash('Cashout execution failed. Slip unchanged.', 'danger')
+        return redirect(request.referrer or url_for('football.index'))
+
+    stake = float(bet.get('stake_units', 0) or 0)
+    profit = round(amount - stake, 2)
+    sign = '+' if profit >= 0 else ''
+    flash(f'Cashed out at €{amount:.2f} ({sign}{profit:.2f} P/L). '
+          f'€{amount:.2f} credited to {bet.get("lane", "value")} bankroll.',
+          'success')
+    return redirect(request.referrer or url_for('football.index'))
+
+
 @football_bp.route('/delete_file/<filename>', methods=['POST'])
 def delete_file(filename):
     """
@@ -724,14 +852,18 @@ def view_file(filename):
 def live_analysis():
     live_file = os.path.join(OUTPUT_DIR, "live_data.json")
     matches_data = []
-    
+
     if os.path.exists(live_file):
         try:
             with open(live_file, 'r') as f:
                 matches_data = json.load(f)
         except Exception as e:
             print(f"Error loading live data: {e}")
-            
+
+    # Enrich with any OPEN bets on these matches (same data shape as the
+    # dashboard's live rows — both pages now share the open-bets fragment).
+    _attach_open_bets(matches_data)
+
     # Fallback/Empty state handled in template
     return render_template('live.html', matches=matches_data)
 
@@ -861,6 +993,9 @@ def place_bets():
             return jsonify({'error': 'No bets provided.'}), 400
 
         # Group stakes by lane, validate funds per lane, then debit each lane.
+        # Also stamp each bet with a canonical bet_id + mode='virtual' so the
+        # Phase 7 cashout endpoint can find it later. (Per the BettingBackend
+        # contract — docs/LIVE_BETTING_TRANSITION.md "Bet ID format".)
         stake_by_lane = {lane: 0.0 for lane in LANES}
         for b in bets:
             lane = b.get('lane', 'value')
@@ -868,6 +1003,19 @@ def place_bets():
                 lane = 'value'
                 b['lane'] = lane
             stake_by_lane[lane] += float(b.get('stake_units', 0))
+            # Stamp the canonical bet_id + mode. Won't overwrite an
+            # explicitly-set bet_id (e.g. on tests or future Phase 9 paths).
+            if not b.get('bet_id'):
+                b['bet_id'] = make_bet_id(
+                    date_str,
+                    b.get('home') or (b.get('match', '').split(' vs ')[0]
+                                      if ' vs ' in b.get('match', '') else ''),
+                    b.get('away') or (b.get('match', '').split(' vs ')[1]
+                                      if ' vs ' in b.get('match', '') else ''),
+                    b.get('type', '1X2'),
+                    b.get('selection', ''),
+                )
+            b.setdefault('mode', 'virtual')
 
         current_lane_br = lane_bankrolls('football')
         for lane, stake in stake_by_lane.items():

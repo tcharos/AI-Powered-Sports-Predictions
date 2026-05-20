@@ -1,0 +1,60 @@
+{# Open bets on a live match — display + Cash Out button.
+
+   Included from both `dashboard.html` (the compact, inline column on each
+   live row) and `live.html` (the standalone /football/live_analysis page).
+   Phase 6 polish + Phase 7 cashout button. See
+   docs/LIVE_BETTING_TRANSITION.md.
+
+   Required context:
+     - `open_bets`: list of bet dicts with keys
+         lane, type, selection, stake, odds, adj_prob,
+         fair_cashout, badge, bet_id
+
+   The Cash Out button is rendered only if both `bet_id` and
+   `fair_cashout` are present. Bets placed before Phase 7 don't carry
+   `bet_id`, so the button is silently hidden for them.
+#}
+{% set _lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
+{% set _state_badge = {'lock_in': 'bg-success', 'stop_loss': 'bg-danger', 'hold': 'bg-secondary'} %}
+{% set _state_label = {'lock_in': '🟢 Lock in', 'stop_loss': '🔴 Stop loss', 'hold': '🟡 Hold'} %}
+{% if open_bets %}
+{% for b in open_bets %}
+<div class="border rounded p-1 mb-1 small bg-light">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="badge {{ _lane_badge.get(b.lane, 'bg-secondary') }}">{{ b.lane|capitalize }}</span>
+        <span class="badge {{ _state_badge.get(b.badge, 'bg-secondary') }}">{{ _state_label.get(b.badge, b.badge) }}</span>
+    </div>
+    <div class="d-flex justify-content-between">
+        <span><strong>{{ b.type }}</strong> · {{ b.selection }} @ {{ b.odds }}</span>
+    </div>
+    <div class="d-flex justify-content-between text-muted">
+        <span>Stake €{{ b.stake }}</span>
+        {% if b.fair_cashout is not none %}
+            <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
+                  title="Internal fair-value estimate (stake × odds × adj_prob × 0.95). Actual bookmaker cashout offer not yet scraped — see NEXT_STEPS.md.">
+                Est. cashout €{{ b.fair_cashout }}
+            </span>
+        {% else %}
+            <span class="text-muted small">O/U cashout n/a</span>
+        {% endif %}
+    </div>
+    {# Phase 7: Cash Out button. Only shown if the bet has a bet_id
+       (post-Phase-7 placements) AND a fair-value estimate exists. #}
+    {% if b.bet_id and b.fair_cashout is not none %}
+    <div class="d-grid mt-1">
+        <form action="{{ url_for('football.cashout', bet_id=b.bet_id) }}" method="post"
+              onsubmit="return confirm('Cash out at €{{ b.fair_cashout }}? Bet becomes CASHED_OUT and €{{ b.fair_cashout }} is credited to the {{ b.lane }} bankroll. This cannot be undone.');"
+              class="m-0">
+            <button type="submit" class="btn btn-sm btn-outline-success">
+                💰 Cash Out €{{ b.fair_cashout }}
+            </button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<div class="text-center text-muted small py-3 border rounded bg-light">
+    — No active bet —
+</div>
+{% endif %}
