@@ -104,6 +104,19 @@ class BettingBackend(ABC):
     @abstractmethod
     def settle_bets(self, date: str, verification_data: object) -> dict: ...
 
+    @abstractmethod
+    def void_bet(self, bet: dict) -> bool:
+        """Mark an OPEN bet as VOID (e.g. match postponed / cancelled
+        and won't settle). Stake is refunded to the lane bankroll in
+        virtual mode; live mode no-ops the bankroll (the bookmaker
+        already auto-refunded). Returns True on success, False if the
+        bet isn't found or isn't OPEN.
+
+        Phase 3 schema: bet['status'] = 'VOID', bet['result'] = 'VOID',
+        bet['pnl'] = 0.0. process_bet_verification leaves VOID bets
+        alone, so once marked they're terminal.
+        """
+
 
 # ---- virtual implementation -----------------------------------------------
 
@@ -305,6 +318,69 @@ class VirtualBettingBackend(BettingBackend):
         update_bankroll(self.SPORT, float(amount), lane=lane)
         return True
 
+    # ---- void --------------------------------------------------------
+
+    def void_bet(self, bet: dict) -> bool:
+        """Refund the stake to the lane bankroll, mark bet as VOID.
+        Used for postponed / cancelled matches that will never settle.
+        Idempotent: refuses to act on bets that aren't OPEN.
+        """
+        if bet.get('status') != 'OPEN':
+            return False
+
+        # Date resolution (same logic as execute_cashout).
+        date = None
+        bid = bet.get('bet_id') or ''
+        if ':' in bid:
+            candidate = bid.split(':', 1)[0]
+            if len(candidate) == 10:
+                date = candidate
+        if date is None:
+            raw = bet.get('date') or bet.get('match_date') or ''
+            if isinstance(raw, str) and len(raw) >= 10:
+                date = raw[:10]
+        if date is None:
+            date = _date_from_bet(bet) or datetime.date.today().isoformat()
+
+        slip_path = os.path.join(self.output_dir, f'bets_{date}.json')
+        if not os.path.exists(slip_path):
+            return False
+        try:
+            with open(slip_path) as f:
+                slip = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False
+
+        # Locate the bet (bet_id preferred, fall back to tuple match).
+        target_id = bet.get('bet_id')
+        target_tuple = (bet.get('match'), bet.get('type'), bet.get('selection'))
+        hit = None
+        for b in slip.get('bets', []):
+            if target_id and b.get('bet_id') == target_id:
+                hit = b
+                break
+            if (b.get('match'), b.get('type'),
+                    b.get('selection')) == target_tuple:
+                hit = b
+                break
+        if hit is None or hit.get('status') != 'OPEN':
+            return False
+
+        stake = float(hit.get('stake_units', 0) or 0)
+        hit['status'] = 'VOID'
+        hit['result'] = 'VOID'
+        hit['pnl'] = 0.0
+        hit['voided_timestamp'] = datetime.datetime.now().isoformat(timespec='seconds')
+
+        with open(slip_path, 'w') as f:
+            json.dump(slip, f, indent=4)
+
+        # Refund the stake to the lane bankroll.
+        from sports_config import update_bankroll
+        lane = hit.get('lane', 'value')
+        update_bankroll(self.SPORT, stake, lane=lane)
+        return True
+
     # ---- settlement --------------------------------------------------
 
     def settle_bets(self, date: str, verification_data: object) -> dict:
@@ -362,6 +438,9 @@ class PamestoiximaBackend(BettingBackend):
         raise NotImplementedError(self._NOT_READY)
 
     def settle_bets(self, date, verification_data):
+        raise NotImplementedError(self._NOT_READY)
+
+    def void_bet(self, bet):
         raise NotImplementedError(self._NOT_READY)
 
 

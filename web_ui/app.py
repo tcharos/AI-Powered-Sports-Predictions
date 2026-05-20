@@ -778,6 +778,37 @@ def cashout(bet_id):
     return redirect(request.referrer or url_for('football.index'))
 
 
+@football_bp.route('/void_bet/<bet_id>', methods=['POST'])
+def void_bet(bet_id):
+    """Mark an OPEN bet VOID — for matches that won't settle (postponed,
+    cancelled, abandoned). Stake refunded to the lane. Uses the same
+    backend abstraction as cashout, so the Phase 9 PamestoiximaBackend
+    will get the same operation when it ships.
+    """
+    if '/' in bet_id or '..' in bet_id:
+        flash('Invalid bet_id.', 'danger')
+        return redirect(request.referrer or url_for('football.index'))
+
+    bet, _ = _find_bet_and_live_match(bet_id)
+    if bet is None:
+        flash(f'Bet not found: {bet_id}.', 'warning')
+        return redirect(request.referrer or url_for('football.index'))
+    if bet.get('status') != 'OPEN':
+        flash(f'Bet is not OPEN (currently {bet.get("status")}). '
+              f'Only OPEN bets can be voided.', 'info')
+        return redirect(request.referrer or url_for('football.index'))
+
+    ok = g.backend.void_bet(bet)
+    if not ok:
+        flash('Could not void the bet. Slip unchanged.', 'danger')
+        return redirect(request.referrer or url_for('football.index'))
+
+    stake = float(bet.get('stake_units', 0) or 0)
+    flash(f'Bet voided. €{stake:.2f} refunded to the '
+          f'{bet.get("lane", "value")} bankroll.', 'success')
+    return redirect(request.referrer or url_for('football.index'))
+
+
 @football_bp.route('/delete_file/<filename>', methods=['POST'])
 def delete_file(filename):
     """

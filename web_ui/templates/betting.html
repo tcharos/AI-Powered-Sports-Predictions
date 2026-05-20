@@ -274,9 +274,23 @@
                                     {% elif bet.result == 'LOST' %}
                                     <span class="badge bg-danger">LOST</span>
                                     {% elif bet.status == 'VOID' %}
-                                    <span class="badge bg-warning text-dark">VOID</span>
+                                    <span class="badge bg-warning text-dark"
+                                          title="Voided{% if bet.voided_timestamp %} at {{ bet.voided_timestamp }}{% endif %} — stake refunded">VOID</span>
                                     {% else %}
-                                    <span class="badge bg-secondary">OPEN</span>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <span class="badge bg-secondary">OPEN</span>
+                                        {% if bet.bet_id %}
+                                        <form action="{{ url_for('football.void_bet', bet_id=bet.bet_id) }}" method="post"
+                                              onsubmit="return confirm('Mark this bet VOID (match postponed/cancelled)? Stake €{{ bet.stake_units|round(2) }} will be refunded to the {{ _lane }} bankroll.');"
+                                              class="m-0"
+                                              title="Use this for postponed / cancelled matches that won't settle naturally.">
+                                            <button type="submit" class="btn btn-sm btn-outline-warning py-0 px-1"
+                                                    style="font-size: 0.7rem;">
+                                                ⊘ Void
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
                                     {% endif %}
                                 </td>
                                 <td class="fw-bold">
