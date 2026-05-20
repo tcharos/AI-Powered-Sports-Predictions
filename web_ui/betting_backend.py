@@ -241,8 +241,23 @@ class VirtualBettingBackend(BettingBackend):
         if amount is None:
             return False
 
-        date = bet.get('date') or bet.get('match_date') \
-            or _date_from_bet(bet) or datetime.date.today().isoformat()
+        # Resolve the slip file's date. Order of preference:
+        #   1. bet_id prefix — canonical YYYY-MM-DD by construction.
+        #   2. bet['date'] — may be "YYYY-MM-DD" or "YYYY-MM-DD HH:MM"
+        #      (Flashscore's format includes kickoff time); slice to 10.
+        #   3. Today as last resort.
+        date = None
+        bid = bet.get('bet_id') or ''
+        if ':' in bid:
+            candidate = bid.split(':', 1)[0]
+            if len(candidate) == 10:
+                date = candidate
+        if date is None:
+            raw = bet.get('date') or bet.get('match_date') or ''
+            if isinstance(raw, str) and len(raw) >= 10:
+                date = raw[:10]
+        if date is None:
+            date = _date_from_bet(bet) or datetime.date.today().isoformat()
         slip_path = os.path.join(self.output_dir, f'bets_{date}.json')
         if not os.path.exists(slip_path):
             return False
