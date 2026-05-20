@@ -394,6 +394,19 @@ def process_bet_verification(verification_file_path):
             match_key = bet['match']
             stake = float(bet.get('stake_units', 0))
 
+            # CASHED_OUT bets (Phase 3 schema) were already resolved at
+            # cashout time — their pnl/return is the bookmaker's cashout
+            # amount, not the match outcome. Fold them into the lane totals
+            # using the stored values, do not re-settle.
+            if bet.get('status') == 'CASHED_OUT':
+                cashout_amount = float(bet.get('cashout_amount', stake))
+                cashout_pnl = float(bet.get('pnl', cashout_amount - stake))
+                return_by_lane[lane] += cashout_amount
+                pnl_by_lane[lane] += cashout_pnl
+                total_return += cashout_amount
+                total_pnl += cashout_pnl
+                continue
+
             if match_key not in results_map:
                 bet['status'] = 'VOID'
                 return_by_lane[lane] += stake
@@ -894,6 +907,7 @@ def compute_sport_summary(bets_dir):
 
     def _empty():
         return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
+                'cashed_out': 0,
                 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
     lane_stats = {lane: _empty() for lane in LANES}
 
@@ -912,14 +926,22 @@ def compute_sport_summary(bets_dir):
                 continue
 
             s['settled'] += 1
-            if result == 'WON' or status == 'WON':
+            # CASHED_OUT is checked first so it doesn't fall through to the
+            # VOID else-branch. Cashout amount + pnl are stored at cashout
+            # time (Phase 7 will populate them); we trust those over recomputing.
+            if status == 'CASHED_OUT' or result == 'CASHED_OUT':
+                s['cashed_out'] += 1
+                cashout_amount = float(bet.get('cashout_amount', stake))
+                s['returned'] += cashout_amount
+                s['pnl'] += float(bet.get('pnl', cashout_amount - stake))
+            elif result == 'WON' or status == 'WON':
                 s['won'] += 1
                 s['returned'] += stake + float(bet.get('pnl', 0))
                 s['pnl'] += float(bet.get('pnl', 0))
             elif result == 'LOST' or status == 'LOST':
                 s['lost'] += 1
                 s['pnl'] += float(bet.get('pnl', -stake))
-            else:  # VOID
+            else:  # VOID (or unrecognised terminal status)
                 s['void'] += 1
                 s['returned'] += stake
 

@@ -111,6 +111,12 @@ Multi-sport-aware. Run as a backgrounded process via `bin/manage_server.sh` — 
 - `/football/betting` page shows a three-row Strategy Comparison table ("Strategy Comparison · Football (cumulative)"). Aggregation logic lives in `compute_sport_summary(bets_dir)` (module-level in `app.py`); the same helper feeds the landing page's Portfolio Summary table.
 - `/football/delete_file/<filename>` is a **soft delete**: moves the file to `output/history/`. The Archive button only appears on CLOSED slips so OPEN slips can't be archived before settlement.
 
+**Bet-status taxonomy** (per-bet `status` field inside `output/bets_<date>.json`):
+- `OPEN` — placed but match not yet settled. Eligible for cashout (Phase 7) or normal settlement.
+- `WON` / `LOST` — set by `process_bet_verification` once the verification CSV is available. `pnl` reflects payout − stake or −stake.
+- `VOID` — match in slip but not in the verification map (cancelled / not played). Stake is returned, `pnl = 0`.
+- `CASHED_OUT` — bet manually cashed out via Phase 7 endpoint. Carries `cashout_amount` (bookmaker payout), `cashout_timestamp`, and `pnl = cashout_amount − stake`. `process_bet_verification` skips these (already resolved); `compute_sport_summary` aggregates them via a separate `cashed_out` counter and uses the stored values rather than recomputing.
+
 **Tunables** live in `data_sets/betting_config.json`, **sport-keyed**, **lane-aware**:
 
 ```json

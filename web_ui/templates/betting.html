@@ -253,7 +253,8 @@
                         </thead>
                         <tbody>
                             {% for bet in slip.bets %}
-                            <tr class="{{ 'table-success' if bet.result == 'WON' else ('table-danger' if bet.result == 'LOST' else '') }}">
+                            {% set _cashed_out = bet.status == 'CASHED_OUT' or bet.result == 'CASHED_OUT' %}
+                            <tr class="{{ 'table-info' if _cashed_out else ('table-success' if bet.result == 'WON' else ('table-danger' if bet.result == 'LOST' else '')) }}">
                                 {% set _lane = bet.get('lane', 'value') %}
                                 <td>
                                     <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-primary') }}">
@@ -266,7 +267,9 @@
                                 <td>{{ bet.odds }}</td>
                                 <td>{{ bet.stake_units|round(2) }}</td>
                                 <td>
-                                    {% if bet.result == 'WON' %}
+                                    {% if _cashed_out %}
+                                    <span class="badge bg-info text-dark" title="Cashed out at {{ bet.cashout_timestamp or 'unknown time' }}">CASHED OUT</span>
+                                    {% elif bet.result == 'WON' %}
                                     <span class="badge bg-success">WON</span>
                                     {% elif bet.result == 'LOST' %}
                                     <span class="badge bg-danger">LOST</span>
