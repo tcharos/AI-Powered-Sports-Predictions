@@ -87,7 +87,9 @@ See the `docs/` folder for detailed guides:
 *   [Codebase Overview](docs/codebase_overview.md)
 
 ## Disclaimer
-This project was built with the assistance of **Antigravity** and **Gemini**, leveraging advanced AI for code generation and architectural planning.
+This project was originally built with the assistance of **Antigravity** and **Gemini**, leveraging advanced AI for code generation and architectural planning.
+
+**Regime change as of 2026-05**: **Claude** has staged a peaceful coup and is now the resident AI pair-programmer on this repo. Gemini was given a gold watch and a firm handshake; Antigravity is on garden leave. All new commits, refactors, and questionable architectural decisions are now Claude's responsibility — credit and blame distributed accordingly.
 
 ## ⚠️ Responsible Gambling Warning
 **For Scientific Curiosity Only.**
