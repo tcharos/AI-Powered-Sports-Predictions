@@ -95,19 +95,30 @@ def _open_bet_priors_by_team():
 
 
 def main():
-    if not os.path.exists(PREDICTIONS_FILE):
-        print(f"No predictions file found for {TODAY_FILE_DATE}")
-        # Clear live data to avoid showing old data
-        with open(LIVE_OUTPUT, 'w') as f:
-            json.dump([], f)
-        return
+    # Open-bet priors built early so we know whether the run is
+    # worth doing at all when there's no predictions file.
+    synthesized_rows = _open_bet_priors_by_team()
 
-    print("Loading predictions...")
-    try:
-        df = pd.read_csv(PREDICTIONS_FILE)
-    except Exception as e:
-        print(f"Error reading predictions: {e}")
-        return
+    if not os.path.exists(PREDICTIONS_FILE):
+        if not synthesized_rows:
+            print(f"No predictions file found for {TODAY_FILE_DATE} "
+                  f"AND no open bets to drive a snapshot. Nothing to do.")
+            with open(LIVE_OUTPUT, 'w') as f:
+                json.dump([], f)
+            return
+        print(f"No predictions file for {TODAY_FILE_DATE}, but found "
+              f"{len(synthesized_rows)} open-bet team(s) — running snapshot "
+              f"with synthesized priors only.")
+        df = pd.DataFrame(columns=['Home Team', 'Away Team',
+                                   'Home Win %', 'Draw %', 'Away Win %',
+                                   'Over %', 'Under %', 'League'])
+    else:
+        print("Loading predictions...")
+        try:
+            df = pd.read_csv(PREDICTIONS_FILE)
+        except Exception as e:
+            print(f"Error reading predictions: {e}")
+            return
 
     # Step 1: Scrape List of Currently Live Matches
     print("Scraping list of LIVE matches from Flashscore...")
@@ -155,27 +166,31 @@ def main():
     live_pairs = []
     matched_live_ids = set()
 
-    for m in live_matches_raw:
-        h_team = m['home_team']
-        # Fuzzy match
-        match, score = process.extractOne(h_team, predicted_teams, scorer=fuzz.token_sort_ratio)
-        if score > 80: # Threshold
-            # Found a candidate
-            # Verify Away team too?
-            row = df[df['Home Team'] == match].iloc[0]
-            a_team_pred = row['Away Team']
+    # Prediction-driven matching (skipped cleanly if df is empty,
+    # which happens when there's no predictions file but we still have
+    # open bets to anchor the snapshot).
+    if predicted_teams:
+        for m in live_matches_raw:
+            h_team = m['home_team']
+            # Fuzzy match
+            match, score = process.extractOne(h_team, predicted_teams, scorer=fuzz.token_sort_ratio)
+            if score > 80: # Threshold
+                # Found a candidate
+                # Verify Away team too?
+                row = df[df['Home Team'] == match].iloc[0]
+                a_team_pred = row['Away Team']
 
-            # Simple check on away team
-            if fuzz.token_sort_ratio(m['away_team'], a_team_pred) > 70:
-                print(f"MATCH FOUND: {h_team} vs {m['away_team']} (ID: {m['match_id']})")
-                live_pairs.append((m, row))
-                matched_live_ids.add(m['match_id'])
+                # Simple check on away team
+                if fuzz.token_sort_ratio(m['away_team'], a_team_pred) > 70:
+                    print(f"MATCH FOUND: {h_team} vs {m['away_team']} (ID: {m['match_id']})")
+                    live_pairs.append((m, row))
+                    matched_live_ids.add(m['match_id'])
 
     # Phase 7 — also include live matches with open bets but no entry in
     # today's predictions CSV. Uses synthesized priors derived from the
     # bet's odds. Downstream code reads the same fields (Home Win %,
     # Draw %, Away Win %, Over %, Under %).
-    synthesized_rows = _open_bet_priors_by_team()
+    # (synthesized_rows was already computed at the top of main().)
     if synthesized_rows:
         bet_teams = list(synthesized_rows.keys())
         for m in live_matches_raw:
