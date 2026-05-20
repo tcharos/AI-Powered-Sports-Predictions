@@ -661,6 +661,10 @@ def _find_bet_and_live_match(bet_id: str):
         return (None, None)
 
     # Find the matching live match (by 'match' string equality).
+    # live_data.json is a top-level list (run_live_analysis writes
+    # `json.dump(final_results, ...)` where final_results is a list).
+    # Be defensive in case the shape ever changes — accept either a
+    # list or a dict with a 'matches' key.
     live_path = os.path.join(OUTPUT_DIR, 'live_data.json')
     if not os.path.exists(live_path):
         return (target_bet, None)
@@ -670,9 +674,18 @@ def _find_bet_and_live_match(bet_id: str):
     except (OSError, json.JSONDecodeError):
         return (target_bet, None)
 
+    if isinstance(live_data, list):
+        matches = live_data
+    elif isinstance(live_data, dict):
+        matches = live_data.get('matches') or []
+    else:
+        matches = []
+
     match_str = (target_bet.get('match') or '').strip()
     live_match = None
-    for m in (live_data.get('matches', []) or []):
+    for m in matches:
+        if not isinstance(m, dict):
+            continue
         if (m.get('match') or '').strip() == match_str:
             live_match = m
             break
