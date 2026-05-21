@@ -17,6 +17,9 @@ fi
 
 RESULTS_JSON="output/matches_$TARGET_DATE.json"
 PREDICTIONS_CSV="output/predictions_$TARGET_DATE.csv"
+BETS_FILE="output/bets_$TARGET_DATE.json"
+VERIFICATION_CSV="output/verification_$TARGET_DATE.csv"
+REPORT_FILE="output/report_$TARGET_DATE.txt"
 
 echo "========================================"
 echo "    Flashscore Prediction Verification  "
@@ -31,69 +34,77 @@ else
     exit 1
 fi
 
-# 2. Check if Predictions exist
-if [ ! -f "$PREDICTIONS_CSV" ]; then
-    echo "[-] Error: Predictions file not found: $PREDICTIONS_CSV"
-    echo "    Cannot verify predictions that don't exist."
+# 2. Determine source of match IDs to scrape.
+#    Preferred: predictions CSV (full data including odds, league, probs).
+#    Fallback: open bets in bets_<date>.json — lets verification settle
+#    bets even when the predictions file was archived/deleted.
+HAVE_PREDICTIONS=0
+LIVE_IDS=""
+if [ -f "$PREDICTIONS_CSV" ]; then
+    LIVE_IDS=$(python3 -c "import pandas as pd; df=pd.read_csv('$PREDICTIONS_CSV'); print(','.join(df['match_id'].dropna().astype(str).tolist()))" 2>/dev/null)
+    HAVE_PREDICTIONS=1
+    echo "[*] Predictions file found — using its match IDs."
+elif [ -f "$BETS_FILE" ]; then
+    LIVE_IDS=$(python3 -c "
+import json
+with open('$BETS_FILE') as f:
+    slip = json.load(f)
+ids = set()
+for b in slip.get('bets', []):
+    # Settle any non-terminal bet; OPEN is the usual case but a bet
+    # could be missing 'status' on very old slips.
+    if b.get('status') in ('OPEN', '', None) and b.get('match_id'):
+        ids.add(str(b.get('match_id')))
+print(','.join(sorted(ids)))
+" 2>/dev/null)
+    echo "[!] No predictions file. Falling back to match IDs from open bets in $BETS_FILE."
+else
+    echo "[-] Neither predictions ($PREDICTIONS_CSV) nor bets ($BETS_FILE) "
+    echo "    exists for $TARGET_DATE. Nothing to verify."
     exit 1
 fi
 
-# 3. Calculate Day Offset for Scraper
-# Current Date - Target Date
-# We want day_diff which is Target - Current.
-# e.g. Yesterday - Today = -1.
-
-CURRENT_DATE_SEC=$(date +%s)
-# Assume MacOS date format for simplicity as environment is known
-TARGET_DATE_SEC=$(date -j -f "%Y-%m-%d" "$TARGET_DATE" +%s)
-
-DIFF_SEC=$((TARGET_DATE_SEC - CURRENT_DATE_SEC))
-# Rounding
-DAY_DIFF=$(( (DIFF_SEC - 43200) / 86400 )) 
-# Note: For verification, we usually look back.
-# If target is yesterday, diff is negative approx -86400. / 86400 = -1.
-
-echo "[*] Target is $DAY_DIFF days from today. Running Scraper..."
-
-# 4. Run Scraper to get Results
-
-# New ID-based strategy
-LIVE_IDS=$(python3 -c "import pandas as pd; df=pd.read_csv('$PREDICTIONS_CSV'); print(','.join(df['match_id'].dropna().astype(str).tolist()))" 2>/dev/null)
-
-if [ ! -z "$LIVE_IDS" ]; then
-    echo "[*] Found Match IDs in predictions. Using Direct ID Scraping Mode."
-    # Reusing 'live_ids' argument logic which triggers batch scraping
-    # We add mode=verification to ensure we parse scores properly (though batch logic usually does)
-    scrapy crawl flashscore -a live_ids="$LIVE_IDS" -a mode=verification -O $RESULTS_JSON -L WARNING
-else
-    echo "[*] No Match IDs found. Using Date-based Scraper (Fallback)..."
-    # Pass day_diff instead of days_back
-    scrapy crawl flashscore -a day_diff=$DAY_DIFF -a mode=verification -O $RESULTS_JSON -L WARNING
+if [ -z "$LIVE_IDS" ]; then
+    echo "[-] No match IDs to scrape. Nothing to verify."
+    exit 1
 fi
 
+# 3. Calculate Day Offset for Scraper (still useful as a sanity log).
+CURRENT_DATE_SEC=$(date +%s)
+TARGET_DATE_SEC=$(date -j -f "%Y-%m-%d" "$TARGET_DATE" +%s)
+DIFF_SEC=$((TARGET_DATE_SEC - CURRENT_DATE_SEC))
+DAY_DIFF=$(( (DIFF_SEC - 43200) / 86400 ))
+echo "[*] Target is $DAY_DIFF days from today. Running Scraper with ID-based mode..."
+
+# 4. Run Scraper to get Results — always by ID here, since we have IDs
+#    from either predictions or open bets.
+scrapy crawl flashscore -a live_ids="$LIVE_IDS" -a mode=verification -O $RESULTS_JSON -L WARNING
 if [ $? -ne 0 ]; then
     echo "[-] Scraper Failed!"
     exit 1
 fi
-
 echo "[+] Results saved to $RESULTS_JSON"
 
-REPORT_FILE="output/report_$TARGET_DATE.txt"
+# 5. Run Evaluation — only if we have predictions to compare against.
+if [ "$HAVE_PREDICTIONS" -eq 1 ]; then
+    echo ""
+    echo "[*] Comparing Predictions vs Results..."
+    python3 ml_project/evaluate_predictions.py --preds $PREDICTIONS_CSV --results $RESULTS_JSON --output $VERIFICATION_CSV | tee $REPORT_FILE
+    echo "[+] Verification Report saved to $REPORT_FILE"
+else
+    echo "[!] Skipping prediction evaluation (no predictions file)."
+fi
 
-# 5. Run Evaluation
-echo ""
-echo "[*] Comparing Predictions vs Results..."
-VERIFICATION_CSV="output/verification_$TARGET_DATE.csv"
-python3 ml_project/evaluate_predictions.py --preds $PREDICTIONS_CSV --results $RESULTS_JSON --output $VERIFICATION_CSV | tee $REPORT_FILE
-
-echo "[+] Verification Report saved to $REPORT_FILE"
-
-echo "[+] Verification Report saved to $REPORT_FILE"
-
-# 6. Resolve Bets (All Open Slips)
+# 6. Resolve Bets — always runs. Uses results JSON directly; the
+#    verification CSV is optional (skipped when predictions weren't
+#    available so we couldn't generate it).
 echo ""
 echo "[*] Resolving Open Bets across all slips..."
-python3 ml_project/resolve_daily_bets.py --bets_dir output --results $RESULTS_JSON --verification_csv $VERIFICATION_CSV
+if [ "$HAVE_PREDICTIONS" -eq 1 ]; then
+    python3 ml_project/resolve_daily_bets.py --bets_dir output --results $RESULTS_JSON --verification_csv $VERIFICATION_CSV
+else
+    python3 ml_project/resolve_daily_bets.py --bets_dir output --results $RESULTS_JSON
+fi
 
 echo ""
 echo "========================================"
