@@ -10,13 +10,10 @@
         font-size: 0.78rem; color: var(--bs-secondary-color);
         margin-top: 0.1rem;
     }
-    /* Value lane uses the project-wide lavender theme (bg-lane-value
-       custom utility from theme.css). Conviction = yellow, Model =
-       info-blue, Global = neutral. Matches the existing color coding
-       on /football/betting and /football/auto_wager. */
-    .lane-card-header.conviction { background-color: var(--bs-warning-bg-subtle, #fff3cd); color: var(--bs-emphasis-color); }
-    .lane-card-header.model      { background-color: var(--bs-info-bg-subtle, #d1ecf1); color: var(--bs-emphasis-color); }
-    .lane-card-header.global     { background-color: var(--bs-tertiary-bg);              color: var(--bs-emphasis-color); }
+    /* Lane card headers match /football/betting and the dashboard live
+       row badges: Value lavender (bg-lane-value), Conviction yellow,
+       Model info-blue. Global stays neutral since it's not a lane. */
+    .lane-card-header.global { background-color: var(--bs-tertiary-bg); color: var(--bs-emphasis-color); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -37,8 +34,18 @@
 
 <form action="{{ url_for('football.settings') }}" method="post">
     {% for lane_name, fields in lanes.items() if fields %}
+    {# Lane header classes mirror /football/betting and the dashboard's
+       lane badges: Value lavender, Conviction yellow, Model info-blue.
+       Same `bg-* text-dark fw-bold text-capitalize` pattern across pages
+       so the lane identity is visually consistent everywhere. #}
+    {% set _hdr_cls = {
+        'value':      'bg-lane-value text-dark',
+        'conviction': 'bg-warning text-dark',
+        'model':      'bg-info text-dark',
+        'global':     'lane-card-header global',
+    } %}
     <div class="card mb-3">
-        <div class="card-header {% if lane_name == 'value' %}bg-lane-value{% else %}lane-card-header {{ lane_name }}{% endif %} fw-bold">
+        <div class="card-header {{ _hdr_cls[lane_name] }} fw-bold text-capitalize">
             {% if lane_name == 'value' %}💎 Value lane{% endif %}
             {% if lane_name == 'conviction' %}🎯 Conviction lane{% endif %}
             {% if lane_name == 'model' %}🤖 Model lane{% endif %}
