@@ -128,6 +128,7 @@
                                                 <th>Conf</th>
                                                 <th>EV</th>
                                                 <th>Stake</th>
+                                                <th title="Potential gross return if the bet wins (stake × odds).">Return</th>
                                                 <th></th>
                                             </tr>
                                         </thead>
@@ -154,6 +155,7 @@
                                                 <th>Conf</th>
                                                 <th>EV</th>
                                                 <th>Stake</th>
+                                                <th title="Potential gross return if the bet wins (stake × odds).">Return</th>
                                                 <th></th>
                                             </tr>
                                         </thead>
@@ -180,6 +182,7 @@
                                                 <th>Conf</th>
                                                 <th>EV</th>
                                                 <th>Stake</th>
+                                                <th title="Potential gross return if the bet wins (stake × odds).">Return</th>
                                                 <th></th>
                                             </tr>
                                         </thead>
@@ -223,7 +226,20 @@
                         {% endif %}
                     </span>
                 </div>
-                <div>
+                <div class="d-flex align-items-center gap-2">
+                    {% set _all_open = slip.status == 'OPEN'
+                        and slip.bets|length > 0
+                        and slip.bets|rejectattr('status', 'equalto', 'OPEN')|list|length == 0 %}
+                    {% if _all_open %}
+                    <form action="{{ url_for('football.cancel_slip', date=slip.date) }}" method="post"
+                          onsubmit="return confirm('Cancel this slip? Every bet is still OPEN, so all stakes will be refunded to their lane bankrolls and the slip will be closed. This cannot be undone.');"
+                          class="m-0">
+                        <button type="submit" class="btn btn-outline-danger btn-sm"
+                                title="Cancel the whole slip (virtual only). Allowed while every bet is OPEN; refunds each lane's stakes.">
+                            ❌ Cancel Slip
+                        </button>
+                    </form>
+                    {% endif %}
                     {% if slip.status == 'CLOSED' %}
                     <form action="{{ url_for('football.delete_file', filename=slip.filename) }}" method="post"
                         onsubmit="return confirm('Archive this slip? It will be hidden from the list but still counted in the comparison totals.');">
@@ -257,7 +273,7 @@
                             <tr class="{{ 'table-info' if _cashed_out else ('table-success' if bet.result == 'WON' else ('table-danger' if bet.result == 'LOST' else '')) }}">
                                 {% set _lane = bet.get('lane', 'value') %}
                                 <td>
-                                    <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-primary') }}">
+                                    <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-lane-value text-dark') }}">
                                         {{ _lane|capitalize }}
                                     </span>
                                 </td>
@@ -331,12 +347,13 @@
         const tbody = document.getElementById(tbodyId);
         tbody.innerHTML = '';
         if (!bets.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
             return;
         }
         bets.forEach(b => {
             const tr = document.createElement('tr');
             const typeAttr = String(b.type).replace(/"/g, '&quot;');
+            const potentialReturn = (Number(b.stake_units) || 0) * (Number(b.odds) || 0);
             tr.innerHTML = `
                 <td class="small">${b.match}</td>
                 <td><span class="badge ${b.type === '1X2' ? 'bg-secondary' : 'bg-info text-dark'}">${b.type}</span></td>
@@ -345,6 +362,7 @@
                 <td>${b.conf}</td>
                 <td>${b.ev}</td>
                 <td class="fw-bold text-success">€${b.stake_units.toFixed(2)}</td>
+                <td class="text-muted" title="Stake × Odds — gross payout if this bet wins.">€${potentialReturn.toFixed(2)}</td>
                 <td class="text-end">
                     <button type="button" class="btn btn-sm btn-link text-danger p-0"
                             title="Remove this bet from the slip"

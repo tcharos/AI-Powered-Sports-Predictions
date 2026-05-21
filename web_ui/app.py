@@ -954,6 +954,36 @@ def void_bet(bet_id):
     return redirect(request.referrer or url_for('football.index'))
 
 
+@football_bp.route('/cancel_slip/<date>', methods=['POST'])
+def cancel_slip(date):
+    """Cancel a virtual slip while every bet on it is still OPEN —
+    refunds each lane's stakes and closes the slip. Virtual-mode only;
+    the live (Pamestoixima) backend has no analogue."""
+    if '/' in date or '..' in date or len(date) != 10:
+        flash('Invalid slip date.', 'danger')
+        return redirect(request.referrer or url_for('football.betting_page'))
+
+    if getattr(g, 'mode', 'virtual') != 'virtual':
+        flash('Slip cancellation is only available in virtual mode.', 'warning')
+        return redirect(request.referrer or url_for('football.betting_page'))
+
+    ok, message = g.backend.cancel_slip(date)
+    if not ok:
+        flash(f'Could not cancel slip {date}: {message}', 'warning')
+        return redirect(request.referrer or url_for('football.betting_page'))
+
+    filename = f'bets_{date}.json'
+    filepath = os.path.join(OUTPUT_DIR, filename)
+    try:
+        if os.path.exists(filepath):
+            _archive_file(filepath, filename)
+        flash(f'Slip {date} cancelled and archived. {message}', 'success')
+    except OSError as e:
+        flash(f'Slip {date} cancelled ({message}), but archiving failed: {e}',
+              'warning')
+    return redirect(request.referrer or url_for('football.betting_page'))
+
+
 @football_bp.route('/delete_file/<filename>', methods=['POST'])
 def delete_file(filename):
     """

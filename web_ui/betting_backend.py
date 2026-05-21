@@ -408,6 +408,64 @@ class VirtualBettingBackend(BettingBackend):
             json.dump(slip, f, indent=4)
         return True
 
+    # ---- cancel slip -------------------------------------------------
+
+    def cancel_slip(self, date: str) -> tuple[bool, str]:
+        """Cancel an entire virtual slip when every bet on it is still
+        OPEN. Refunds each bet's stake to its lane bankroll, marks each
+        bet VOID with a `cancelled_timestamp`, and flips the slip to
+        CLOSED so it can be archived through the usual path.
+
+        Returns (True, message) on success, (False, reason) on refusal.
+        Refuses if any bet has already moved past OPEN (WON / LOST /
+        VOID / CASHED_OUT) — those slips must be settled normally.
+        """
+        if not isinstance(date, str) or len(date) != 10:
+            return False, 'Invalid slip date.'
+
+        slip_path = os.path.join(self.output_dir, f'bets_{date}.json')
+        if not os.path.exists(slip_path):
+            return False, 'Slip not found.'
+        try:
+            with open(slip_path) as f:
+                slip = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False, 'Slip could not be read.'
+
+        bets = slip.get('bets', [])
+        if not bets:
+            return False, 'Slip has no bets.'
+
+        non_open = [b for b in bets if b.get('status', 'OPEN') != 'OPEN']
+        if non_open:
+            return False, (
+                f'{len(non_open)} bet(s) already settled or cashed out — '
+                'cancel is only allowed when every bet is OPEN.')
+
+        from sports_config import update_bankroll
+        now_iso = datetime.datetime.now().isoformat(timespec='seconds')
+        refunded_by_lane: dict[str, float] = {}
+        for b in bets:
+            stake = float(b.get('stake_units', 0) or 0)
+            lane = b.get('lane', 'value')
+            b['status'] = 'VOID'
+            b['result'] = 'VOID'
+            b['pnl'] = 0.0
+            b['voided_timestamp'] = now_iso
+            b['cancelled_timestamp'] = now_iso
+            update_bankroll(self.SPORT, stake, lane=lane)
+            refunded_by_lane[lane] = refunded_by_lane.get(lane, 0.0) + stake
+
+        slip['status'] = 'CLOSED'
+        slip['cancelled_timestamp'] = now_iso
+        with open(slip_path, 'w') as f:
+            json.dump(slip, f, indent=4)
+
+        parts = ', '.join(f'{lane} €{amt:.2f}'
+                          for lane, amt in sorted(refunded_by_lane.items()))
+        total = sum(refunded_by_lane.values())
+        return True, f'Refunded €{total:.2f} ({parts}).'
+
     # ---- settlement --------------------------------------------------
 
     def settle_bets(self, date: str, verification_data: object) -> dict:
