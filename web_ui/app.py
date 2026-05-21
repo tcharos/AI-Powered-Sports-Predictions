@@ -457,13 +457,21 @@ def run_verification():
         target_date = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
         
     pred_file = os.path.join(OUTPUT_DIR, f"predictions_{target_date}.csv")
-    
-    # Simple check for the most likely target. 
-    # If the user provides a custom date to the script, this check is bypassed, 
-    # but the UI button is for "Yesterday".
-    if not os.path.exists(pred_file):
-        flash(f'Error: Predictions file for {target_date} not found. Cannot verify.', 'danger')
+    bets_file = os.path.join(OUTPUT_DIR, f"bets_{target_date}.json")
+
+    # Allow verification when EITHER predictions or open bets exist for
+    # the target date. `bin/run_verification.sh` falls back to bet-
+    # derived match IDs when predictions are missing — same UI gate
+    # should reflect that.
+    if not os.path.exists(pred_file) and not os.path.exists(bets_file):
+        flash(f'Error: neither predictions ({os.path.basename(pred_file)}) nor '
+              f'bets ({os.path.basename(bets_file)}) exists for {target_date}. '
+              f'Nothing to verify.', 'danger')
         return redirect(url_for('football.index'))
+    if not os.path.exists(pred_file):
+        flash(f'No predictions file for {target_date}; verifying against open '
+              f'bets only (no prediction-accuracy report will be produced).',
+              'info')
 
     try:
         script_path = os.path.join(PROJECT_ROOT, 'bin', 'run_verification.sh')
