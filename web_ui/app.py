@@ -26,6 +26,10 @@ from sports_config import (
 # implementation is wired; live blueprint isn't registered.
 from betting_backend import VirtualBettingBackend, make_bet_id
 
+# In-UI docs renderer — converts the Markdown source under docs/ to HTML
+# on demand for the 📚 Docs nav menu. Source files stay in Markdown.
+import markdown as _md
+
 # Sport blueprints — each sport's routes mount under /<sport>/.
 # Sport-agnostic routes (/, /status, /stop/<task>, /server/<action>) stay
 # on the app itself. Adding a new sport = create a blueprint, register it.
@@ -500,6 +504,71 @@ def view_log(filename):
         return f"<pre>{content}</pre>"
     else:
         return "Log file not found."
+
+
+# --- Docs renderer ---------------------------------------------------------
+# Whitelist of doc names → source paths. Restricting to a known set avoids
+# any path-traversal concerns and means we control which docs the UI
+# exposes (NEXT_STEPS, internal planning docs, etc. don't show up here).
+_DOCS = {
+    'betting_strategy': {
+        'title': 'Betting Strategy',
+        'icon': '💸',
+        'path': os.path.join(PROJECT_ROOT, 'docs', 'betting_strategy.md'),
+    },
+    'ui_manual': {
+        'title': 'UI Manual',
+        'icon': '🖥️',
+        'path': os.path.join(PROJECT_ROOT, 'docs', 'ui_manual.md'),
+    },
+}
+
+
+@football_bp.route('/docs/')
+@football_bp.route('/docs/<name>')
+def docs(name=None):
+    """Render one of the user-facing Markdown docs from `docs/` as HTML.
+
+    Source files stay in Markdown; conversion happens on demand. Only docs
+    in the `_DOCS` whitelist are reachable — random doc files in the repo
+    aren't auto-exposed.
+    """
+    if name is None:
+        # Index → redirect to the first doc.
+        first_name = next(iter(_DOCS))
+        return redirect(url_for('football.docs', name=first_name))
+
+    entry = _DOCS.get(name)
+    if entry is None:
+        flash(f'Unknown doc: {name!r}.', 'warning')
+        return redirect(url_for('football.index'))
+
+    if not os.path.exists(entry['path']):
+        flash(f'Doc source missing on disk: {entry["path"]}.', 'danger')
+        return redirect(url_for('football.index'))
+
+    with open(entry['path'], 'r', encoding='utf-8') as f:
+        src = f.read()
+
+    # `tables` enables GitHub-style pipe tables (we use these heavily).
+    # `fenced_code` for ``` blocks. `toc` injects a table of contents.
+    html = _md.markdown(
+        src,
+        extensions=['extra', 'tables', 'fenced_code', 'toc', 'sane_lists'],
+        output_format='html5',
+    )
+
+    # Side-nav: list of (name, title, icon, is_current).
+    side_nav = [
+        {'name': k, 'title': v['title'], 'icon': v['icon'], 'current': (k == name)}
+        for k, v in _DOCS.items()
+    ]
+
+    return render_template('docs.html',
+                           html_content=html,
+                           current=entry,
+                           current_name=name,
+                           side_nav=side_nav)
 
 def _archive_file(filepath, filename):
     """
