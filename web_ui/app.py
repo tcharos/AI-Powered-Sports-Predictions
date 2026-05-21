@@ -18,6 +18,8 @@ from sports_config import (
     lane_bankrolls,
     sport_total,
     total_bankroll,
+    set_tunables,
+    DEFAULT_SPORT_CONFIG,
     LANES,
 )
 
@@ -522,6 +524,172 @@ _DOCS = {
         'path': os.path.join(PROJECT_ROOT, 'docs', 'ui_manual.md'),
     },
 }
+
+
+# --- Strategy tunables editor (Phase 1) ----------------------------------
+# Lane-grouped form for the editable knobs in DEFAULT_SPORT_CONFIG.
+# Bankroll state (current/initial) is NOT editable here — that's separate.
+#
+# Each entry: {key, label, lane, unit, step, min, max, kind, description}.
+# - `kind`: 'pct' (UI shows %, stored as fraction), 'num' (raw decimal),
+#           'eur' (EUR), 'odds' (decimal odds ≥ 1), 'bool' (checkbox)
+# - `min`/`max` are in UI units; for `pct` they're 0-100, internally 0-1.
+_TUNABLE_SPEC = [
+    # Value lane
+    {'key': 'min_confidence', 'label': 'Min confidence', 'lane': 'value',
+     'kind': 'num', 'min': 0, 'max': 1, 'step': 0.01,
+     'description': 'Entry filter — model confidence must be ≥ this to consider a Value-lane bet.'},
+    {'key': 'stake_multiplier', 'label': 'Stake multiplier', 'lane': 'value',
+     'kind': 'num', 'min': 0, 'max': 2, 'step': 0.05,
+     'description': 'Multiplier in the Value-lane stake formula: stake = bankroll × EV × Conf × multiplier.'},
+    {'key': 'min_stake_eur', 'label': 'Min stake', 'lane': 'value',
+     'kind': 'eur', 'min': 0, 'max': 100, 'step': 0.5,
+     'description': 'Picks whose computed stake falls below this floor are dropped from the slip.'},
+    {'key': 'max_stake_pct', 'label': 'Max stake per bet', 'lane': 'value',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.1,
+     'description': 'Hard cap per Value-lane bet, as a percentage of the lane bankroll.'},
+    {'key': 'ev_cap_value', 'label': 'EV cap', 'lane': 'value',
+     'kind': 'num', 'min': 0, 'max': 1, 'step': 0.01,
+     'description': 'Clamp EV input to the stake formula. Stops a single high-EV pick from dominating the slip.'},
+    {'key': 'value_max_daily_exposure_pct', 'label': 'Daily exposure cap', 'lane': 'value',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.5,
+     'description': 'Max fraction of the Value-lane bankroll that can be staked in one day.'},
+
+    # Conviction lane
+    {'key': 'conviction_min_confidence', 'label': 'Min confidence', 'lane': 'conviction',
+     'kind': 'num', 'min': 0, 'max': 1, 'step': 0.01,
+     'description': 'Entry filter — confidence floor for Conviction lane (typically higher than Value).'},
+    {'key': 'conviction_min_odds', 'label': 'Min odds', 'lane': 'conviction',
+     'kind': 'odds', 'min': 1, 'max': 50, 'step': 0.05,
+     'description': 'Conviction picks must have odds ≥ this. Filters out heavy favourites where stake is silly.'},
+    {'key': 'conviction_stake_pct', 'label': 'Stake %', 'lane': 'conviction',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.1,
+     'description': 'Flat stake fraction of the Conviction-lane bankroll, applied to every qualifying pick.'},
+    {'key': 'conviction_max_daily_exposure_pct', 'label': 'Daily exposure cap', 'lane': 'conviction',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.5,
+     'description': 'Max fraction of the Conviction-lane bankroll that can be staked in one day.'},
+
+    # Model lane
+    {'key': 'model_base_pct', 'label': 'Base stake %', 'lane': 'model',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.1,
+     'description': 'Base stake fraction. Model lane: stake = bankroll × base_pct × Conf × ev_factor.'},
+    {'key': 'model_max_stake_pct', 'label': 'Max stake per bet', 'lane': 'model',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.1,
+     'description': 'Hard cap per Model-lane bet, as a percentage of the lane bankroll.'},
+    {'key': 'model_min_stake_eur', 'label': 'Min stake', 'lane': 'model',
+     'kind': 'eur', 'min': 0, 'max': 100, 'step': 0.5,
+     'description': 'Model lane has its own (typically lower) floor so broad coverage isn\'t killed by the Value €2 floor.'},
+    {'key': 'model_ev_factor_min', 'label': 'EV factor min', 'lane': 'model',
+     'kind': 'num', 'min': 0, 'max': 5, 'step': 0.1,
+     'description': 'Lower clamp for the Model-lane `ev_factor = clamp(Conf × odds, min, max)`.'},
+    {'key': 'model_ev_factor_max', 'label': 'EV factor max', 'lane': 'model',
+     'kind': 'num', 'min': 0, 'max': 5, 'step': 0.1,
+     'description': 'Upper clamp for the Model-lane ev_factor.'},
+    {'key': 'model_max_daily_exposure_pct', 'label': 'Daily exposure cap', 'lane': 'model',
+     'kind': 'pct', 'min': 0, 'max': 100, 'step': 0.5,
+     'description': 'Max fraction of the Model-lane bankroll that can be staked in one day.'},
+
+    # Global (cross-lane)
+    {'key': 'use_league_calibration', 'label': 'Apply per-league calibration', 'lane': 'global',
+     'kind': 'bool',
+     'description': 'When ON, per-league Platt scaling adjusts raw 1X2 / O/U probabilities before the heuristic adjuster.'},
+]
+
+
+def _ui_value(kind, fraction_value):
+    """Convert stored value → UI value. Only `pct` needs conversion
+    (stored as fraction 0-1, displayed as 0-100)."""
+    if kind == 'pct':
+        return round(float(fraction_value) * 100, 2)
+    if kind == 'bool':
+        return bool(fraction_value)
+    return fraction_value
+
+
+def _stored_value(kind, ui_value):
+    """Convert UI value → stored value (inverse of _ui_value)."""
+    if kind == 'pct':
+        return float(ui_value) / 100.0
+    if kind == 'bool':
+        # Checkbox value: present in form when checked, absent when unchecked.
+        return bool(ui_value)
+    if kind in ('num', 'eur', 'odds'):
+        return float(ui_value)
+    return ui_value
+
+
+@football_bp.route('/settings', methods=['GET', 'POST'])
+def settings():
+    """Strategy tunables editor (Phase 1 — read/write, bankroll state
+    untouched). On POST: parse, validate, save valid fields; on GET:
+    render the form populated with current values + defaults shown."""
+    sport = 'football'
+
+    if request.method == 'POST':
+        updates = {}
+        errors = []
+        for spec in _TUNABLE_SPEC:
+            key = spec['key']
+            kind = spec['kind']
+            if kind == 'bool':
+                # Unchecked checkboxes aren't in the form data — explicit False.
+                updates[key] = (request.form.get(key) == 'on')
+                continue
+            raw = request.form.get(key, '').strip()
+            if raw == '':
+                continue  # left blank → no update, keep existing
+            try:
+                ui_val = float(raw)
+            except ValueError:
+                errors.append(f"{spec['label']} ({spec['lane']}): '{raw}' is not a number.")
+                continue
+            # Range check (UI units).
+            if 'min' in spec and ui_val < spec['min']:
+                errors.append(f"{spec['label']} ({spec['lane']}): {ui_val} < {spec['min']} (allowed min).")
+                continue
+            if 'max' in spec and ui_val > spec['max']:
+                errors.append(f"{spec['label']} ({spec['lane']}): {ui_val} > {spec['max']} (allowed max).")
+                continue
+            updates[key] = _stored_value(kind, ui_val)
+
+        # Cross-field validation: ev_factor_min < ev_factor_max.
+        new_min = updates.get('model_ev_factor_min',
+                              get_sport_config(sport).get('model_ev_factor_min'))
+        new_max = updates.get('model_ev_factor_max',
+                              get_sport_config(sport).get('model_ev_factor_max'))
+        if new_min is not None and new_max is not None and new_min >= new_max:
+            errors.append('Model EV factor min must be strictly less than max.')
+
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return redirect(url_for('football.settings'))
+
+        set_tunables(sport, updates)
+        flash(f'Saved {len(updates)} tunable(s).', 'success')
+        return redirect(url_for('football.settings'))
+
+    # GET — render form.
+    cfg = get_sport_config(sport)
+    fields = []
+    for spec in _TUNABLE_SPEC:
+        key = spec['key']
+        kind = spec['kind']
+        current_stored = cfg.get(key, DEFAULT_SPORT_CONFIG[key])
+        default_stored = DEFAULT_SPORT_CONFIG[key]
+        fields.append({
+            **spec,
+            'current_ui': _ui_value(kind, current_stored),
+            'default_ui': _ui_value(kind, default_stored),
+            'is_default': (current_stored == default_stored),
+        })
+
+    # Group fields by lane for the template.
+    lanes = {'value': [], 'conviction': [], 'model': [], 'global': []}
+    for f in fields:
+        lanes[f['lane']].append(f)
+
+    return render_template('settings.html', lanes=lanes)
 
 
 @football_bp.route('/docs/')

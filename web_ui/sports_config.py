@@ -110,6 +110,41 @@ def update_bankroll(sport_slug, delta, lane='value'):
     return new_value
 
 
+def set_tunables(sport_slug, updates):
+    """Persist a partial update of a sport's strategy tunables.
+
+    `updates` is a {key: value} dict — only keys present in
+    DEFAULT_SPORT_CONFIG (excluding bankroll state) are accepted; others
+    are silently ignored to prevent the UI from writing arbitrary fields.
+    Returns the post-update merged config (defaults + overrides).
+    """
+    allowed = set(DEFAULT_SPORT_CONFIG.keys())
+    clean = {k: v for k, v in updates.items() if k in allowed}
+    if not clean:
+        return get_sport_config(sport_slug)
+    cfg = _load()
+    sports = cfg.setdefault('sports', {})
+    sport = sports.setdefault(sport_slug, {})
+    for k, v in clean.items():
+        sport[k] = v
+    _save(cfg)
+    return get_sport_config(sport_slug)
+
+
+def reset_tunable(sport_slug, key):
+    """Remove a single tunable override so it reverts to its default.
+    Returns True if anything was removed."""
+    if key not in DEFAULT_SPORT_CONFIG:
+        return False
+    cfg = _load()
+    sport = cfg.get('sports', {}).get(sport_slug)
+    if not sport or key not in sport:
+        return False
+    del sport[key]
+    _save(cfg)
+    return True
+
+
 def lane_bankrolls(sport_slug):
     """Return {lane: current_bankroll} for one sport."""
     cfg = get_sport_config(sport_slug)

@@ -1,0 +1,106 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    .tunable-row { padding: 0.4rem 0; }
+    .tunable-row .default-hint {
+        font-size: 0.75rem; color: var(--bs-secondary-color);
+    }
+    .tunable-row .description {
+        font-size: 0.78rem; color: var(--bs-secondary-color);
+        margin-top: 0.1rem;
+    }
+    .lane-card-header.value      { background-color: var(--bs-info-bg-subtle, #cfe2ff); color: var(--bs-emphasis-color); }
+    .lane-card-header.conviction { background-color: var(--bs-warning-bg-subtle, #fff3cd); color: var(--bs-emphasis-color); }
+    .lane-card-header.model      { background-color: var(--bs-info-bg-subtle, #d1ecf1); color: var(--bs-emphasis-color); }
+    .lane-card-header.global     { background-color: var(--bs-tertiary-bg);            color: var(--bs-emphasis-color); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">⚙️ Strategy Tunables</h3>
+    <a href="{{ url_for('football.docs', name='betting_strategy') }}"
+       class="btn btn-sm btn-outline-secondary">
+       💸 What do these do?
+    </a>
+</div>
+
+<div class="alert alert-light border small mb-3">
+    <strong>Editing is safe.</strong> These values affect how future slips
+    are sized, not history. Leave a field blank to keep its current value.
+    Each input shows the system default underneath in case you want to
+    revert. Bankroll balances aren't editable here — they're managed by
+    settlement, cashout, and void actions.
+</div>
+
+<form action="{{ url_for('football.settings') }}" method="post">
+    {% for lane_name, fields in lanes.items() if fields %}
+    <div class="card mb-3">
+        <div class="card-header lane-card-header {{ lane_name }} fw-bold">
+            {% if lane_name == 'value' %}💎 Value lane{% endif %}
+            {% if lane_name == 'conviction' %}🎯 Conviction lane{% endif %}
+            {% if lane_name == 'model' %}🤖 Model lane{% endif %}
+            {% if lane_name == 'global' %}🌐 Global (cross-lane){% endif %}
+        </div>
+        <div class="card-body py-2">
+            {% for f in fields %}
+            <div class="row tunable-row align-items-center border-bottom">
+                <div class="col-md-5">
+                    <label class="form-label mb-0 fw-bold" for="field-{{ f.key }}">
+                        {{ f.label }}
+                    </label>
+                    <div class="description">{{ f.description }}</div>
+                </div>
+                <div class="col-md-4">
+                    {% if f.kind == 'bool' %}
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox"
+                               id="field-{{ f.key }}" name="{{ f.key }}"
+                               {{ 'checked' if f.current_ui else '' }}>
+                        <label class="form-check-label small" for="field-{{ f.key }}">
+                            {% if f.current_ui %}Enabled{% else %}Disabled{% endif %}
+                        </label>
+                    </div>
+                    {% else %}
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control"
+                               id="field-{{ f.key }}" name="{{ f.key }}"
+                               value="{{ f.current_ui }}"
+                               step="{{ f.step }}" min="{{ f.min }}" max="{{ f.max }}">
+                        <span class="input-group-text">
+                            {% if f.kind == 'pct' %}%
+                            {% elif f.kind == 'eur' %}€
+                            {% elif f.kind == 'odds' %}odds
+                            {% else %}·{% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="col-md-3 text-end">
+                    <span class="default-hint">
+                        Default:
+                        {% if f.kind == 'bool' %}
+                            {{ 'Enabled' if f.default_ui else 'Disabled' }}
+                        {% elif f.kind == 'pct' %}
+                            {{ f.default_ui }}%
+                        {% elif f.kind == 'eur' %}
+                            €{{ f.default_ui }}
+                        {% else %}
+                            {{ f.default_ui }}
+                        {% endif %}
+                        {% if f.is_default %}
+                            <span class="badge bg-secondary ms-1" title="Currently at default">·</span>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <a href="{{ url_for('football.index') }}" class="btn btn-outline-secondary">← Cancel</a>
+        <button type="submit" class="btn btn-primary">💾 Save Tunables</button>
+    </div>
+</form>
+{% endblock %}
