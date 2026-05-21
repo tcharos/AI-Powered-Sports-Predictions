@@ -16,6 +16,7 @@ from heuristic_adjuster import HeuristicAdjuster
 from ml_project.calibration.apply import (
     apply_platt_1x2, apply_platt_ou, load_calibration_data,
 )
+from ml_project.calibration.league_aliases import LEAGUE_ALIASES
 
 
 def _load_league_calibration_flag(default: bool = True) -> bool:
@@ -228,14 +229,25 @@ class MatchPredictor:
             scraper_home = match.get('home_team')
             scraper_away = match.get('away_team')
             league_name = match.get('league', 'Unknown')
-            
-            # --- NORMALIZE EUROPEAN LEAGUES ---
-            if league_name.startswith("EUROPE: Champions League"):
-                league_name = "EUROPE: Champions League"
-            elif league_name.startswith("EUROPE: Europa League"):
-                league_name = "EUROPE: Europa League"
-            elif league_name.startswith("EUROPE: Conference League"):
-                league_name = "EUROPE: Conference League"
+
+            # Strip playoff / group-stage / phase suffixes so standings
+            # lookup, Platt calibration, and the league_cat feature all
+            # key off the same canonical base name. Examples:
+            #   "ENGLAND: Championship - Play Offs"           -> "ENGLAND: Championship"
+            #   "EUROPE: Champions League - League phase"     -> "EUROPE: Champions League"
+            #   "SPAIN: LaLiga 2 - Promotion - Play Offs: Semi-finals"
+            #                                                  -> "SPAIN: LaLiga 2"
+            if ":" in league_name:
+                _country, _rest = league_name.split(":", 1)
+                _base = _rest.split(" - ", 1)[0].strip()
+                league_name = f"{_country.strip()}: {_base}"
+
+            # Translate Flashscore-format name to the training-time
+            # league_cat value (e.g. "ENGLAND: Premier League" -> "E0",
+            # "BRAZIL: Serie A Betano" -> "Serie A"). Unaliased leagues
+            # fall through unchanged and remain an unseen category for
+            # the model (same behaviour as before the alias lookup).
+            league_cat_value = LEAGUE_ALIASES.get(league_name, league_name)
                 
             # --- LEAGUE FILTERING ---
             SUPPORTED_COUNTRIES = {
@@ -328,7 +340,7 @@ class MatchPredictor:
                 'H_form_cf': h_stats['form_cf'], 'H_form_ca': h_stats['form_ca'],
                 'A_form_sf': a_stats['form_sf'], 'A_form_sa': a_stats['form_sa'],
                 'A_form_cf': a_stats['form_cf'], 'A_form_ca': a_stats['form_ca'],
-                'league_cat': league_name,
+                'league_cat': league_cat_value,
                 'match_id': match.get('match_id', ''),
                 'elo_diff': elo_diff,
                 'abs_elo_diff': abs_elo_diff,
