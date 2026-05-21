@@ -10,10 +10,13 @@
         font-size: 0.78rem; color: var(--bs-secondary-color);
         margin-top: 0.1rem;
     }
-    .lane-card-header.value      { background-color: var(--bs-info-bg-subtle, #cfe2ff); color: var(--bs-emphasis-color); }
+    /* Value lane uses the project-wide lavender theme (bg-lane-value
+       custom utility from theme.css). Conviction = yellow, Model =
+       info-blue, Global = neutral. Matches the existing color coding
+       on /football/betting and /football/auto_wager. */
     .lane-card-header.conviction { background-color: var(--bs-warning-bg-subtle, #fff3cd); color: var(--bs-emphasis-color); }
     .lane-card-header.model      { background-color: var(--bs-info-bg-subtle, #d1ecf1); color: var(--bs-emphasis-color); }
-    .lane-card-header.global     { background-color: var(--bs-tertiary-bg);            color: var(--bs-emphasis-color); }
+    .lane-card-header.global     { background-color: var(--bs-tertiary-bg);              color: var(--bs-emphasis-color); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -35,7 +38,7 @@
 <form action="{{ url_for('football.settings') }}" method="post">
     {% for lane_name, fields in lanes.items() if fields %}
     <div class="card mb-3">
-        <div class="card-header lane-card-header {{ lane_name }} fw-bold">
+        <div class="card-header {% if lane_name == 'value' %}bg-lane-value{% else %}lane-card-header {{ lane_name }}{% endif %} fw-bold">
             {% if lane_name == 'value' %}💎 Value lane{% endif %}
             {% if lane_name == 'conviction' %}🎯 Conviction lane{% endif %}
             {% if lane_name == 'model' %}🤖 Model lane{% endif %}
@@ -51,6 +54,11 @@
                     <div class="description">{{ f.description }}</div>
                 </div>
                 <div class="col-md-4">
+                    {# Hidden marker tells the POST handler that this field's
+                       row was actually rendered. Without it, an unchecked
+                       checkbox is indistinguishable from "field not on page",
+                       and the handler would silently flip booleans to False. #}
+                    <input type="hidden" name="_seen_{{ f.key }}" value="1">
                     {% if f.kind == 'bool' %}
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox"

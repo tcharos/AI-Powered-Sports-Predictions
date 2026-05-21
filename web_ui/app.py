@@ -631,8 +631,17 @@ def settings():
         for spec in _TUNABLE_SPEC:
             key = spec['key']
             kind = spec['kind']
+            # Only update fields whose form was actually rendered + submitted.
+            # A hidden `_seen_<key>=1` is rendered next to every input —
+            # without this guard, an unchecked checkbox would silently flip
+            # to False on ANY POST (since absent checkbox == no value sent),
+            # which is how an earlier round-trip flipped
+            # use_league_calibration to False unintentionally.
+            if request.form.get(f'_seen_{key}') != '1':
+                continue
             if kind == 'bool':
-                # Unchecked checkboxes aren't in the form data — explicit False.
+                # Checkbox present means the field was rendered. Value 'on'
+                # if checked, missing if not — translate to True/False.
                 updates[key] = (request.form.get(key) == 'on')
                 continue
             raw = request.form.get(key, '').strip()
