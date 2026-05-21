@@ -403,165 +403,13 @@ def stop_task(task_name):
         flash(f'No running {task_name} task found.', 'secondary')
     return redirect(url_for('football.index'))
 
-def process_bet_verification(verification_file_path):
-    """
-    Settles OPEN bets in `bets_YYYY-MM-DD.json` against the verification CSV.
-
-    Idempotency & partial settlement:
-    - Already-terminal bets (WON / LOST / VOID / CASHED_OUT) are SKIPPED
-      on re-runs — their bankroll effect was applied the first time and
-      must not be repeated.
-    - OPEN bets whose match doesn't appear in the verification CSV stay
-      OPEN (the match likely hasn't finished yet). Earlier versions
-      incorrectly marked them VOID, which made re-running verification
-      after late matches finished useless.
-    - The slip's top-level `status` becomes `CLOSED` only when NO bets
-      are OPEN. Until then it stays `OPEN` so the next verification run
-      will process newly-finished matches.
-    - Slip-level totals (`pnl`, `total_return`, `return_by_lane`,
-      `pnl_by_lane`) are recomputed from every bet's CURRENT status on
-      each run, so re-runs converge to the same numbers.
-    - CASHED_OUT bets' bankroll was credited at cashout time
-      (VirtualBettingBackend.execute_cashout). Settlement does NOT
-      re-credit — bankroll deltas this run come only from newly-settled
-      WON bets (payout) and any future VOID handling.
-    """
-    try:
-        basename = os.path.basename(verification_file_path)
-        date_str = basename.replace('verification_', '').replace('.csv', '')
-
-        bets_file = os.path.join(OUTPUT_DIR, f"bets_{date_str}.json")
-        if not os.path.exists(bets_file):
-            print(f"No bets file found for {date_str} to verify.")
-            return
-
-        with open(bets_file, 'r') as f:
-            bets_data = json.load(f)
-
-        bets = bets_data.get('bets', [])
-        # Fast path: nothing to do if no OPEN bets remain.
-        if bets and not any(b.get('status') == 'OPEN' for b in bets):
-            print(f"Bets for {date_str}: all bets already settled — "
-                  f"nothing to re-process.")
-            return
-
-        # Load verification data (Actual Results)
-        df_verify = pd.read_csv(verification_file_path)
-        results_map = {}
-        for _, row in df_verify.iterrows():
-            key = f"{row['Home Team']} vs {row['Away Team']}"
-            results_map[key] = {
-                '1X2': row['Actual 1X2'],
-                'O/U': row['Actual O/U']
-            }
-
-        # Phase A: settle OPEN bets that have a result in the CSV.
-        # Credit bankroll for newly-resolved WON bets only.
-        bankroll_credit_by_lane = {lane: 0.0 for lane in LANES}
-        won_now = 0
-        lost_now = 0
-        pending_now = 0
-        for bet in bets:
-            if bet.get('status') != 'OPEN':
-                continue  # already settled in a prior run (or CASHED_OUT)
-            lane = bet.get('lane', 'value')
-            if lane not in LANES:
-                lane = 'value'
-            match_key = bet.get('match', '')
-            stake = float(bet.get('stake_units', 0))
-
-            if match_key not in results_map:
-                # Match not yet in verification CSV — leave OPEN, the
-                # next verification run will pick it up.
-                pending_now += 1
-                continue
-
-            actual = results_map[match_key]
-            odds = float(bet.get('odds', 0))
-            selection = bet['selection']
-
-            won = False
-            if bet['type'] == '1X2':
-                if str(selection) == str(actual['1X2']):
-                    won = True
-            elif bet['type'] == 'O/U':
-                if str(selection) == str(actual['O/U']):
-                    won = True
-
-            if won:
-                payout = stake * odds
-                bet['status'] = 'WON'
-                bet['result'] = 'WON'
-                bet['pnl'] = round(payout - stake, 2)
-                bankroll_credit_by_lane[lane] += payout
-                won_now += 1
-            else:
-                bet['status'] = 'LOST'
-                bet['result'] = 'LOST'
-                bet['pnl'] = round(-stake, 2)
-                lost_now += 1
-
-        # Apply bankroll credits for newly-settled WON bets.
-        for lane, credit in bankroll_credit_by_lane.items():
-            if credit > 1e-6:
-                update_bankroll('football', credit, lane=lane)
-
-        # Phase B: recompute slip-level totals from ALL bets' current state.
-        # Re-running this is a no-op for bankroll (Phase A short-circuits
-        # already-settled bets) but keeps reported totals consistent.
-        total_pnl = 0.0
-        total_return = 0.0
-        return_by_lane = {lane: 0.0 for lane in LANES}
-        pnl_by_lane = {lane: 0.0 for lane in LANES}
-        for bet in bets:
-            status = bet.get('status', 'OPEN')
-            if status == 'OPEN':
-                continue
-            lane = bet.get('lane', 'value')
-            if lane not in LANES:
-                lane = 'value'
-            stake = float(bet.get('stake_units', 0))
-            if status == 'CASHED_OUT':
-                amount = float(bet.get('cashout_amount', stake))
-                pnl_v = float(bet.get('pnl', amount - stake))
-                return_by_lane[lane] += amount
-                pnl_by_lane[lane] += pnl_v
-                total_return += amount
-                total_pnl += pnl_v
-            elif status == 'WON':
-                odds = float(bet.get('odds', 0))
-                payout = stake * odds
-                return_by_lane[lane] += payout
-                pnl_by_lane[lane] += payout - stake
-                total_return += payout
-                total_pnl += payout - stake
-            elif status == 'LOST':
-                pnl_by_lane[lane] -= stake
-                total_pnl -= stake
-            elif status == 'VOID':
-                return_by_lane[lane] += stake
-                total_return += stake
-
-        # Slip-level status & summary fields.
-        any_open = any(b.get('status') == 'OPEN' for b in bets)
-        bets_data['status'] = 'OPEN' if any_open else 'CLOSED'
-        bets_data['settled'] = not any_open
-        bets_data['pnl'] = round(total_pnl, 2)
-        bets_data['total_return'] = round(total_return, 2)
-        bets_data['return_by_lane'] = {k: round(v, 2) for k, v in return_by_lane.items()}
-        bets_data['pnl_by_lane'] = {k: round(v, 2) for k, v in pnl_by_lane.items()}
-        with open(bets_file, 'w') as f:
-            json.dump(bets_data, f, indent=4)
-
-        new_lane_br = {lane: get_bankroll('football', lane=lane) for lane in LANES}
-        new_bankroll = round(sum(new_lane_br.values()), 2)
-        slip_tag = 'CLOSED' if not any_open else f'OPEN ({pending_now} bet(s) pending)'
-        print(f"Processed Bets for {date_str}: this run settled {won_now} won + "
-              f"{lost_now} lost. Slip: {slip_tag}. Cumulative P/L: "
-              f"{total_pnl:.2f}. Lane balances: {new_lane_br}. Total: {new_bankroll:.2f}")
-
-    except Exception as e:
-        print(f"Error processing bet verification: {e}")
+# NOTE: `process_bet_verification` used to live here. It was deleted on
+# 2026-05-21 after being identified as long-time dead code (called with
+# the wrong filename, silently no-op'd). Bet settlement is the canonical
+# responsibility of `ml_project/resolve_daily_bets.py:resolve_all_bets`,
+# which is invoked by `bin/run_verification.sh` at the end of the
+# verification flow. `VirtualBettingBackend.settle_bets` also delegates
+# to that function for the Phase 7+ backend abstraction.
 
 @football_bp.route('/predict', methods=['POST'])
 def run_prediction():
@@ -1410,19 +1258,14 @@ def run_verify_task_thread(date_arg):
         if process.returncode == 0:
             TASKS['verify']['state'] = 'completed'
             TASKS['verify']['msg'] = 'Verification completed successfully.'
-            
-            # --- AUTO SETTLE BETS ---
-            # Determine the verification filename.
-            # run_verification.sh usually produces verify_YYYY-MM-DD.csv (Yesterday)
-            # If date_arg is passed, it uses that date.
-            target_date = date_arg if date_arg else (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-            verify_file = os.path.join(OUTPUT_DIR, f"verify_{target_date}.csv")
-            
-            # Call settlement logic
-            print(f"Triggering bet settlement for {verify_file}...")
-            process_bet_verification(verify_file)
-            # ------------------------
-            
+            # Note: bin/run_verification.sh already invokes
+            # ml_project/resolve_daily_bets.py at the end of its flow,
+            # which is now the canonical settlement path (per-lane
+            # bankroll updates via sports_config, idempotent across
+            # re-runs, doesn't VOID matches that haven't finished).
+            # No extra settle call needed here — this was previously a
+            # buggy duplicate using a 'verify_' filename that never
+            # matched the script's 'verification_' output.
         else:
             TASKS['verify']['state'] = 'error'
             TASKS['verify']['msg'] = f"Error: {stderr}"

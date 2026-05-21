@@ -411,18 +411,24 @@ class VirtualBettingBackend(BettingBackend):
     # ---- settlement --------------------------------------------------
 
     def settle_bets(self, date: str, verification_data: object) -> dict:
-        """Thin wrapper around app.process_bet_verification.
+        """Thin wrapper around ml_project.resolve_daily_bets.resolve_all_bets,
+        which is the canonical multi-slip settlement implementation.
 
-        Today's verification flow runs through that function directly;
-        moving the call site through this method is a Phase 9 refactor
-        (transition doc §4). For now this method exists to satisfy the
-        contract; production code does not call it yet.
+        `verification_data` here is expected to be the path to the
+        scraped results JSON (output/matches_<date>.json) — that's the
+        input resolve_all_bets actually needs, not the verification
+        CSV. A verification CSV can be passed via the `verification_file`
+        keyword if the caller has one.
         """
-        # Lazy import to avoid circular dep at module load time.
-        from app import process_bet_verification
-        # verification_data is expected to be a path to the CSV.
-        process_bet_verification(verification_data)
-        return {'note': 'see app.process_bet_verification logs for details'}
+        # Lazy import to avoid module-load coupling.
+        import sys, os as _os
+        _ml_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                 '..', 'ml_project')
+        if _ml_path not in sys.path:
+            sys.path.insert(0, _ml_path)
+        from resolve_daily_bets import resolve_all_bets
+        resolve_all_bets(self.output_dir, results_file=verification_data)
+        return {'note': 'see resolve_daily_bets logs for details'}
 
 
 # ---- Pamestoixima stub (Phase 9) ------------------------------------------
