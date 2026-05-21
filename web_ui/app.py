@@ -749,31 +749,60 @@ def cashout(bet_id):
     if bet is None:
         flash(f'Bet not found: {bet_id}.', 'warning')
         return redirect(request.referrer or url_for('football.index'))
-    if bet.get('status') != 'OPEN':
-        flash(f'Bet is not OPEN (currently {bet.get("status")}). '
-              f'Cashout only applies to open bets.', 'info')
-        return redirect(request.referrer or url_for('football.index'))
+    # NOTE: do NOT gate on the representative bet's own status. The
+    # cashout cascades across all lanes' OPEN bets with this bet_id —
+    # the representative might already be CASHED_OUT but sibling lanes
+    # could still be OPEN. Let execute_cashout decide.
     if live_match is None:
         flash(f'No live data for this match — cashout requires the match '
               f'to be in-play with current adjusted probabilities.', 'warning')
         return redirect(request.referrer or url_for('football.index'))
 
-    # Compute the offer once for the flash message, then execute.
-    amount = g.backend.get_cashout_amount(bet, live_match)
-    if amount is None:
-        flash('Cashout unavailable for this bet right now.', 'warning')
-        return redirect(request.referrer or url_for('football.index'))
+    # Snapshot the slip BEFORE the cashout so we can report exactly
+    # what was cashed out (which lanes, totals).
+    pre_open = []
+    try:
+        slip_date = bet_id.split(':', 1)[0] if ':' in bet_id else ''
+        slip_path = os.path.join(OUTPUT_DIR, f'bets_{slip_date}.json')
+        if os.path.exists(slip_path):
+            with open(slip_path) as f:
+                slip_snapshot = json.load(f)
+            for b in slip_snapshot.get('bets', []):
+                if b.get('bet_id') == bet_id and b.get('status') == 'OPEN':
+                    pre_open.append({
+                        'lane': b.get('lane', 'value'),
+                        'stake': float(b.get('stake_units', 0) or 0),
+                    })
+    except Exception:
+        pass
 
     ok = g.backend.execute_cashout(bet, live_match)
     if not ok:
-        flash('Cashout execution failed. Slip unchanged.', 'danger')
+        flash('No OPEN bets found to cash out (sibling lanes may have '
+              'been cashed out already).', 'info')
         return redirect(request.referrer or url_for('football.index'))
 
-    stake = float(bet.get('stake_units', 0) or 0)
-    profit = round(amount - stake, 2)
-    sign = '+' if profit >= 0 else ''
-    flash(f'Cashed out at €{amount:.2f} ({sign}{profit:.2f} P/L). '
-          f'€{amount:.2f} credited to {bet.get("lane", "value")} bankroll.',
+    # Re-read slip to compute the actual cashed totals from the
+    # post-state — execute_cashout writes the per-bet cashout_amount
+    # and we want to report the sum.
+    total_amount = 0.0
+    total_profit = 0.0
+    lanes_credited = set()
+    try:
+        with open(slip_path) as f:
+            slip_after = json.load(f)
+        for b in slip_after.get('bets', []):
+            if b.get('bet_id') == bet_id and b.get('status') == 'CASHED_OUT':
+                total_amount += float(b.get('cashout_amount', 0) or 0)
+                total_profit += float(b.get('cashout_profit', 0) or 0)
+                lanes_credited.add(b.get('lane', 'value'))
+    except Exception:
+        pass
+
+    sign = '+' if total_profit >= 0 else ''
+    lanes_label = ', '.join(sorted(lanes_credited)) if lanes_credited else 'unknown'
+    flash(f'Cashed out €{total_amount:.2f} across {len(lanes_credited)} lane(s) '
+          f'({lanes_label}); net P/L {sign}{total_profit:.2f}.',
           'success')
     return redirect(request.referrer or url_for('football.index'))
 
@@ -793,19 +822,33 @@ def void_bet(bet_id):
     if bet is None:
         flash(f'Bet not found: {bet_id}.', 'warning')
         return redirect(request.referrer or url_for('football.index'))
-    if bet.get('status') != 'OPEN':
-        flash(f'Bet is not OPEN (currently {bet.get("status")}). '
-              f'Only OPEN bets can be voided.', 'info')
-        return redirect(request.referrer or url_for('football.index'))
+    # Cascade across lanes — let void_bet check status itself.
 
     ok = g.backend.void_bet(bet)
     if not ok:
-        flash('Could not void the bet. Slip unchanged.', 'danger')
+        flash('No OPEN bets found to void (sibling lanes may already '
+              'be settled).', 'info')
         return redirect(request.referrer or url_for('football.index'))
 
-    stake = float(bet.get('stake_units', 0) or 0)
-    flash(f'Bet voided. €{stake:.2f} refunded to the '
-          f'{bet.get("lane", "value")} bankroll.', 'success')
+    # Report what got refunded by re-reading the slip.
+    total_refund = 0.0
+    lanes_refunded = set()
+    try:
+        slip_date = bet_id.split(':', 1)[0] if ':' in bet_id else ''
+        slip_path = os.path.join(OUTPUT_DIR, f'bets_{slip_date}.json')
+        if os.path.exists(slip_path):
+            with open(slip_path) as f:
+                slip_after = json.load(f)
+            for b in slip_after.get('bets', []):
+                if b.get('bet_id') == bet_id and b.get('status') == 'VOID':
+                    total_refund += float(b.get('stake_units', 0) or 0)
+                    lanes_refunded.add(b.get('lane', 'value'))
+    except Exception:
+        pass
+
+    lanes_label = ', '.join(sorted(lanes_refunded)) if lanes_refunded else 'unknown'
+    flash(f'Voided across {len(lanes_refunded)} lane(s) ({lanes_label}); '
+          f'€{total_refund:.2f} total refunded.', 'success')
     return redirect(request.referrer or url_for('football.index'))
 
 

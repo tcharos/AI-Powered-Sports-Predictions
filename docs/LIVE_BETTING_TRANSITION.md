@@ -273,12 +273,16 @@ casing.)
 - **Self-documenting**: a human can read the ID and know what bet it
   refers to without looking it up.
 
-**Uniqueness within a slip**: a given `(date, match, type, selection)`
-combination should appear at most once. If the user manually places
-two bets on the same selection in different lanes, the underlying
-wager is the same — they should be detected and refused at placement
-time (not silently produce duplicate IDs). The lane lives in a
-separate field on the bet record.
+**Uniqueness within a slip**: the bet_id identifies a *conceptual
+wager*, NOT a unique storage record. Multiple bet records can share
+the same bet_id when the same wager exists in different lanes (e.g.
+value AND model lane both betting Over 2.5 on the same match). This
+is by design — **cashout and void cascade across all OPEN sibling
+bets with the same bet_id**, so a single user click settles every
+lane's stake on that wager. The lane is stored as a separate field
+on each bet record. Decided 2026-05-21 after observing that lane-
+scoped cashouts were confusing (user thinks "I cashed out Freiburg
+Over 2.5" but only one lane's share was actually settled).
 
 **Pamestoixima reconciliation**: at Phase 9 time, Pamestoixima bet
 records will carry their own internal IDs. We don't store those as

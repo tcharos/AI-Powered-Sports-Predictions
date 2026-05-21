@@ -49,9 +49,16 @@ def make_bet_id(date: str, home: str, away: str,
 
     `<date>:<home>:<away>:<type>:<selection>` (all slugified except date).
 
-    Example: 2026-05-20:sc_freiburg:aston_villa:ou:over_2_5
+    Example: 2026-05-20:sc_freiburg:aston_villa:o_u:over_2_5
 
-    Per docs/LIVE_BETTING_TRANSITION.md "Bet ID format" section.
+    **Lane is intentionally NOT part of the bet_id.** The bet_id
+    identifies a *conceptual wager* (date + match + market + selection)
+    rather than a specific storage record. Multiple lanes (value /
+    conviction / model) can hold the same conceptual wager — they all
+    share the same bet_id. Cashout and void operations cascade across
+    every lane's record with the matching bet_id, so a single click
+    settles the whole wager. See execute_cashout / void_bet below
+    and docs/LIVE_BETTING_TRANSITION.md "Bet ID format".
     """
     return f"{date}:{_slug(home)}:{_slug(away)}:{_slug(bet_type)}:{_slug(selection)}"
 
@@ -239,19 +246,29 @@ class VirtualBettingBackend(BettingBackend):
 
     def execute_cashout(self, bet: dict,
                         live_match: Optional[dict]) -> bool:
-        """Commit the cashout. Per Phase 3 schema:
-          - bet['status'] = 'CASHED_OUT'
-          - bet['cashout_amount'] = <fair-value EUR>
-          - bet['cashout_profit'] = amount - stake
-          - bet['cashout_timestamp'] = ISO now
-          - bet['pnl'] = cashout_profit (for aggregation parity)
+        """Cash out EVERY OPEN bet sharing this bet_id (or, for
+        pre-Phase-7 records lacking bet_id, every OPEN bet matching the
+        (match, type, selection) tuple). Cascades across lanes so a
+        single click settles a wager held in multiple lanes.
 
-        Credits the lane bankroll by the cashout amount, persists the
-        slip, returns True on success. Returns False if the bet can't
-        be cashed out (already settled, no live data, etc.).
+        For each OPEN sibling: stamps Phase 3 schema fields
+        (status='CASHED_OUT', cashout_amount, cashout_profit,
+        cashout_timestamp, pnl) and credits THAT lane's bankroll with
+        its own cashout_amount (each lane's amount is computed
+        independently — different stakes → different payouts even at
+        the same odds × adj_prob).
+
+        Returns True if at least one bet was cashed out, False if no
+        OPEN siblings remained (already-cascaded or stale state).
         """
-        amount = self.get_cashout_amount(bet, live_match)
-        if amount is None:
+        # NB: don't precondition on the representative bet's own
+        # cashout_amount — if it's already CASHED_OUT (status != OPEN),
+        # get_cashout_amount returns None and we'd bail out before the
+        # cascade runs. The cascade loop below calls get_cashout_amount
+        # on each OPEN sibling individually; if none of them can be
+        # priced we'll naturally end with cashed_count == 0 and return
+        # False. Cheap precondition kept: a live_match must exist.
+        if live_match is None or live_match.get('message'):
             return False
 
         # Resolve the slip file's date. Order of preference:
@@ -280,54 +297,60 @@ class VirtualBettingBackend(BettingBackend):
         except (OSError, json.JSONDecodeError):
             return False
 
-        # Locate the bet inside the slip — match by bet_id when present,
-        # fall back to (match, type, selection) tuple for pre-Phase-7
-        # bets that don't carry a bet_id yet.
+        # Identify all sibling bets for this conceptual wager.
         target_id = bet.get('bet_id')
-        target_tuple = (bet.get('match'), bet.get('type'), bet.get('selection'))
-        for b in slip.get('bets', []):
+        target_tuple = (bet.get('match'), bet.get('type'),
+                        bet.get('selection'))
+
+        def _matches(b):
             if target_id and b.get('bet_id') == target_id:
-                hit = b
-                break
-            if (b.get('match'), b.get('type'),
-                    b.get('selection')) == target_tuple:
-                hit = b
-                break
-        else:
-            return False
+                return True
+            return (b.get('match'), b.get('type'),
+                    b.get('selection')) == target_tuple
 
-        if hit.get('status') != 'OPEN':
-            return False  # idempotent guard
+        from sports_config import update_bankroll
+        now_iso = datetime.datetime.now().isoformat(timespec='seconds')
+        cashed_count = 0
+        for b in slip.get('bets', []):
+            if not _matches(b):
+                continue
+            if b.get('status') != 'OPEN':
+                continue
+            # Per-bet cashout amount — different lanes can have
+            # different stakes → different payouts at the same odds.
+            per_amount = self.get_cashout_amount(b, live_match)
+            if per_amount is None:
+                continue
+            stake = float(b.get('stake_units', 0) or 0)
+            per_profit = round(float(per_amount) - stake, 2)
+            b['status'] = 'CASHED_OUT'
+            b['result'] = 'CASHED_OUT'
+            b['cashout_amount'] = float(per_amount)
+            b['cashout_profit'] = per_profit
+            b['cashout_timestamp'] = now_iso
+            b['pnl'] = per_profit
+            # Credit the bet's own lane.
+            lane = b.get('lane', 'value')
+            update_bankroll(self.SPORT, float(per_amount), lane=lane)
+            cashed_count += 1
 
-        stake = float(hit.get('stake_units', 0) or 0)
-        cashout_profit = round(float(amount) - stake, 2)
-
-        hit['status'] = 'CASHED_OUT'
-        hit['result'] = 'CASHED_OUT'
-        hit['cashout_amount'] = float(amount)
-        hit['cashout_profit'] = cashout_profit
-        hit['cashout_timestamp'] = datetime.datetime.now().isoformat(timespec='seconds')
-        hit['pnl'] = cashout_profit
+        if cashed_count == 0:
+            return False  # nothing OPEN matched; nothing to write
 
         with open(slip_path, 'w') as f:
             json.dump(slip, f, indent=4)
-
-        # Credit the lane bankroll with the cashout amount.
-        from sports_config import update_bankroll
-        lane = hit.get('lane', 'value')
-        update_bankroll(self.SPORT, float(amount), lane=lane)
         return True
 
     # ---- void --------------------------------------------------------
 
     def void_bet(self, bet: dict) -> bool:
-        """Refund the stake to the lane bankroll, mark bet as VOID.
-        Used for postponed / cancelled matches that will never settle.
-        Idempotent: refuses to act on bets that aren't OPEN.
-        """
-        if bet.get('status') != 'OPEN':
-            return False
+        """Cascade-void: mark every OPEN bet sharing this bet_id (or
+        match/type/selection tuple) as VOID and refund each lane's
+        stake. Used for postponed / cancelled matches that will never
+        settle. Idempotent — already-terminal siblings are skipped.
 
+        Returns True if at least one bet was voided.
+        """
         # Date resolution (same logic as execute_cashout).
         date = None
         bid = bet.get('bet_id') or ''
@@ -351,34 +374,38 @@ class VirtualBettingBackend(BettingBackend):
         except (OSError, json.JSONDecodeError):
             return False
 
-        # Locate the bet (bet_id preferred, fall back to tuple match).
         target_id = bet.get('bet_id')
-        target_tuple = (bet.get('match'), bet.get('type'), bet.get('selection'))
-        hit = None
-        for b in slip.get('bets', []):
-            if target_id and b.get('bet_id') == target_id:
-                hit = b
-                break
-            if (b.get('match'), b.get('type'),
-                    b.get('selection')) == target_tuple:
-                hit = b
-                break
-        if hit is None or hit.get('status') != 'OPEN':
-            return False
+        target_tuple = (bet.get('match'), bet.get('type'),
+                        bet.get('selection'))
 
-        stake = float(hit.get('stake_units', 0) or 0)
-        hit['status'] = 'VOID'
-        hit['result'] = 'VOID'
-        hit['pnl'] = 0.0
-        hit['voided_timestamp'] = datetime.datetime.now().isoformat(timespec='seconds')
+        def _matches(b):
+            if target_id and b.get('bet_id') == target_id:
+                return True
+            return (b.get('match'), b.get('type'),
+                    b.get('selection')) == target_tuple
+
+        from sports_config import update_bankroll
+        now_iso = datetime.datetime.now().isoformat(timespec='seconds')
+        voided_count = 0
+        for b in slip.get('bets', []):
+            if not _matches(b):
+                continue
+            if b.get('status') != 'OPEN':
+                continue
+            stake = float(b.get('stake_units', 0) or 0)
+            b['status'] = 'VOID'
+            b['result'] = 'VOID'
+            b['pnl'] = 0.0
+            b['voided_timestamp'] = now_iso
+            lane = b.get('lane', 'value')
+            update_bankroll(self.SPORT, stake, lane=lane)
+            voided_count += 1
+
+        if voided_count == 0:
+            return False
 
         with open(slip_path, 'w') as f:
             json.dump(slip, f, indent=4)
-
-        # Refund the stake to the lane bankroll.
-        from sports_config import update_bankroll
-        lane = hit.get('lane', 'value')
-        update_bankroll(self.SPORT, stake, lane=lane)
         return True
 
     # ---- settlement --------------------------------------------------
