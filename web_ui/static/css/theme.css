@@ -55,6 +55,23 @@
     --bs-table-color: #6b1f15;
 }
 
+/* Settled bet rows — light green for WON, light red for LOST, unified
+ * dark slate font color for both so the win/loss reads only via the
+ * background tint + WON/LOST badge + signed P/L. Overrides the
+ * table-striped alternates so the tint is consistent across rows. */
+.bet-won {
+    --bs-table-bg:            #e6f2eb;
+    --bs-table-striped-bg:    #e6f2eb;
+    --bs-table-color:         #2c3e50;
+    --bs-table-striped-color: #2c3e50;
+}
+.bet-lost {
+    --bs-table-bg:            #f7e3e0;
+    --bs-table-striped-bg:    #f7e3e0;
+    --bs-table-color:         #2c3e50;
+    --bs-table-striped-color: #2c3e50;
+}
+
 /* Smooth transitions for the dark-mode toggle in Phase C. Safe in light
  * mode — just makes any color change less jarring. */
 body, .card, .table, .navbar, .badge, .btn,
@@ -118,6 +135,18 @@ body, .card, .table, .navbar, .badge, .btn,
 [data-bs-theme="dark"] thead.table-light {
     --bs-table-bg:    #3a3f48;
     --bs-table-color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .bet-won {
+    --bs-table-bg:            #335c48;
+    --bs-table-striped-bg:    #335c48;
+    --bs-table-color:         var(--bs-body-color);
+    --bs-table-striped-color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .bet-lost {
+    --bs-table-bg:            #5c332b;
+    --bs-table-striped-bg:    #5c332b;
+    --bs-table-color:         var(--bs-body-color);
+    --bs-table-striped-color: var(--bs-body-color);
 }
 
 /* Bootstrap's .bg-light is hardcoded #f8f9fa — in dark mode it traps

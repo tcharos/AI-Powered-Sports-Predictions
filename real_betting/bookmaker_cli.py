@@ -119,6 +119,14 @@ def cmd_dry_run_freiburg_villa(args):
     return _impl(args)
 
 
+def cmd_dry_run_cashout_discovery(args):
+    """ONE-SHOT: discover Pamestoixima My Bets / cashout DOM for the
+    hardcoded Machida vs Urawa bet. Dumps HTML + screenshots; never
+    confirms a cashout."""
+    from .dryrun_cashout_discovery import cmd_dry_run_cashout_discovery as _impl
+    return _impl(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog='python -m real_betting',
@@ -162,6 +170,15 @@ def build_parser() -> argparse.ArgumentParser:
              'Stops before "Place bet". Headed mode forced.',
     )
     sp.set_defaults(func=cmd_dry_run_freiburg_villa)
+
+    # One-shot My Bets / cashout DOM discovery. Hardcoded Machida vs Urawa.
+    # Clicks Cash Out only to surface the confirm modal, never confirms.
+    sp = sub.add_parser(
+        'dry-run-cashout-discovery',
+        help='ONE-SHOT: discover My Bets + cashout selectors on Pamestoixima '
+             'using the Machida vs Urawa bet. Reads only — never confirms cashout.',
+    )
+    sp.set_defaults(func=cmd_dry_run_cashout_discovery)
 
     return p
 

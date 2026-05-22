@@ -263,6 +263,7 @@
                                 <th>Selection</th>
                                 <th>Odds</th>
                                 <th>Stake</th>
+                                <th title="Actual final score of the match">Score</th>
                                 <th>Result</th>
                                 <th>P/L</th>
                             </tr>
@@ -270,7 +271,7 @@
                         <tbody>
                             {% for bet in slip.bets %}
                             {% set _cashed_out = bet.status == 'CASHED_OUT' or bet.result == 'CASHED_OUT' %}
-                            <tr class="{{ 'table-info' if _cashed_out else ('table-success' if bet.result == 'WON' else ('table-danger' if bet.result == 'LOST' else '')) }}">
+                            <tr class="{{ 'table-info' if _cashed_out else ('bet-won' if bet.result == 'WON' else ('bet-lost' if bet.result == 'LOST' else '')) }}">
                                 {% set _lane = bet.get('lane', 'value') %}
                                 <td>
                                     <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-lane-value text-dark') }}">
@@ -282,6 +283,13 @@
                                 <td class="fw-bold">{{ bet.selection }}</td>
                                 <td>{{ bet.odds }}</td>
                                 <td>{{ bet.stake_units|round(2) }}</td>
+                                <td class="small">
+                                    {% if bet.final_score %}
+                                    <span class="font-monospace">{{ bet.final_score }}</span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     {% if _cashed_out %}
                                     <span class="badge bg-info text-dark" title="Cashed out at {{ bet.cashout_timestamp or 'unknown time' }}">CASHED OUT</span>
