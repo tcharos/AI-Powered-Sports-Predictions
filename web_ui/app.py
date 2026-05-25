@@ -237,20 +237,22 @@ _BOOKMAKER_SNAPSHOT_PATH = os.path.join(
 )
 
 
-def _load_bookmaker_offers(max_age_s):
+def _load_bookmaker_offers():
     """Load + index the scenario #3B snapshot. Returns a dict
         {'by_match_id': {<bookmaker_match_id>: entry, ...},
-         'all':         [entry, ...]}
-    or {'by_match_id': {}, 'all': []} when the snapshot is missing,
-    unparseable, or older than `max_age_s`.
+         'all':         [entry, ...],
+         'age_s':       <float seconds since snapshot ts, or None>}
+    or all-empty + age_s=None when the snapshot is missing/unparseable.
 
-    Two indexes because Flashscore and Pamestoixima use entirely
-    different match-id schemes — Flashscore: 8-char alphanumeric
-    ('nFjvRRsQ'); Pamestoixima: 8-digit numeric ('11012505'). The
-    'by_match_id' map only fires when those IDs happen to align
-    (rare). The 'all' list is the input to a fuzzy team-name fallback
-    in `_attach_open_bets` so offers actually surface."""
-    empty = {'by_match_id': {}, 'all': []}
+    Does NOT gate on staleness internally — the caller applies its own
+    thresholds because link-existence and offer-value-freshness want
+    DIFFERENT windows (a real bet stays real for the whole match; the
+    €offer moves with the score). Two indexes because Flashscore and
+    Pamestoixima use entirely different match-id schemes — Flashscore:
+    8-char alphanumeric ('nFjvRRsQ'); Pamestoixima: 8-digit numeric
+    ('11012505'). 'by_match_id' rarely fires; 'all' feeds the fuzzy
+    team-name fallback in `_attach_open_bets`."""
+    empty = {'by_match_id': {}, 'all': [], 'age_s': None}
     if not os.path.exists(_BOOKMAKER_SNAPSHOT_PATH):
         return empty
     try:
@@ -261,18 +263,17 @@ def _load_bookmaker_offers(max_age_s):
     if not isinstance(snap, dict):
         return empty
 
+    age_s = None
     ts = snap.get('ts')
     if ts:
         try:
             # Snapshot ts is ISO UTC. Use timezone-aware comparison so
-            # local-vs-UTC mismatches don't mark a fresh snapshot stale.
+            # local-vs-UTC mismatches don't skew the age.
             snap_dt = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
             now_dt = datetime.datetime.now(datetime.timezone.utc)
-            if (now_dt - snap_dt).total_seconds() > max_age_s:
-                return empty
+            age_s = (now_dt - snap_dt).total_seconds()
         except (ValueError, TypeError):
-            # Unparseable timestamp → treat as stale.
-            return empty
+            age_s = None
 
     by_match_id = {}
     all_entries = []
@@ -283,7 +284,15 @@ def _load_bookmaker_offers(max_age_s):
         mid = entry.get('match_id')
         if mid:
             by_match_id[str(mid)] = entry
-    return {'by_match_id': by_match_id, 'all': all_entries}
+    return {'by_match_id': by_match_id, 'all': all_entries, 'age_s': age_s}
+
+
+# Link-existence window: how old the snapshot can be and still be
+# trusted to tell us "a real bet exists on this match". Generous —
+# a real bet doesn't disappear over a match's duration (it only
+# changes via cashout/settlement, which a re-scrape would catch).
+# 4 h comfortably covers a refresh-then-watch session.
+_BOOKMAKER_LINK_MAX_AGE_S = 4 * 3600
 
 
 def _match_offer_by_teams(home, away, offers_list, min_score=80):
@@ -411,12 +420,20 @@ def _attach_open_bets(live_matches):
     # to the internal fair_cashout formula.
     sport_cfg = get_sport_config('football')
     cashout_source_pref = sport_cfg.get('cashout_source', 'synthetic')
-    snapshot_max_age_s = float(sport_cfg.get('cashout_snapshot_max_age_s', 600))
-    # Always load the bookmaker snapshot so the `🔗 linked` badge can
-    # surface independently of the cashout_source flag — a real bet at
-    # the bookmaker exists whether or not we want to show the live
-    # cashout value. The flag only governs the *displayed value*.
-    bookmaker_offers = _load_bookmaker_offers(snapshot_max_age_s)
+    value_max_age_s = float(sport_cfg.get('cashout_snapshot_max_age_s', 600))
+    # Always load the bookmaker snapshot (no internal staleness gate).
+    # We apply TWO windows below:
+    #   - link existence: trusted up to _BOOKMAKER_LINK_MAX_AGE_S (4h) —
+    #     a real bet doesn't vanish mid-match, so the `🔗 linked` badge
+    #     should persist through a watch session on a single refresh.
+    #   - offer value: trusted only up to value_max_age_s (default 600s,
+    #     per-sport configurable) because the €offer moves with the score.
+    bookmaker_offers = _load_bookmaker_offers()
+    snap_age_s = bookmaker_offers.get('age_s')
+    link_fresh = (snap_age_s is not None
+                  and snap_age_s <= _BOOKMAKER_LINK_MAX_AGE_S)
+    value_fresh = (snap_age_s is not None
+                   and snap_age_s <= value_max_age_s)
 
     for m in live_matches:
         if m.get('message'):
@@ -438,24 +455,29 @@ def _attach_open_bets(live_matches):
         #    worse of (home, away). This is the path that actually
         #    surfaces real offers on the dashboard today.
         #
-        # When the snapshot is missing / stale / flag=='synthetic', both
-        # paths return None and the synthetic fair_cashout formula wins.
+        # When the snapshot is missing / too old for link / flag=='synthetic',
+        # the relevant path yields None and the synthetic formula wins.
+        #
+        # Link detection uses the generous link-freshness window; the
+        # offer-value path additionally requires value-freshness below.
         m_id = str(m.get('match_id') or '').strip()
         bk_entry = None
-        if m_id:
-            bk_entry = bookmaker_offers.get('by_match_id', {}).get(m_id)
-        if bk_entry is None:
-            # Fall back to team-name fuzzy match. The match string is
-            # "Home vs Away" — split and pass to the helper.
-            ms = match_str
-            if ' vs ' in ms:
-                fb_home, fb_away = ms.split(' vs ', 1)
-                bk_entry = _match_offer_by_teams(
-                    fb_home, fb_away,
-                    bookmaker_offers.get('all', []),
-                )
+        if link_fresh:
+            if m_id:
+                bk_entry = bookmaker_offers.get('by_match_id', {}).get(m_id)
+            if bk_entry is None:
+                # Fall back to team-name fuzzy match. The match string is
+                # "Home vs Away" — split and pass to the helper.
+                ms = match_str
+                if ' vs ' in ms:
+                    fb_home, fb_away = ms.split(' vs ', 1)
+                    bk_entry = _match_offer_by_teams(
+                        fb_home, fb_away,
+                        bookmaker_offers.get('all', []),
+                    )
         bk_offer = None
-        if bk_entry and not bk_entry.get('paused'):
+        # Offer value only when the snapshot is value-fresh AND not paused.
+        if bk_entry and value_fresh and not bk_entry.get('paused'):
             try:
                 bk_offer = float(bk_entry.get('cashout_offer'))
             except (TypeError, ValueError):
