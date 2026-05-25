@@ -113,7 +113,7 @@
                             {% set _scores = item.score.split('-') %}
                             {% set _home_score = _scores[0]|trim if _scores|length == 2 else '0' %}
                             {% set _away_score = _scores[1]|trim if _scores|length == 2 else '0' %}
-                            <div class="col-md-2">
+                            <div class="col-md-3">
                                 <div class="d-flex align-items-center gap-1 mb-1">
                                     {% if _has_bet %}
                                     <span class="badge bg-warning text-dark"
@@ -134,7 +134,7 @@
                             </div>
 
                             <!-- Stats (xG/xGOT capture shot quality; Poss + Tch capture territory) -->
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <table class="table table-sm mb-0 small">
                                     <thead class="table-light">
                                         <tr>
@@ -165,7 +165,7 @@
                             </div>
 
                             <!-- Pre vs Live adjustment (1X2 + O/U markets) -->
-                            <div class="col-md-4">
+                            <div class="col-md-5">
                                 {% set _ou_pre  = item.pre_ou_probs or {'over': 0, 'under': 0} %}
                                 {% set _ou_live = item.adj_ou_probs or _ou_pre %}
                                 <table class="table table-bordered table-sm text-center small mb-0 markets-table">
@@ -210,13 +210,18 @@
                                 </table>
                             </div>
 
-                            <!-- Open bets on this match (Phase 6 + Phase 7) -->
-                            <div class="col-md-3">
-                                {% with open_bets = item.open_bets %}
-                                    {% include '_open_bets_fragment.html' %}
-                                {% endwith %}
-                            </div>
                         </div>
+
+                        <!-- Open bets on this match — full-width compact strip
+                             below the stats, one bet per line (Phase 6 + 7). -->
+                        {% if item.open_bets and item.open_bets|length > 0 %}
+                        <div class="mt-2 pt-2 border-top">
+                            <div class="small text-muted mb-1">Open bets</div>
+                            {% with open_bets = item.open_bets, compact = True %}
+                                {% include '_open_bets_fragment.html' %}
+                            {% endwith %}
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
