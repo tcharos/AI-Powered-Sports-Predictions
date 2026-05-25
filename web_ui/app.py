@@ -1351,17 +1351,23 @@ def live_analysis():
 
 @football_bp.route('/refresh_live', methods=['POST'])
 def refresh_live():
-    # Trigger the script
+    """Kicks off `scripts/run_live_analysis.py` (Flashscore live scrape).
+    When the request carries `with_bookmaker=1` (manual-button path),
+    ALSO spawns a separate `python -m real_betting read-open-bets`
+    subprocess that refreshes `output/real_betting/open_bets_snapshot.json`
+    so the live panel sees fresh bookmaker cashout offers — see
+    PAMESTOIXIMA_NOTES.md "Corrections" for the snapshot freshness
+    requirement. The auto-5m dashboard polling deliberately omits the
+    flag (Pamestoixima requires headed mode; popping a Chromium window
+    every 5 minutes is too disruptive)."""
     script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_live_analysis.py')
+    with_bookmaker = (request.args.get('with_bookmaker')
+                      or request.form.get('with_bookmaker'))
     try:
-        # Run in background or wait?
-        # User said "UI takes too long", so background is better, but then we need polling.
-        # For simplicity now, let's wait (blocking) but user knows it takes time.
-        # Or spawn Popen.
         if TASKS.get('live') and TASKS['live']['process'] and TASKS['live']['process'].poll() is None:
              flash('Live analysis is already running!', 'warning')
              return redirect(url_for('football.index'))
-             
+
         log_file = open(os.path.join(LOG_DIR, 'live.log'), 'w')
         # ml_project imports need both repo root and ml_project/ on PYTHONPATH
         # (same convention as bin/run_predictions.sh).
@@ -1373,13 +1379,35 @@ def refresh_live():
             ['venv/bin/python', script_path],
             cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env
         )
-        
+
         TASKS['live'] = {'process': proc, 'start_time': datetime.datetime.now()}
-        
+
+        # Optional: chain the Pamestoixima open-bets scrape on the
+        # manual click path. Runs in parallel with the Flashscore scrape
+        # (independent processes). The Pamestoixima CLI forces headed
+        # mode — expect a Chromium window to pop briefly.
+        if with_bookmaker:
+            already_running = (TASKS.get('bookmaker')
+                               and TASKS['bookmaker']['process']
+                               and TASKS['bookmaker']['process'].poll() is None)
+            if already_running:
+                flash('Bookmaker refresh already running; skipping duplicate spawn.', 'info')
+            else:
+                bm_log = open(os.path.join(LOG_DIR, 'bookmaker.log'), 'w')
+                bm_proc = subprocess.Popen(
+                    ['venv/bin/python', '-m', 'real_betting', 'read-open-bets'],
+                    cwd=PROJECT_ROOT, stdout=bm_log, stderr=subprocess.STDOUT, env=env,
+                )
+                TASKS['bookmaker'] = {'process': bm_proc,
+                                      'start_time': datetime.datetime.now()}
+                flash('Live + bookmaker refresh started! '
+                      '(Pamestoixima opens a Chromium window briefly.)', 'info')
+                return redirect(url_for('football.index'))
+
         flash('Live analysis started! Auto-refreshing...', 'info')
     except Exception as e:
         flash(f"Error starting live analysis: {e}", 'danger')
-        
+
     return redirect(url_for('football.index'))
 
 @football_bp.route('/clear_live', methods=['POST'])
