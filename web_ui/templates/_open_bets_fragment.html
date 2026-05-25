@@ -8,11 +8,18 @@
    Required context:
      - `open_bets`: list of bet dicts with keys
          lane, type, selection, stake, odds, adj_prob,
-         fair_cashout, badge, bet_id
+         fair_cashout, cashout_source ('bookmaker' | 'synthetic'),
+         badge, bet_id
 
    The Cash Out button is rendered only if both `bet_id` and
    `fair_cashout` are present. Bets placed before Phase 7 don't carry
    `bet_id`, so the button is silently hidden for them.
+
+   `cashout_source` (scenario #3A): tells the user whether the
+   displayed value comes from a scraped bookmaker offer ('bookmaker')
+   or from the internal `stake × odds × adj_prob × 0.95` formula
+   ('synthetic'). Surfaced as a small badge next to the value so the
+   trustworthiness of the number is clear at a glance.
 #}
 {% set _lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
 {% set _state_badge = {'lock_in': 'bg-success', 'stop_loss': 'bg-danger', 'hold': 'bg-secondary'} %}
@@ -30,9 +37,14 @@
     <div class="d-flex justify-content-between text-muted">
         <span>Stake €{{ b.stake }}</span>
         {% if b.fair_cashout is not none %}
+            {% set _is_bm = b.cashout_source == 'bookmaker' %}
             <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
-                  title="Internal fair-value estimate (stake × odds × adj_prob × 0.95). Actual bookmaker cashout offer not yet scraped — see NEXT_STEPS.md.">
-                Est. cashout €{{ b.fair_cashout }}
+                  title="{% if _is_bm %}Bookmaker's actual cashout offer scraped from your Pamestoixima open bet.{% else %}Internal fair-value estimate (stake × odds × adj_prob × 0.95). Real bookmaker offer not available — toggle cashout_source='bookmaker' in betting_config.json once scenario #3B is producing snapshots.{% endif %}">
+                {% if _is_bm %}Cashout{% else %}Est. cashout{% endif %} €{{ b.fair_cashout }}
+                <span class="badge {{ 'bg-success' if _is_bm else 'bg-secondary' }} ms-1"
+                      style="font-size: 0.65em; vertical-align: middle;">
+                    {{ 'real' if _is_bm else 'est' }}
+                </span>
             </span>
         {% else %}
             <span class="text-muted small">O/U cashout n/a</span>

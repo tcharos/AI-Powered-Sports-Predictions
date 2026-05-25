@@ -48,6 +48,21 @@ DEFAULT_SPORT_CONFIG = {
     'value_max_daily_exposure_pct': 0.10,
     'conviction_max_daily_exposure_pct': 0.10,
     'model_max_daily_exposure_pct': 0.15,
+    # Where the displayed cashout value on live rows comes from:
+    #   'synthetic' (default) — internal fair-value estimate
+    #     `stake × odds × adj_prob × 0.95` computed in _attach_open_bets.
+    #   'bookmaker' — read from output/real_betting/open_bets_snapshot.json
+    #     when a fresh entry exists for the match; falls back to
+    #     synthetic when the snapshot is stale/missing for that match.
+    # Toggling to 'bookmaker' requires real-betting scenario #3B (scraper)
+    # to be producing snapshots and at least one real bet on the
+    # bookmaker site. Default 'synthetic' is the safe / pre-real-betting
+    # value. See real_betting/test_case_scenarios.md.
+    'cashout_source': 'synthetic',
+    # How long (seconds) a bookmaker snapshot stays "fresh" before
+    # _attach_open_bets falls back to synthetic. Default 600s = 10 min;
+    # matches the Auto-5m refresh cadence with one cycle of slack.
+    'cashout_snapshot_max_age_s': 600,
 }
 
 

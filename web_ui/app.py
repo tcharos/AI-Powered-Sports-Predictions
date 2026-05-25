@@ -218,6 +218,66 @@ _SELECTION_TO_PROB_KEY = {
 
 _CASHOUT_HOUSE_HAIRCUT = 0.95
 
+# Bookmaker cashout snapshot — scenario #3B in
+# real_betting/test_case_scenarios.md produces this file. Schema (when
+# the scraper is wired):
+#   {
+#     "ts": "<ISO UTC timestamp of the read>",
+#     "bets": [
+#       {"match_id": "<flashscore id>", "pamestoixima_uuid": "<uuid>",
+#        "home": "...", "away": "...", "cashout_offer": <float|null>,
+#        "paused": <bool>, ...},
+#       ...
+#     ]
+#   }
+# Missing file / unparseable JSON / stale `ts` → return empty, which
+# silently falls back to synthetic fair_cashout in _attach_open_bets.
+_BOOKMAKER_SNAPSHOT_PATH = os.path.join(
+    OUTPUT_DIR, 'real_betting', 'open_bets_snapshot.json'
+)
+
+
+def _load_bookmaker_offers(max_age_s):
+    """Return {match_id: {'cashout_offer': float, 'paused': bool,
+    'pamestoixima_uuid': str}} from the scenario #3B snapshot, or {} if
+    the file is missing / unparseable / older than max_age_s.
+
+    Per-match lookup so the UI can mix bookmaker offers (for matches
+    we have a bet on at the bookmaker) with synthetic estimates (for
+    everything else) without an all-or-nothing toggle."""
+    if not os.path.exists(_BOOKMAKER_SNAPSHOT_PATH):
+        return {}
+    try:
+        with open(_BOOKMAKER_SNAPSHOT_PATH) as f:
+            snap = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(snap, dict):
+        return {}
+
+    ts = snap.get('ts')
+    if ts:
+        try:
+            # Snapshot ts is ISO UTC. Use timezone-aware comparison so
+            # local-vs-UTC mismatches don't mark a fresh snapshot stale.
+            snap_dt = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            now_dt = datetime.datetime.now(datetime.timezone.utc)
+            if (now_dt - snap_dt).total_seconds() > max_age_s:
+                return {}
+        except (ValueError, TypeError):
+            # Unparseable timestamp → treat as stale.
+            return {}
+
+    by_match_id = {}
+    for entry in snap.get('bets', []) or []:
+        if not isinstance(entry, dict):
+            continue
+        mid = entry.get('match_id')
+        if not mid:
+            continue
+        by_match_id[str(mid)] = entry
+    return by_match_id
+
 
 _TERMINAL_BET_STATUSES = ('WON', 'LOST', 'VOID', 'CASHED_OUT')
 
@@ -309,12 +369,37 @@ def _attach_open_bets(live_matches):
             continue
         by_match.setdefault(match_str, []).append(bet)
 
+    # Cashout-source flag (scenario #3A). When 'bookmaker', look up the
+    # match in the scenario #3B snapshot and use the real offer; when
+    # 'synthetic' (default) or the snapshot misses this match, fall back
+    # to the internal fair_cashout formula.
+    sport_cfg = get_sport_config('football')
+    cashout_source_pref = sport_cfg.get('cashout_source', 'synthetic')
+    snapshot_max_age_s = float(sport_cfg.get('cashout_snapshot_max_age_s', 600))
+    bookmaker_offers = (
+        _load_bookmaker_offers(snapshot_max_age_s)
+        if cashout_source_pref == 'bookmaker' else {}
+    )
+
     for m in live_matches:
         if m.get('message'):
             m['open_bets'] = []
             continue
         match_str = m.get('match', '').strip()
         related = by_match.get(match_str, [])
+
+        # Per-match bookmaker offer lookup. Join key is match_id —
+        # assumes Pamestoixima and Flashscore agree on the canonical
+        # fixture ID. If they don't (scenario #3B will surface that),
+        # the fallback to synthetic below is the safe behaviour.
+        m_id = str(m.get('match_id') or '').strip()
+        bk_entry = bookmaker_offers.get(m_id) if m_id else None
+        bk_offer = None
+        if bk_entry and not bk_entry.get('paused'):
+            try:
+                bk_offer = float(bk_entry.get('cashout_offer'))
+            except (TypeError, ValueError):
+                bk_offer = None
 
         enriched = []
         for bet in related:
@@ -327,13 +412,25 @@ def _attach_open_bets(live_matches):
             # 1X2 reads adj_probs; O/U reads adj_ou_probs (persisted by
             # run_live_analysis.py via LiveAdjuster.adjust_ou_probabilities).
             adj_prob = None
-            fair_cashout = None
+            synthetic_cashout = None
             if bet_type == '1X2' and prob_key in ('home', 'draw', 'away'):
                 adj_prob = float(m.get('adj_probs', {}).get(prob_key, 0))
-                fair_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
+                synthetic_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
             elif bet_type == 'O/U' and prob_key in ('over', 'under'):
                 adj_prob = float(m.get('adj_ou_probs', {}).get(prob_key, 0))
-                fair_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
+                synthetic_cashout = round(stake * odds * adj_prob * _CASHOUT_HOUSE_HAIRCUT, 2)
+
+            # Pick the displayed cashout value + tag the source.
+            #   'bookmaker' wins iff (a) the flag is on, (b) a snapshot
+            #     entry exists for this match, (c) the offer is a usable
+            #     float, and (d) the entry isn't paused.
+            #   'synthetic' otherwise (default; missing snapshot; paused).
+            if bk_offer is not None:
+                fair_cashout = round(bk_offer, 2)
+                cashout_source = 'bookmaker'
+            else:
+                fair_cashout = synthetic_cashout
+                cashout_source = 'synthetic'
 
             # Status badge (informational only; no auto-action attached).
             badge = 'hold'
@@ -351,6 +448,7 @@ def _attach_open_bets(live_matches):
                 'odds': odds,
                 'adj_prob': round(adj_prob, 3) if adj_prob is not None else None,
                 'fair_cashout': fair_cashout,
+                'cashout_source': cashout_source,
                 'badge': badge,
                 # Pass bet_id through so the dashboard's Cash Out button
                 # can target the right bet via /football/cashout/<bet_id>.
