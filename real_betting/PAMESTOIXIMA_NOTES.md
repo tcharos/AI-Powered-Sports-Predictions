@@ -382,21 +382,48 @@ Both fix targets are in the dumped HTML at
 `output/real_betting/open_bets_read_<ts>/02_my_bets_page.html` if/when
 someone iterates.
 
-### 2026-05-25 — Headless mode still blocked
+### 2026-05-25 — Headless is blocked by Akamai Bot Manager (ROOT CAUSE)
 
-Re-tested headless login (`headless=True` on the Pamestoixima class)
-to see if the open-bets scrape could piggyback on the silent auto-5m
-dashboard refresh. **Failed at login**: the Login button doesn't
-render under headless Chromium ("Could not find the Login button.
-Selectors tried: ..."). This is exactly the case real-betting step
-6d in NEXT_STEPS is designed for (the "headless-mode validation"
-step); it's still pending. Headed-mode policy stays.
+Tested headless twice. First pass reported only "Could not find the
+Login button" — symptom, not cause. Second pass dumped the actual
+page headless Chromium receives, which settled it:
 
-Practical consequence: the "Refresh Live Snapshot" button on the
-dashboard / live-analysis page chains the bookmaker scrape **only on
-manual click** (`?with_bookmaker=1` query param). Auto-5m stays
-Flashscore-only — popping a Chromium window every 5 min would be
-unacceptable UX.
+```
+title: Access Denied
+You don't have permission to access "http://www.pamestoixima.gr/en/"
+on this server. Reference #18.4b173317...
+https://errors.edgesuite.net/18.4b173317...
+```
+
+- **300-char "Access Denied" page** served by **Akamai** (the
+  `errors.edgesuite.net` host + `#18.<hex>...` reference are Akamai
+  Bot Manager's block signature). EVERY element counts 0 — including
+  `#quick_login_login` — because **no real page is served at all**.
+- This is a **network-edge block**, not a selector / hydration issue.
+  Akamai refuses the request before any HTML renders. Headed Chromium
+  passes Akamai's checks (TLS fingerprint, header order, behavioural
+  signals); headless does not.
+- **playwright-stealth does NOT defeat this.** It patches JS-level
+  fingerprints (`navigator.webdriver`, plugins, WebGL, etc.) which
+  is enough for `bot.sannysoft.com`, but Akamai also fingerprints the
+  network/TLS layer and headless-specific runtime signals that stealth
+  doesn't touch.
+
+**Conclusion**: headless is NOT viable for Pamestoixima without
+escalating to a C++-fingerprint-patched browser (CloakBrowser /
+patchright — see "Optional escalation" in NEXT_STEPS). Per that note,
+do NOT adopt preemptively: we don't *need* headless — headed mode
+works for the on-demand ~25 s scrape. This is the concrete evidence
+that real-betting step 6d ("headless validation") cannot pass on the
+current stealth stack; revisit only if a headless requirement becomes
+unavoidable.
+
+Practical consequence: the "Refresh Live Snapshot" button chains the
+bookmaker scrape **only on manual click** (`?with_bookmaker=1`).
+Auto-5m stays Flashscore-only — both because popping a Chromium window
+every 5 min is bad UX AND because a headless silent refresh is
+impossible (Akamai block). Evidence dumps:
+`output/real_betting/headless_test_<ts>/01_homepage.html` (gitignored).
 
 ### 2026-05-25 — `🔗 linked` badge surfaces the join
 
