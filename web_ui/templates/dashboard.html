@@ -128,8 +128,8 @@
                                     </span>
                                     {% endif %}
                                 </div>
-                                <div class="fs-6 fw-bold">{{ _home_team }}<span class="ms-3">{{ _home_score }}</span>{% if item.stats.get('red_cards_home', 0) %} <span class="badge bg-danger" title="Red card(s) — factored into the live prediction">🟥{{ item.stats.get('red_cards_home')|int }}</span>{% endif %}</div>
-                                <div class="fs-6 fw-bold">{{ _away_team }}<span class="ms-3">{{ _away_score }}</span>{% if item.stats.get('red_cards_away', 0) %} <span class="badge bg-danger" title="Red card(s) — factored into the live prediction">🟥{{ item.stats.get('red_cards_away')|int }}</span>{% endif %}</div>
+                                <div class="fs-6 fw-bold">{{ _home_team }}<span class="ms-3">{{ _home_score }}</span>{% if item.stats.get('red_cards_home', 0) %} <span class="ms-1" title="Red card(s) — factored into the live prediction">🟥{{ item.stats.get('red_cards_home')|int }}</span>{% endif %}</div>
+                                <div class="fs-6 fw-bold">{{ _away_team }}<span class="ms-3">{{ _away_score }}</span>{% if item.stats.get('red_cards_away', 0) %} <span class="ms-1" title="Red card(s) — factored into the live prediction">🟥{{ item.stats.get('red_cards_away')|int }}</span>{% endif %}</div>
                                 <div class="small text-muted mt-1">{{ item.minute }}'</div>
                             </div>
 

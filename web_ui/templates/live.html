@@ -46,12 +46,12 @@
                         }})</small></h5>
 
                 {% if item.stats.get('red_cards_home', 0) or item.stats.get('red_cards_away', 0) %}
-                <div class="text-center mb-2">
+                <div class="text-center mb-2 small">
                     {% if item.stats.get('red_cards_home', 0) %}
-                    <span class="badge bg-danger" title="Home red card(s) — factored into the live prediction">🟥 Home {{ item.stats.get('red_cards_home')|int }}</span>
+                    <span title="Home red card(s) — factored into the live prediction">Home 🟥{{ item.stats.get('red_cards_home')|int }}</span>
                     {% endif %}
                     {% if item.stats.get('red_cards_away', 0) %}
-                    <span class="badge bg-danger ms-1" title="Away red card(s) — factored into the live prediction">🟥 Away {{ item.stats.get('red_cards_away')|int }}</span>
+                    <span class="ms-2" title="Away red card(s) — factored into the live prediction">Away 🟥{{ item.stats.get('red_cards_away')|int }}</span>
                     {% endif %}
                 </div>
                 {% endif %}
