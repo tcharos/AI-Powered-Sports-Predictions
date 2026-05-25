@@ -102,8 +102,17 @@
                     </div>
                 </div>
 
-                <div class="d-grid gap-2">
-                    <button class="btn btn-dark btn-lg" onclick="generateSlip()">🎰 Generate Slip</button>
+                <div class="d-flex gap-2 align-items-end flex-wrap">
+                    <div style="width: 200px;">
+                        <label for="predictionDate" class="form-label small mb-1"
+                               title="Only dates that have a predictions CSV AND no bets slip yet are listed.">
+                            Prediction date
+                        </label>
+                        <select id="predictionDate" class="form-select form-select-sm">
+                            <option value="">— loading… —</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-dark btn-lg flex-grow-1" onclick="generateSlip()">🎰 Generate Slip</button>
                 </div>
 
                 <div id="wagerResult" class="mt-4" style="display:none;">
@@ -441,6 +450,10 @@
             }
         });
 
+        const dateSel = document.getElementById('predictionDate');
+        const selectedDate = dateSel ? dateSel.value : '';
+        if (selectedDate) params.set('date', selectedDate);
+
         const qs = params.toString();
         const url = '/football/auto_wager' + (qs ? `?${qs}` : '');
 
@@ -488,6 +501,41 @@
             })
             .catch(err => alert("Error fetching wager data: " + err));
     }
+
+    // On page load, populate the prediction-date dropdown with dates
+    // that have a predictions CSV but no bets slip yet. The endpoint
+    // sorts descending, so option[0] is the most recent unbet date —
+    // pre-selected to preserve the previous "always pick latest" UX.
+    document.addEventListener('DOMContentLoaded', () => {
+        const dateSel = document.getElementById('predictionDate');
+        if (!dateSel) return;
+        fetch('/football/predictions/available')
+            .then(r => r.json())
+            .then(data => {
+                const dates = (data && data.dates) || [];
+                dateSel.innerHTML = '';
+                if (!dates.length) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = '(no unbet predictions)';
+                    opt.disabled = true;
+                    opt.selected = true;
+                    dateSel.appendChild(opt);
+                    dateSel.disabled = true;
+                    return;
+                }
+                dates.forEach((d, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = d;
+                    if (i === 0) opt.selected = true;  // latest unbet date
+                    dateSel.appendChild(opt);
+                });
+            })
+            .catch(() => {
+                dateSel.innerHTML = '<option value="">(fetch failed)</option>';
+            });
+    });
 
     function placeVirtualBets() {
         if (!currentBets.length) return;

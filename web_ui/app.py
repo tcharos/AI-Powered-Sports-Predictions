@@ -1580,15 +1580,63 @@ import glob
 import pandas as pd
 from flask import jsonify
 
+def _available_prediction_dates():
+    """Dates that (a) have a predictions_<date>.csv, (b) have no ACTIVE
+    bets_<date>.json yet, and (c) are today or later. Archived slips
+    under output/history/ do NOT count as "bet" — place_bets writes to
+    output/ so regenerating a date whose slip was archived is safe (no
+    clobber). Past dates are excluded so the picker can't surface
+    fixtures that already kicked off. Sorted descending so today (the
+    most common pick) is first."""
+    today_str = datetime.date.today().isoformat()
+    pred_dates = set()
+    for p in glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv')):
+        name = os.path.basename(p)
+        if name.startswith('predictions_') and name.endswith('.csv'):
+            pred_dates.add(name[len('predictions_'):-len('.csv')])
+    bet_dates = set()
+    for b in glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json')):
+        name = os.path.basename(b)
+        if name.startswith('bets_') and name.endswith('.json'):
+            # Strip optional `.<ts>` archive suffix some old slips carry
+            # (e.g. bets_2026-05-21.20260522_124718.json).
+            stem = name[len('bets_'):-len('.json')]
+            bet_dates.add(stem.split('.', 1)[0])
+    return sorted(
+        (d for d in pred_dates - bet_dates if d >= today_str),
+        reverse=True,
+    )
+
+
+@football_bp.route('/predictions/available')
+def predictions_available():
+    """List prediction dates that don't already have a bets slip on disk."""
+    return jsonify({'dates': _available_prediction_dates()})
+
+
 @football_bp.route('/auto_wager')
 def auto_wager():
     try:
-        pred_files = glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv'))
-        if not pred_files:
-            return jsonify({'error': 'No prediction files found.'})
-
-        pred_files.sort(reverse=True)
-        latest_file = pred_files[0]
+        # Date selection: explicit ?date=YYYY-MM-DD wins; otherwise pick
+        # the most recent prediction CSV without a corresponding bets
+        # slip; otherwise fall back to the most recent prediction CSV
+        # (so the page still renders something if every date is bet).
+        date_arg = (request.args.get('date') or '').strip()
+        if date_arg:
+            cand = os.path.join(OUTPUT_DIR, f'predictions_{date_arg}.csv')
+            if not os.path.isfile(cand):
+                return jsonify({'error': f'No predictions file for {date_arg}.'}), 404
+            latest_file = cand
+        else:
+            available = _available_prediction_dates()
+            if available:
+                latest_file = os.path.join(OUTPUT_DIR, f'predictions_{available[0]}.csv')
+            else:
+                pred_files = glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv'))
+                if not pred_files:
+                    return jsonify({'error': 'No prediction files found.'})
+                pred_files.sort(reverse=True)
+                latest_file = pred_files[0]
         df = pd.read_csv(latest_file)
 
         def _to_float(v):
