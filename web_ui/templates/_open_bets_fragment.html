@@ -47,11 +47,11 @@
         {% if b.fair_cashout is not none %}
             {% set _is_bm = b.cashout_source == 'bookmaker' %}
             <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
-                  title="{% if _is_bm %}Bookmaker's actual cashout offer scraped from your Pamestoixima open bet.{% else %}Internal fair-value estimate (stake × odds × adj_prob × 0.95). Real bookmaker offer not available — toggle cashout_source='bookmaker' in betting_config.json once scenario #3B is producing snapshots.{% endif %}">
+                  title="{% if _is_bm %}Bookmaker's actual cashout offer scraped from your Pamestoixima open bet{% if b.cashout_age_min is not none %} {{ b.cashout_age_min }} min ago — re-press Refresh Live Snapshot for a current figure{% endif %}.{% else %}Internal fair-value estimate (stake × odds × adj_prob × 0.95). Real bookmaker offer not available — press Refresh Live Snapshot to scrape it.{% endif %}">
                 {% if _is_bm %}Cashout{% else %}Est. cashout{% endif %} €{{ b.fair_cashout }}
                 <span class="badge {{ 'bg-success' if _is_bm else 'bg-secondary' }} ms-1"
                       style="font-size: 0.65em; vertical-align: middle;">
-                    {{ 'real' if _is_bm else 'est' }}
+                    {% if _is_bm %}real{% if b.cashout_age_min %} · {{ b.cashout_age_min }}m{% endif %}{% else %}est{% endif %}
                 </span>
             </span>
         {% else %}

@@ -432,8 +432,15 @@ def _attach_open_bets(live_matches):
     snap_age_s = bookmaker_offers.get('age_s')
     link_fresh = (snap_age_s is not None
                   and snap_age_s <= _BOOKMAKER_LINK_MAX_AGE_S)
-    value_fresh = (snap_age_s is not None
-                   and snap_age_s <= value_max_age_s)
+    # Value freshness == link freshness. The snapshot value on disk only
+    # changes when read-open-bets re-runs (manual button press) — nothing
+    # drifts it in the background — so a separate short value window just
+    # downgraded a still-best-known real offer to synthetic for no gain.
+    # Show the real value whenever linked; surface the age so the user
+    # can judge staleness (a 3h-old offer mid-match has moved, but it's
+    # still the most recent REAL data we have, labelled with its age).
+    value_fresh = link_fresh
+    snap_age_min = int(snap_age_s // 60) if snap_age_s is not None else None
 
     for m in live_matches:
         if m.get('message'):
@@ -545,6 +552,10 @@ def _attach_open_bets(live_matches):
                 # linked-only filter.
                 'linked_to_bookmaker': bk_entry is not None,
                 'pamestoixima_uuid': (bk_entry or {}).get('pamestoixima_uuid'),
+                # Snapshot age in minutes (None when no snapshot) — shown
+                # in the cashout-value tooltip so a stale real offer is
+                # honestly labelled rather than silently downgraded.
+                'cashout_age_min': snap_age_min if cashout_source == 'bookmaker' else None,
                 'badge': badge,
                 # Pass bet_id through so the dashboard's Cash Out button
                 # can target the right bet via /football/cashout/<bet_id>.

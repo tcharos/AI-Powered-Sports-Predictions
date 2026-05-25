@@ -479,7 +479,12 @@
 
     function triggerLive(event) {
         event.preventDefault();
-        fetch('/football/refresh_live', { method: 'POST' })
+        // Use the FORM's action URL, not a hardcoded one — the manual
+        // button's action carries `?with_bookmaker=1` so the bookmaker
+        // open-bets scrape gets chained. (The auto-5m tick uses a bare
+        // fetch below and stays Flashscore-only.)
+        const form = event.target;
+        fetch(form.action, { method: 'POST' })
             .then(response => {
                 if (response.ok) {
                     const form = event.target;
