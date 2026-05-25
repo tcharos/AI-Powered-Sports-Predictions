@@ -1,5 +1,8 @@
 .vscode/
-data_sets/
+data_sets/*
+!data_sets/betting_config.json
+!data_sets/target_leagues.json
+!data_sets/team_mappings.json
 logs/
 output/
 output_basketball/

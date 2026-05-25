@@ -1,0 +1,70 @@
+{
+    "sports": {
+        "football": {
+            "bankrolls": {
+                "value": {
+                    "current": 935.97,
+                    "initial": 1000.0
+                },
+                "conviction": {
+                    "current": 995.0,
+                    "initial": 1000.0
+                },
+                "model": {
+                    "current": 952.82,
+                    "initial": 1000.0
+                }
+            },
+            "min_confidence": 0.45,
+            "stake_multiplier": 0.4,
+            "min_stake_eur": 2.0,
+            "max_stake_pct": 0.03,
+            "ev_cap_value": 0.05,
+            "conviction_min_confidence": 0.58,
+            "conviction_min_odds": 1.4,
+            "conviction_stake_pct": 0.005,
+            "model_base_pct": 0.005,
+            "model_max_stake_pct": 0.015,
+            "model_min_stake_eur": 1.0,
+            "model_ev_factor_min": 0.5,
+            "model_ev_factor_max": 1.5,
+            "value_max_daily_exposure_pct": 0.1,
+            "conviction_max_daily_exposure_pct": 0.1,
+            "model_max_daily_exposure_pct": 0.15
+        },
+        "nba": {
+            "bankrolls": {
+                "value": {
+                    "current": 0.0,
+                    "initial": 0.0
+                },
+                "conviction": {
+                    "current": 0.0,
+                    "initial": 0.0
+                },
+                "model": {
+                    "current": 0.0,
+                    "initial": 0.0
+                }
+            },
+            "min_confidence": 0.5,
+            "stake_multiplier": 0.4,
+            "min_stake_eur": 2.0,
+            "max_stake_pct": 0.03,
+            "ev_cap_value": 0.05,
+            "use_league_calibration": true,
+            "conviction_min_confidence": 0.65,
+            "conviction_min_odds": 1.4,
+            "conviction_stake_pct": 0.005,
+            "model_base_pct": 0.005,
+            "model_max_stake_pct": 0.015,
+            "model_min_stake_eur": 1.0,
+            "model_ev_factor_min": 0.5,
+            "model_ev_factor_max": 1.5,
+            "value_max_daily_exposure_pct": 0.1,
+            "conviction_max_daily_exposure_pct": 0.1,
+            "model_max_daily_exposure_pct": 0.15
+        }
+    },
+    "current_bankroll": 1057.9671000000003
+}
