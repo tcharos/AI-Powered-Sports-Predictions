@@ -412,11 +412,11 @@ def _attach_open_bets(live_matches):
     sport_cfg = get_sport_config('football')
     cashout_source_pref = sport_cfg.get('cashout_source', 'synthetic')
     snapshot_max_age_s = float(sport_cfg.get('cashout_snapshot_max_age_s', 600))
-    bookmaker_offers = (
-        _load_bookmaker_offers(snapshot_max_age_s)
-        if cashout_source_pref == 'bookmaker'
-        else {'by_match_id': {}, 'all': []}
-    )
+    # Always load the bookmaker snapshot so the `🔗 linked` badge can
+    # surface independently of the cashout_source flag — a real bet at
+    # the bookmaker exists whether or not we want to show the live
+    # cashout value. The flag only governs the *displayed value*.
+    bookmaker_offers = _load_bookmaker_offers(snapshot_max_age_s)
 
     for m in live_matches:
         if m.get('message'):
@@ -485,7 +485,10 @@ def _attach_open_bets(live_matches):
             #     entry exists for this match, (c) the offer is a usable
             #     float, and (d) the entry isn't paused.
             #   'synthetic' otherwise (default; missing snapshot; paused).
-            if bk_offer is not None:
+            use_bookmaker_value = (
+                cashout_source_pref == 'bookmaker' and bk_offer is not None
+            )
+            if use_bookmaker_value:
                 fair_cashout = round(bk_offer, 2)
                 cashout_source = 'bookmaker'
             else:
@@ -509,6 +512,17 @@ def _attach_open_bets(live_matches):
                 'adj_prob': round(adj_prob, 3) if adj_prob is not None else None,
                 'fair_cashout': fair_cashout,
                 'cashout_source': cashout_source,
+                # `linked_to_bookmaker` is True whenever the snapshot has
+                # a record for this match — independent of cashout_source
+                # flag and independent of whether the offer is currently
+                # parseable / not paused. A real bet at the bookmaker
+                # exists either way; the badge surfaces that link so the
+                # user can tell at a glance which virtual bets they also
+                # have skin in the game on. Drives the `🔗 linked` chip in
+                # _open_bets_fragment.html and the live_analysis page's
+                # linked-only filter.
+                'linked_to_bookmaker': bk_entry is not None,
+                'pamestoixima_uuid': (bk_entry or {}).get('pamestoixima_uuid'),
                 'badge': badge,
                 # Pass bet_id through so the dashboard's Cash Out button
                 # can target the right bet via /football/cashout/<bet_id>.
@@ -1345,6 +1359,20 @@ def live_analysis():
     # Enrich with any OPEN bets on these matches (same data shape as the
     # dashboard's live rows — both pages now share the open-bets fragment).
     _attach_open_bets(matches_data)
+
+    # Live-analysis-specific filter: only show matches where we have a
+    # corresponding REAL bet at Pamestoixima (any attached bet with
+    # `linked_to_bookmaker=True`). The dashboard keeps the full live
+    # listing — this page is the focused "skin in the game" view.
+    # Matches with no attached bets at all are also dropped (no bet
+    # = nothing to monitor here). Driven by the bookmaker snapshot
+    # at output/real_betting/open_bets_snapshot.json; if the snapshot
+    # is stale (>cashout_snapshot_max_age_s) the filter silently
+    # produces an empty list — refresh via the page's button first.
+    matches_data = [
+        m for m in matches_data
+        if any(b.get('linked_to_bookmaker') for b in (m.get('open_bets') or []))
+    ]
 
     # Fallback/Empty state handled in template
     return render_template('live.html', matches=matches_data)

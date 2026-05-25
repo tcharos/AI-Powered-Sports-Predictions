@@ -28,7 +28,15 @@
 {% for b in open_bets %}
 <div class="border rounded p-1 mb-1 small bg-light">
     <div class="d-flex justify-content-between align-items-center mb-1">
-        <span class="badge {{ _lane_badge.get(b.lane, 'bg-secondary') }}">{{ b.lane|capitalize }}</span>
+        <span>
+            <span class="badge {{ _lane_badge.get(b.lane, 'bg-secondary') }}">{{ b.lane|capitalize }}</span>
+            {% if b.linked_to_bookmaker %}
+            <span class="badge bg-success ms-1"
+                  title="A matching real bet exists on Pamestoixima (joined by team-name fuzzy match against output/real_betting/open_bets_snapshot.json). pamestoixima_uuid={{ b.pamestoixima_uuid }}.">
+                🔗 linked
+            </span>
+            {% endif %}
+        </span>
         <span class="badge {{ _state_badge.get(b.badge, 'bg-secondary') }}">{{ _state_label.get(b.badge, b.badge) }}</span>
     </div>
     <div class="d-flex justify-content-between">
