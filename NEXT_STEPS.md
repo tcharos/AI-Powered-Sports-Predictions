@@ -12,27 +12,18 @@ Living document. Keep it short. Update statuses inline as phases complete.
 | 3   | Bet status migration (CASHED_OUT)  | ✅ done (2026-05-20) | Schema prep only — no cashout endpoint yet (that's Phase 7). `CASHED_OUT` is now a recognized terminal status alongside `WON`/`LOST`/`VOID`. Settlement skips already-cashed bets, `compute_sport_summary` has a `cashed_out` counter and uses stored `cashout_amount`/`pnl` rather than recomputing, betting.html renders cashed-out rows with a distinct (info-blue) stripe and badge. Phase 7 populates `cashout_amount`, `cashout_profit`, `cashout_timestamp` on each affected bet. |
 | 6   | Bets↔live UI linkage (display only) | ⚙ partial      | Dashboard live rows show a per-match bet column: lane badge, type/selection/odds, stake, fair-value cashout (now wired for **both 1X2 and O/U** — `adj_ou_probs` are persisted to live snapshots since 2026-05-18), state badge (🟢 lock-in / 🔴 stop-loss / 🟡 hold). Pre/Live probs table also shows 5 markets (1/X/2/O/U) per match. Cash-Out button shipped via Phase 7. **Remaining**: the `/football/live_analysis` standalone page doesn't yet share the `_open_bets_fragment.html` fragment with the dashboard. Small refactor. |
 | 7   | Manual cashout endpoint + button   | ✅ done (2026-05-22) | Per-bet (not per-slip), lane-aware credit. `VirtualBettingBackend.execute_cashout` (`web_ui/betting_backend.py:247`) + `POST /football/cashout/<bet_id>` route (`web_ui/app.py:870`) + Cash Out button in `_open_bets_fragment.html:45`. Multi-lane cascade per CLAUDE.md. Settlement integration: `resolve_daily_bets.py` skips CASHED_OUT for re-credit, includes them in slip totals. Currently cashes at **internal fair-value estimate** (`stake × odds × adj_prob × 0.95`); real bookmaker offer is a separate problem — see scenarios #3/#4 in `real_betting/test_case_scenarios.md`. `PamestoiximaBackend.execute_cashout` stub exists at `web_ui/betting_backend.py:494` for the Phase 9 swap. |
-| 8a  | Scrape real Pamestoixima cashout offers | ⏸ deferred (DORMANT — real-betting policy) | Scenario #3 in `real_betting/test_case_scenarios.md`. Replaces the synthetic `fair_cashout` in `_attach_open_bets` with the bookmaker's actual offer, joined by `match_id`. Requires a **real bet** on the bookmaker site (not virtual) — the scraper looks up offers in the user's My Bets page. Until real betting goes live, plumbing can be staged on a feature flag (default `cashout_source='synthetic'`) so it ships immediately when the policy lifts. |
+| 8a  | Scrape real Pamestoixima cashout offers | ⚙ partial (consumer shipped 2026-05-25) | Scenario #3 in `real_betting/test_case_scenarios.md`. **3A done**: consumer-side plumbing shipped — `cashout_source` flag in `betting_config.json` (default `'synthetic'`), `_load_bookmaker_offers` helper, `_attach_open_bets` falls back to synthetic when snapshot is missing/stale/paused, UI source badge (`real`/`est`). **3B pending**: the actual `real_betting/read_open_bets.py` scraper that writes `output/real_betting/open_bets_snapshot.json` from a logged-in Pamestoixima session. Pure-read; no clicks on `.full-cashout-root`. Requires a **real bet** on the bookmaker site (not virtual) to validate end-to-end. |
 | 8b  | Cashout decision engine (HOLD / CASH_NOW / WARN) | ⏸ deferred (depends on 8a + real bets) | Scenario #4. Joins the scraped offer (8a) with live model output (`adj_probs` / `adj_ou_probs`) and the backtest rules (`stop_loss` / `late_drift` — both Δ-positive on the 2026-05-25 backtest) to produce a per-bet recommendation. Display-only; never auto-commits a cashout. Same feature-flag staging as 8a. |
 
 ## The data wait
 
-This is the blocker for Phases 3+. Statistical signal on cashout rules requires roughly **50+ settled bets per lane**.
+The original blocker for the cashout phases: ≥50 settled bets per lane to score rule variants on real data rather than synthetic trajectories.
 
-| Date checkpoint | Settled bets (target ≥50/lane) | Action |
-| --------------- | ------------------------------ | ------ |
-| 2026-05-18 | value: 9, conviction: 1, model: 0 | wait |
-| 2026-05-24 | value: 58, conviction: 1, **model: 164** — Value & Model past threshold | run tomorrow's queue ↓ |
-| 2026-05-25  (+1 wk) | rerun backtest, retrain, conviction-gate diagnostic | see "Tomorrow's queue (2026-05-25)" |
-| 2026-06-01  (+2 wk) | likely enough → start Phase 3 + 6 | proceed |
-
-While waiting:
-- Keep clicking **Refresh Live Snapshot** when matches we predicted are live. Builds `output/live_history_*.jsonl` for real-trajectory backtests.
-- Re-run `scripts/run_backtest.py` weekly. If a rule's Δ stays positive across multiple weekly runs, it's a candidate for default-on at Phase 7.
+**Status (2026-05-25)**: Value (58 settled) and Model (164) cleared the threshold. Phase 7 (manual cashout endpoint + button) shipped. Conviction lane still starving at 1 settled bet — gate relaxed from 0.65 → 0.58 on 2026-05-25; ~30 bets/week expected once it kicks in. **Next checkpoint: 2026-06-08** — re-evaluate the relaxed conviction gate and re-run the weekly backtest harness.
 
 ### Weekly backtest re-run — must be local
 
-Tried a remote `/schedule` routine for this; it won't work. `output/` (bets, predictions, verifications, live history) is gitignored and lives only on the local machine — a cloud agent would see an empty `output/`. Run it yourself on the dates in the checkpoint table:
+`output/` (bets, predictions, verifications, live history) is gitignored and lives only on the local machine — a cloud `/schedule` agent would see an empty `output/`, so this re-run has to run on this machine. Run weekly:
 
 ```bash
 cd ~/Documents/projects/sports_predictor && \
@@ -40,11 +31,14 @@ cd ~/Documents/projects/sports_predictor && \
   PYTHONPATH="$(pwd):$(pwd)/ml_project" python3 scripts/run_backtest.py --paths 50
 ```
 
-Easiest reminder: macOS Calendar / Reminders entry for each checkpoint date. After the run:
+**Δ stability tracking**: a rule's directional sign should stay constant across weekly runs; a >50% magnitude shift OR sign flip is a "synthetic trajectories are misleading" signal — wait for more real `live_history_*.jsonl` data before tuning thresholds on it.
 
-1. Update the checkpoint row's third column with actual settled bets per lane (from the run's "Skipped — unsettled=N" line + the per-lane bet counts in the report).
-2. Note Δ trends vs the 2026-05-18 baseline: `late_drift/value = +21.80`, `stop_loss/value = +16.83`, `lock_in_profit/value = −5.81` (n=10). <br>**2026-05-25 run (n=264, all synth)**: `late_drift/value=+33.23` (+52% vs baseline), `stop_loss/value=+26.16` (+55%), `lock_in_profit/value=−22.63` (~4× more negative). Model lane added: `late_drift/model=+31.86`, `stop_loss/model=+42.95`, `lock_in_profit/model=−4.86`. Direction stable across all cells; magnitude shift >50% on every Value rule — synthetic-trajectory mistrust threshold is now active per the bullet below, real `live_history_*.jsonl` should drive future runs.
-3. If a rule's Δ flips sign or shifts >50% as bets accumulate, that's a signal the synthetic trajectories are misleading and we should wait for more real `live_history_*.jsonl` data before trusting the harness.
+| Run date | Sample | `late_drift/value` | `stop_loss/value` | `lock_in_profit/value` |
+| -------- | ------ | -----------------: | ----------------: | ---------------------: |
+| 2026-05-18 baseline | n=10 (value only) | +21.80 | +16.83 | −5.81 |
+| 2026-05-25 | n=264 (all synth) | +33.23 (+52% vs baseline) | +26.16 (+55%) | −22.63 (~4× more negative) |
+
+Model-lane figures added at the 2026-05-25 run: `late_drift/model=+31.86`, `stop_loss/model=+42.95`, `lock_in_profit/model=−4.86`. **Direction stable**; magnitude shift >50% on every Value rule = synthetic-trajectory mistrust threshold engaged — real `live_history_*.jsonl` should drive future runs.
 
 ## Real betting integration — Pamestoixima (DORMANT)
 
@@ -136,12 +130,10 @@ Recorded here so it doesn't get lost; not on the active queue. Captured 2026-05-
    The mechanical role of the draw model in production was a **50/50 average with the multi-class draw probability**, acting as an implicit *regularizer toward the global base rate*. With Phase C4's Platt calibration handling per-league bias correctly, this implicit regularization is redundant (and likely mildly counterproductive — pulling already-calibrated estimates toward a global mean). **Chosen fix**: removed the 2-stage averaging entirely; `predict_matches.py` now uses the multi-class output directly, Platt-calibrated. ~10 lines deleted from `predict()`, ~5 lines removed from `__init__`. The trained draw model file stays on disk for backward compatibility; reactivation is a one-line revert. `train_draw` got an instrumentation upgrade during the investigation (metrics at thresholds 0.30/0.40/0.50, calibration-ratio warnings) so this kind of misdiagnosis doesn't recur.
    Real fix paths for actually IMPROVING draw prediction (deferred — no quick win): richer features (style mismatch, mid-table congestion, late-season motivation, recent per-team draw rate); ensemble of draw-specialized models trained on subsets; or simply accept that draws are coin-flippy and don't try to predict them specifically.
 - [x] **D1 — Re-run `tune_model.py`.** Done 2026-05-19. Feature list synced with the trainer (was missing `A_form_sa` plus the entire ppg/strength block — 9 features). New hyperparameters: 1X2 `n_estimators 470 → 827`, `reg_lambda 0.01 → 1.0`, `min_child_weight 3 → 7`; O/U `n_estimators 234 → 386`, regularisation swapped L2-heavy → L1-heavy. Old params backed up as `models/best_params_*.json.bak_20260519`. **Cosmetic warning during run** (`"Parameters: { 'enable_categorical' } are not used"`): looks scary but is just XGBoost's C++ booster complaining about an unrecognised parameter. The categorical-ness is encoded in three other places (DMatrix `enable_categorical=True`, sklearn wrapper `enable_categorical=True`, pandas `astype('category')`), and the booster's `feature_types` correctly reports `'c'` for `league_cat`. Tuning was correct; only the log noise is wrong. Future cleanup: filter the warning in tune_model.py or pop `enable_categorical` out of `best_params` before passing to `xgb.cv`. **Deployment**: model must be retrained for new params to take effect; run `./bin/retrain_pipeline.sh` to also refit calibrators against the new model (otherwise calibrators are stale by construction).
-- [ ] **D2 — Feature engineering pass.** Each ~1–2 days, often 1–3% Brier each:
-  - **Variable rolling windows per league** (currently fixed last-5 globally — Premier League is more stable than Brazil; window should reflect that).
-  - **Opponent-adjusted form** — currently form is "vs anyone"; adjusting by opponent strength would distinguish "won 5 in a row against relegation candidates" from "won 5 in a row against top six".
-  - **Head-to-head specifics** — last 2–3 H2H matches as features (rivalries, stylistic matchups).
-  - **Manager-change indicator** — binary flag for "new manager in last N games" (well-documented predictive signal).
-  - **Promoted-team indicator** for league-rookies in their first season (model usually mis-prices these).
+- [ ] **D2 — Feature engineering pass.** Each ~1–2 days, often 1–3% Brier each. Two tested-and-rolled-back so far (see `FEATURE_ENGINEERING_IDEAS.md` for full results):
+  - ~~**§1.2 Recency-weighted form (exponential decay)**~~ — tested 2026-05-25, **no measurable lift globally or per-league** (best Δ = −0.0006 on D1, worst = +0.0005 on F2; weighted-mean Δ across 11 685 matches = −0.0000). Likely collinear with ELO + season-to-date PPG which already carry recency signal. Rolled back.
+  - ~~**§1.3 Opponent-adjusted form**~~ — rolled back 2026-05-20.
+  - **Remaining Tier-1 candidates** (most-promising first): §1.5 Rest days / fixture congestion (orthogonal to ELO), §1.4 Promoted-team indicator, §1.6 H2H specifics, §1.7 Goal-difference / scoring trend, manager-change indicator.
 
 ### Architectural pivots — only if cheap wins are exhausted
 
@@ -168,8 +160,6 @@ Until then, keep XGBoost + Platt calibration + ev_cap_value as the deployed stac
 
 ## Future analysis ideas (not yet scoped)
 
-- **Scrape real cashout value from the bookmaker** — current dashboard shows an **internal fair-value estimate** (`stake × odds × adj_prob × 0.95`), not what Pamestoixima would actually pay. The real offer is what matters for the decision; the bookie applies their own haircut and may differ materially from our model. The decision rule becomes "their offer > our estimate ⇒ accept; their offer < our estimate ⇒ hold." Implementation: once `real_betting/bookmakers/pamestoixima.py` can navigate to a fixture's bet-slip area (requires real-betting steps 6b/6c to be done first), add a `get_cashout(bet_url)` method that returns the live offer, and surface both side-by-side in the dashboard ("Bookie €X.XX · Est. €Y.YY"). Gated by: real-betting integration maturity + Phase 3 bet schema linking each placed bet to a bookmaker bet/slip ID for lookup.
-
 - **"Place bet now?" shortcut on live rows** — when a live match has no open bet, show a one-click action that takes you to `/football/auto_wager` (or a future bet-placement modal) pre-filtered to that match. Useful for value-discovery on in-progress games where the score state has shifted the EV. Caveat: couples live analytical view with virtual betting action; needs design before building. Revisit when /auto_wager UI is generalised enough to accept a per-match filter.
 
 ## Open / deferred work (smaller items)
@@ -178,55 +168,9 @@ Until then, keep XGBoost + Platt calibration + ev_cap_value as the deployed stac
 - **Backtest report polish** — `bets_by_type` breakdown (1X2 vs O/U), sortable JSON output.
 - **OS-level integration** — `live_data.json` currently overwritten each refresh; consider keeping last N snapshots in memory for the UI to show "trend" arrows.
 
-## Tomorrow's queue (2026-05-25)
-
-Sequenced — each step depends on the previous one finishing cleanly.
-
-1. **Run yesterday's verification** to settle the 99 OPEN bets from
-   2026-05-24's slip. `./bin/run_verification.sh`. Expect ~30% of the
-   sample to move; re-run the first-pass evaluation after to see how
-   the per-lane numbers shift.
-2. **Run the retrain pipeline.** `./bin/retrain_pipeline.sh` (~20–30
-   min). Bakes in the latest Phase C4 Platt calibrators against any
-   new CSV results that landed in the week — the prime suspect for the
-   Value-lane O/U bleed (−22% ROI on €415 staked over the 9-day window).
-3. **Re-run the cashout backtest harness** so the weekly Δ table in
-   "Weekly backtest re-run" gets an entry: <br>
-   `PYTHONPATH="$(pwd):$(pwd)/ml_project" python3 scripts/run_backtest.py --paths 50`. <br>
-   Update the data-wait table's note line with the new Δ values vs the
-   2026-05-18 baseline (`late_drift/value = +21.80`, `stop_loss/value
-   = +16.83`, `lock_in_profit/value = −5.81`).
-4. **Re-run the conviction-gate diagnostic** — `python3 scripts/sweep_conviction_gate.py`.
-   First run on **2026-05-24** showed: at the current `conviction_min_confidence=0.65`
-   the lane fires <1 bet/week; at **0.58** it would fire ~27/week with
-   the verified subset at **70% WR / +12.9% ROI on O/U (n=20)** and
-   **3-of-3 on 1X2 (small but clean)**. The odds floor 1.40 is doing
-   the real filtering — 86% of Conf ≥ 0.65 1X2 picks are heavy
-   favourites that fail it (Bayern 1.14, Arsenal 1.08, Leverkusen 1.25).
-   The post-retrain re-run is needed because Platt calibration is
-   likely to shrink the Conf distribution further — the right threshold
-   may drop to 0.55. Don't change the gate until tomorrow's diagnostic
-   confirms the band.
-5. **Lower `conviction_min_confidence` in `data_sets/betting_config.json`**
-   to whatever Step 4 surfaces (target band: **0.55–0.58**). Keep
-   `conviction_min_odds=1.40` unchanged — the diagnostic confirms it's
-   the real profitability filter, not the Conf threshold. Document the
-   intent in the same commit ("conviction lane shifts from rare-1X2
-   character to O/U-skewed volume").
-6. **Generate the next slip with the relaxed gate** (`./bin/run_predictions.sh`)
-   so 2026-05-25's bets are placed against both the new model and the
-   new gate — gives a clean A/B baseline for the post-change
-   conviction lane vs the pre-change (today's) one.
-
-After this queue clears, the 2026-06-01 (+2 wk) checkpoint becomes the
-moment to evaluate whether the relaxed conviction gate is producing
-something worth keeping or whether it needs a second tighten.
-
 ## Bugs / fixes queue
 
-- ~~**Track `data_sets/team_mappings.json` in git.**~~ **Resolved 2026-05-25**: `.gitignore` rewritten from a directory exclusion (`data_sets/`) to a glob (`data_sets/*`) with explicit negations for `betting_config.json`, `target_leagues.json`, `team_mappings.json`. The directory-rule blocker on file-level negations is gone; future small JSON configs under `data_sets/` can be tracked by adding another negation line.
-- ~~**Live-analysis panel shows a CASHED_OUT match after every bet on it is cashed out.**~~ **Resolved 2026-05-25**: `_attach_open_bets` in `web_ui/app.py` now counts terminal vs total bets per match and filters live_matches in-place — a match whose every bet is in `WON / LOST / VOID / CASHED_OUT` is dropped from the panel. Matches with no bets at all (informational live rows) and matches with mixed-status bets (some OPEN remain) stay visible. Both `/football/dashboard` and the standalone `/football/live_analysis` page benefit since they share the helper. Synthetic-test verified all four cases (all-cashed dropped, mixed kept, all-open kept, unbet kept).
-- ~~**Remove `MAX_CASHOUT_EUR` cap from the cashout-commit path.**~~ **Resolved 2026-05-25**: the cap was dropped from `real_betting/dryrun_cashout_discovery.py`; only the `amount > 0` parseability check remains. The cash/hold decision now belongs entirely to the live-stats decision engine (scenarios #3/#4) once those land; `EXECUTE_CASHOUT` stays as the kill switch.
+_(empty — last cleared 2026-05-25)_
 
 ## Known limitations of the current backtest
 

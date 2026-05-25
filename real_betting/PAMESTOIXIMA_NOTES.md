@@ -58,8 +58,14 @@ collapsable sections / click-bubbling all assume this order.
     `FORBIDDEN_CLICK_LABELS` safety net (the whole point of having that
     safety net is that the place-bet click is the one place that
     *explicitly* opts out).
-15. **Wait for slip-empty indicator** (`.empty-message-betslipEmpty`
-    visible, or counter back to `(0)`) — most reliable success signal.
+15. **Wait for placement-receipt indicator** — the **actual** success
+    signal on the current site is the receipt overlay
+    (`[class*="placementNotification" i]` /
+    `.slip-receipt-header-placementNotification`), NOT an empty slip.
+    Pamestoixima keeps the betslip surface alive and renders the
+    receipt **over** it, so `.empty-message-betslipEmpty` and the
+    `(0)` counter never appear post-success. See the 2026-05-25
+    correction note at the bottom of this section.
 16. **Read balance post-click** — should be `pre - stake`.
 17. **Write audit record** to disk (JSON with timestamp, match, stake,
     balance pre/post, dryrun screenshot dir).
@@ -129,7 +135,8 @@ Selectors:
 ### Bet slip (right sidebar — already visible, no opening required)
 - Counter button: `.slip-button-root:has(span:has-text("Betslip")) span:has-text("(")`
   - Reads as `"(0)"` / `"(1)"` etc.
-- Slip-empty indicator: `.empty-message-betslipEmpty` or `body2:has-text("Your betslip is empty")`.
+- Slip-empty indicator (pre-placement only): `.empty-message-betslipEmpty` or `body2:has-text("Your betslip is empty")`. Use this for verifying a fresh / cleared slip, NOT as the post-placement success signal — see "Placement success signal" below for the corrected post-Place-Bet check.
+- **Placement success signal** (verified 2026-05-25): `[class*="placementNotification" i]` — see corrections note at the bottom of this file.
 
 ### Stake input
 - Best selector observed: `[class*="stake" i] input`.
@@ -227,15 +234,70 @@ Click strategies in order: `get_by_role('tab', name='All', exact=True)`,
 - **My Bets history scraping**: needed for settlement reconciliation
   (NEXT_STEPS step 10). Untouched so far.
 
+## Corrections / lessons learned
+
+### 2026-05-25 — Placement success signal is the receipt, not slip-empty
+
+The original 2026-05-20 step 15 (and the matching selector list entry)
+said the post-Place-Bet success indicator is `.empty-message-betslipEmpty`
+or the betslip counter dropping back to `(0)`. **This is wrong on the
+current Pamestoixima site.** Confirmed during the scenario #5 batch
+placement (€2 Paderborn–Wolfsburg O/U Over):
+
+- The first Place Bet click went through (My Bets counter went `(0) → (1)`,
+  balance dropped €19.67 → €17.67, the page rendered a success notification),
+  but the script timed out waiting for the slip-empty indicator.
+- Inspection of the post-click HTML (in `iter_00_slip_did_not_clear.html`)
+  showed a `slip-receipt-header-placementNotification` div, plus the strings
+  `successfully`, `successful`, and `placed`. The betslip stays alive and
+  the receipt is rendered **over** it; `.empty-message-betslipEmpty` never
+  appears on the post-placement state.
+
+**Corrected primary success selector**: `[class*="placementNotification" i]`
+(or the more specific `.slip-receipt-header-placementNotification`). The
+old `(0)` counter and `.empty-message-betslipEmpty` selectors are kept as
+secondary fallbacks but rarely fire post-success in practice.
+
+Why the 2026-05-20 Freiburg run didn't surface this: that run was a
+single-bet placement followed by `pm.close()` — the timeout-on-empty
+behaviour was likely papered over by the test ending immediately after,
+or the empty state was caught by a refresh between snapshots. The
+batch (multi-bet) flow exposed it because the script depends on the
+indicator to progress to the next bet.
+
+### 2026-05-25 — Successful scenario #5 batch placement
+
+Both bets from scenario #5 in `test_case_scenarios.md` placed end-to-end
+via `real_betting/dryrun_batch_placement.py`:
+
+- Paderborn vs Wolfsburg, O/U Over 2.5, €2 @ 1.94 — run `batch_placement_20260525-141135`.
+- Sandefjord vs Fredrikstad, O/U Over 2.5, €2 @ 1.65 — run `batch_placement_20260525-142011`.
+
+The first run halted on the false slip-empty failure (described above);
+the second run used the corrected placement-receipt selector and
+succeeded cleanly. Balance trail: €19.67 → €17.67 → €15.67, both
+Δ exactly €2.00.
+
+Used **hardcoded `match_url` constants** in the BETS list, not the
+new `discover_fixtures.py` discoverer (which is written but not yet
+live-validated, and not yet wired into batch placement). Future
+batch runs should call `find_fixture_url(home, away)` from
+`real_betting/discover_fixtures.py` once the discoverer's selectors
+are confirmed against the live Pamestoixima football landing page.
+
 ## File pointers
 
 - Working bookmaker implementation: `real_betting/bookmakers/pamestoixima.py`
 - Session manager + stealth setup: `real_betting/session.py`
-- One-shot end-to-end test (this is throwaway code, but documents the
-  exact selectors that worked): `real_betting/dryrun_freiburg_villa.py`
-- Audit record of the 2026-05-20 placement:
-  `output/real_betting/dryrun_freiburg_villa_<timestamp>/placement_record.json`
-  (gitignored; lives only on the local machine that ran the test).
+- Single-bet placement (2026-05-20): `real_betting/dryrun_freiburg_villa.py`
+- Cashout discovery + commit (2026-05-22): `real_betting/dryrun_cashout_discovery.py`
+- Batch placement (2026-05-25, scenario #5): `real_betting/dryrun_batch_placement.py`
+- Fixture discoverer + lookup helper (untested live): `real_betting/discover_fixtures.py`
+- Audit records of the placements above:
+  `output/real_betting/dryrun_freiburg_villa_<ts>/placement_record.json`,
+  `output/real_betting/cashout_discovery_<ts>/cashout_placement_record.json`,
+  `output/real_betting/batch_placement_<ts>/batch_placement_record.json`
+  (all gitignored; live only on the local machine that ran the tests).
 
 ## Policy reminder
 

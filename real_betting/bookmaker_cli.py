@@ -127,6 +127,21 @@ def cmd_dry_run_cashout_discovery(args):
     return _impl(args)
 
 
+def cmd_dry_run_batch_placement(args):
+    """ONE-SHOT: walk the hardcoded BETS list, placing each as its own
+    slip. Real-money path gated by EXECUTE_PLACE_BETS in the module."""
+    from .dryrun_batch_placement import cmd_dry_run_batch_placement as _impl
+    return _impl(args)
+
+
+def cmd_discover_fixtures(args):
+    """Discover Pamestoixima football fixtures (read-only). Writes
+    output/real_betting/fixtures_<today>.json. See discover_fixtures.py
+    for the lookup helper used by batch placement."""
+    from .discover_fixtures import cmd_discover_fixtures as _impl
+    return _impl(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog='python -m real_betting',
@@ -179,6 +194,29 @@ def build_parser() -> argparse.ArgumentParser:
              'using the Machida vs Urawa bet. Reads only — never confirms cashout.',
     )
     sp.set_defaults(func=cmd_dry_run_cashout_discovery)
+
+    # One-shot batch placement (scenario #5 from test_case_scenarios.md).
+    # Each bet committed as its own slip — no multi/parlay. Real-money
+    # path gated by EXECUTE_PLACE_BETS in the module.
+    sp = sub.add_parser(
+        'dry-run-batch-placement',
+        help='ONE-SHOT: place hardcoded BETS list on Pamestoixima, one slip '
+             'per bet. Default safe (EXECUTE_PLACE_BETS=False); flip in module '
+             'to commit real bets. Headed mode forced.',
+    )
+    sp.set_defaults(func=cmd_dry_run_batch_placement)
+
+    # Real-betting step 6b — Pamestoixima football fixture discovery.
+    # Read-only. Output feeds the lookup helper used by batch placement.
+    sp = sub.add_parser(
+        'discover-fixtures',
+        help='Scrape every Pamestoixima football fixture into '
+             'output/real_betting/fixtures_<today>.json. Read-only — no clicks '
+             'on odds buttons. Headed mode forced.',
+    )
+    sp.add_argument('--date', default=None,
+                    help='Reserved for future use; today only currently.')
+    sp.set_defaults(func=cmd_discover_fixtures)
 
     return p
 

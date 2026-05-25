@@ -271,7 +271,24 @@ the first one):
 - Time zone on the snapshot timestamp — record as UTC ISO; conversion
   to Athens local time is a display concern.
 
-**Status**: **OPEN.**
+**Status**: **⚙ PARTIAL** as of 2026-05-25.
+- **3A done**: consumer side shipped. `cashout_source` flag in
+  `data_sets/betting_config.json` (default `'synthetic'`), staleness
+  window `cashout_snapshot_max_age_s` (default 600 s), snapshot
+  loader `_load_bookmaker_offers` in `web_ui/app.py`,
+  `_attach_open_bets` wired to prefer the bookmaker offer when the
+  snapshot has a fresh non-paused entry for the match (falls back
+  to synthetic everywhere else), enriched bet records carry a
+  `cashout_source` field, `_open_bets_fragment.html` shows a small
+  `real`/`est` badge. End-to-end tested with synthetic data across
+  4 cases (bookmaker hit, snapshot-miss fallback, flag-off
+  short-circuit, paused-entry fallback).
+- **3B pending**: the actual `real_betting/read_open_bets.py`
+  scraper that produces `output/real_betting/open_bets_snapshot.json`.
+  Requires a real OPEN bet on the user's Pamestoixima account to
+  validate end-to-end — until then the scraper can still run
+  against an empty My Bets page and produce an empty snapshot
+  (valid baseline).
 
 ---
 
@@ -540,7 +557,25 @@ just at module load):
   `human_pause()` and `BETWEEN_BETS_PAUSE_S` exist for the same
   reason.
 
-**Status**: **OPEN.**
+**Status**: **PASSED 2026-05-25** (script: `real_betting/dryrun_batch_placement.py`).
+Validation batch:
+- Paderborn vs Wolfsburg, O/U Over 2.5, €2 @ 1.94 — placed via run
+  `batch_placement_20260525-141135`. That run halted on a false
+  slip-empty-timeout failure (now fixed in PAMESTOIXIMA_NOTES.md
+  "Corrections" — the actual success signal is the placement-receipt
+  overlay, not an empty slip).
+- Sandefjord vs Fredrikstad, O/U Over 2.5, €2 @ 1.65 — placed via run
+  `batch_placement_20260525-142011` with the corrected
+  `[class*="placementNotification" i]` indicator.
+
+Balance trail: €19.67 → €17.67 → €15.67 (both Δ exactly €2.00).
+
+Used **hardcoded `match_url` constants** in the BETS list — the new
+`real_betting/discover_fixtures.py` (real-betting step 6b) is written
+but its selectors haven't been live-validated yet, and the batch
+script doesn't yet call `find_fixture_url()` from it. Wiring those
+together is the natural follow-up so future batch runs are
+team-name-driven rather than URL-pasted.
 
 ---
 
