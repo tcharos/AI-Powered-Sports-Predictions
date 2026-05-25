@@ -168,6 +168,13 @@ Until then, keep XGBoost + Platt calibration + ev_cap_value as the deployed stac
 - **Backtest report polish** — `bets_by_type` breakdown (1X2 vs O/U), sortable JSON output.
 - **OS-level integration** — `live_data.json` currently overwritten each refresh; consider keeping last N snapshots in memory for the UI to show "trend" arrows.
 
+### Real-betting batch input ergonomics
+
+The batch placement script (`real_betting/dryrun_batch_placement.py`) currently reads `BETS` as a Python literal — to place a different set of bets the operator edits the source file. URL discovery is dynamic (see scenario #5 + step 6b), but the bet *list* isn't. Two queued improvements, ordered by readiness:
+
+- **Near-term — interactive prompt input**. Take team-name pairs (home/away/market/selection/odds/stake) interactively at the command line (or via a small JSON file passed with `--bets <file>`). Friendlier than editing source, doesn't require trusting the model to drive placement, keeps the supervised one-shot character of the current script. Bridge step until the slip-driven path below is appropriate. ~30-45 min of work.
+- **Final form — `--from-slip YYYY-MM-DD`** (gated). Reads OPEN bets directly from `output/bets_<date>.json` (the virtual-betting slip that `/football/place_bets` already writes). Auto-wager → place-bets → real placement becomes a single pipeline; per-bet lane / EV / Conf metadata flows through unchanged. **Not appropriate yet** — needs the model's track record to be stable enough to trust each bet's recommendation as a real-money commit. Revisit after the conviction lane has accumulated meaningful settled-bet history at the 0.58 gate (target ~2026-06-08 checkpoint), and the broader value/model lanes are in profit on multi-week ROI. Will also need an opt-in filter (e.g., `--lane=conviction`, `--max-bets=N`) because a typical day's auto_wager output is 5–15 bets across three lanes — placing them all unfiltered would be a much larger commit than current single-bet experiments.
+
 ## Bugs / fixes queue
 
 _(empty — last cleared 2026-05-25)_
