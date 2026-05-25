@@ -294,7 +294,13 @@
                                         {{ _lane|capitalize }}
                                     </span>
                                 </td>
-                                <td>{{ bet.match }}</td>
+                                <td>
+                                    {{ bet.match }}
+                                    {% if bet.mark_for_real %}
+                                    <span class="badge bg-warning text-dark ms-1"
+                                          title="Flagged for live (real-money) betting when this slip was placed. Real placement is dormant — this is a recorded intent only.">⚡ live</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ bet.type }}</td>
                                 <td class="fw-bold">{{ bet.selection }}</td>
                                 <td>{{ bet.odds }}</td>
