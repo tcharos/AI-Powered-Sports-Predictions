@@ -738,6 +738,7 @@ class FlashscoreSpider(scrapy.Spider):
                         extractStat('Touches in opposition’s box', 'touches_opp_box'); // curly apostrophe
                         extractStat('Saves', 'saves');
                         extractStat('Yellow cards', 'yellow_cards');
+                        extractStat('Red cards', 'red_cards');
                         extractStat('Fouls', 'fouls');
                         
                         let scores = document.querySelector('.detailScore__wrapper')?.innerText || '0-0';

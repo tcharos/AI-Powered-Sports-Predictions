@@ -23,6 +23,19 @@ class LiveAdjuster:
         self.WEIGHT_SOG = 0.5
         self.WEIGHT_POSSESSION = 0.05
 
+        # Red-card swing per NET card (one team a man up). Applied to the
+        # man-down team's win probability, scaled by remaining time. A
+        # red card with the full game left is worth ~0.18 off the
+        # disadvantaged team; near full-time it's worth much less (little
+        # time for the advantage to matter). Capped at MAX_RED_SHIFT.
+        self.WEIGHT_RED_CARD = 0.18
+        self.MAX_RED_SHIFT = 0.35
+        # Of the probability taken off the man-down team, how much goes
+        # to the opponent's WIN vs to the DRAW. A team a man down is most
+        # likely to lose, but also parks the bus → draw rises somewhat.
+        self.RED_TO_OPPONENT = 0.65
+        self.RED_TO_DRAW = 0.35
+
         # Thresholds
         self.DOMINANCE_THRESHOLD = 1.5 # Significant advantage
 
@@ -121,13 +134,57 @@ class LiveAdjuster:
         
         # 3. Apply Dominance Modifier
         adjusted_probs = self._apply_dominance_modifier(adjusted_probs, dominance, h_score, a_score, minute)
-        
+
         # 4. Apply Sterile Possession Penalty
         adjusted_probs = self._apply_sterile_possession(adjusted_probs, live_stats, minute)
-        
+
+        # 5. Apply Red-Card Modifier (man-advantage going forward)
+        adjusted_probs = self._apply_red_card_modifier(adjusted_probs, live_stats, minute)
+
         # Normalize
         total = sum(adjusted_probs.values())
+        if total <= 0:
+            return pre_probs  # fail safe — never return all-zeros
         return {k: v/total for k, v in adjusted_probs.items()}
+
+    def _apply_red_card_modifier(self, probs, stats, minute):
+        """Shift win probability toward the team with the man advantage.
+
+        Red cards are a forward-looking signal the pre-match model can't
+        see: a team down to 10 men is markedly less likely to win and
+        somewhat more likely to draw (defensive shell). Effect scales
+        with remaining time — a 20th-minute red matters far more than an
+        85th-minute one — and is capped so a double-sending-off doesn't
+        nuke the distribution.
+
+        `net > 0` ⇒ home has MORE reds ⇒ home is the disadvantaged side.
+        """
+        red_home = stats.get('red_cards_home', 0) or 0
+        red_away = stats.get('red_cards_away', 0) or 0
+        try:
+            net = int(red_home) - int(red_away)
+        except (TypeError, ValueError):
+            return probs
+        if net == 0:
+            return probs
+
+        # More time left → bigger swing. Floor at 0.25 so even a late red
+        # nudges the numbers (the man-down team still has to hold on).
+        time_left_frac = max(0.0, (90 - minute) / 90.0)
+        scale = 0.25 + 0.75 * time_left_frac
+
+        shift = min(abs(net) * self.WEIGHT_RED_CARD * scale, self.MAX_RED_SHIFT)
+
+        new_probs = probs.copy()
+        # Disadvantaged team (man down) vs advantaged team.
+        down, up = ('home', 'away') if net > 0 else ('away', 'home')
+
+        # Can't take more than what the down-team currently holds.
+        taken = min(shift, new_probs.get(down, 0.0))
+        new_probs[down] = new_probs.get(down, 0.0) - taken
+        new_probs[up] = new_probs.get(up, 0.0) + taken * self.RED_TO_OPPONENT
+        new_probs['draw'] = new_probs.get('draw', 0.0) + taken * self.RED_TO_DRAW
+        return new_probs
         
     def _calculate_dominance(self, stats):
         xg_diff = stats.get('xg_home', 0) - stats.get('xg_away', 0)

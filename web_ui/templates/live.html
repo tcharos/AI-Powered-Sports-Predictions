@@ -45,6 +45,17 @@
                 <h5 class="card-title text-center mb-4">{{ item.score }} <small class="text-muted">(Min {{ item.minute
                         }})</small></h5>
 
+                {% if item.stats.get('red_cards_home', 0) or item.stats.get('red_cards_away', 0) %}
+                <div class="text-center mb-2">
+                    {% if item.stats.get('red_cards_home', 0) %}
+                    <span class="badge bg-danger" title="Home red card(s) — factored into the live prediction">🟥 Home {{ item.stats.get('red_cards_home')|int }}</span>
+                    {% endif %}
+                    {% if item.stats.get('red_cards_away', 0) %}
+                    <span class="badge bg-danger ms-1" title="Away red card(s) — factored into the live prediction">🟥 Away {{ item.stats.get('red_cards_away')|int }}</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 <div class="row text-center mb-3">
                     <div class="col-4">
                         <h6>Home Stats</h6>
