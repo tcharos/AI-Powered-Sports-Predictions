@@ -8,6 +8,33 @@ from rapidfuzz import process, fuzz
 # Suppress FutureWarning for GroupBy (Pandas 2.1+ transition)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+
+# Half-life in games for the recency-weighted form features (D2.1.2 from
+# FEATURE_ENGINEERING_IDEAS.md). 3 games means a result from 3 games back
+# carries half the weight of the most recent result; 6 games back, a
+# quarter. Tunable, but don't push much below 2 — the rolling window is
+# only 5 games so a very short half-life would discard most of the signal.
+FORM_HALF_LIFE_GAMES = 3.0
+
+
+def _weighted_mean(values, half_life=FORM_HALF_LIFE_GAMES):
+    """Exponentially-weighted mean. Input must be ordered oldest -> newest
+    (the standard ordering after a `.sort_values('date').tail(N)`).
+    Most recent value carries weight 1.0; weight halves every
+    `half_life` positions back. Returns 0.0 on empty input."""
+    n = len(values)
+    if n == 0:
+        return 0.0
+    if n == 1:
+        return float(values[0])
+    # Pre-compute weights as a numpy array for speed.
+    ages = np.arange(n - 1, -1, -1, dtype=float)  # [n-1, n-2, ..., 1, 0]
+    weights = np.power(0.5, ages / half_life)
+    w_sum = weights.sum()
+    if w_sum <= 0:
+        return 0.0
+    return float(np.dot(values, weights) / w_sum)
+
 class FeatureEngineer:
     def __init__(self):
         pass
@@ -209,9 +236,11 @@ class FeatureEngineer:
         
         # Dictionaries to store results
         h_stats = {f'H_form_pts{suffix}': [], f'H_form_gf{suffix}': [], f'H_form_ga{suffix}': [], f'H_form_ou{suffix}': [], f'H_form_str{suffix}': [],
-                   f'H_form_sf{suffix}': [], f'H_form_sa{suffix}': [], f'H_form_cf{suffix}': [], f'H_form_ca{suffix}': []}
+                   f'H_form_sf{suffix}': [], f'H_form_sa{suffix}': [], f'H_form_cf{suffix}': [], f'H_form_ca{suffix}': [],
+                   f'H_form_pts_w{suffix}': [], f'H_form_gf_w{suffix}': [], f'H_form_ga_w{suffix}': [], f'H_form_ou_w{suffix}': []}
         a_stats = {f'A_form_pts{suffix}': [], f'A_form_gf{suffix}': [], f'A_form_ga{suffix}': [], f'A_form_ou{suffix}': [], f'A_form_str{suffix}': [],
-                   f'A_form_sf{suffix}': [], f'A_form_sa{suffix}': [], f'A_form_cf{suffix}': [], f'A_form_ca{suffix}': []}
+                   f'A_form_sf{suffix}': [], f'A_form_sa{suffix}': [], f'A_form_cf{suffix}': [], f'A_form_ca{suffix}': [],
+                   f'A_form_pts_w{suffix}': [], f'A_form_gf_w{suffix}': [], f'A_form_ga_w{suffix}': [], f'A_form_ou_w{suffix}': []}
         
         # Pre-calculate team match histories for speed
         team_matches = {}
@@ -239,6 +268,11 @@ class FeatureEngineer:
             h_stats[f'H_form_sa{suffix}'].append(stats.get('form_sa', 0))
             h_stats[f'H_form_cf{suffix}'].append(stats.get('form_cf', 0))
             h_stats[f'H_form_ca{suffix}'].append(stats.get('form_ca', 0))
+            # Recency-weighted variants (D2.1.2)
+            h_stats[f'H_form_pts_w{suffix}'].append(stats.get('form_pts_w', 0))
+            h_stats[f'H_form_gf_w{suffix}'].append(stats.get('form_gf_w', 0))
+            h_stats[f'H_form_ga_w{suffix}'].append(stats.get('form_ga_w', 0))
+            h_stats[f'H_form_ou_w{suffix}'].append(stats.get('form_ou_w', 0))
 
             # AWAY TEAM Stats
             a_hist = team_matches[away][team_matches[away]['date'] < date].tail(window)
@@ -252,6 +286,11 @@ class FeatureEngineer:
             a_stats[f'A_form_sa{suffix}'].append(stats.get('form_sa', 0))
             a_stats[f'A_form_cf{suffix}'].append(stats.get('form_cf', 0))
             a_stats[f'A_form_ca{suffix}'].append(stats.get('form_ca', 0))
+            # Recency-weighted variants (D2.1.2)
+            a_stats[f'A_form_pts_w{suffix}'].append(stats.get('form_pts_w', 0))
+            a_stats[f'A_form_gf_w{suffix}'].append(stats.get('form_gf_w', 0))
+            a_stats[f'A_form_ga_w{suffix}'].append(stats.get('form_ga_w', 0))
+            a_stats[f'A_form_ou_w{suffix}'].append(stats.get('form_ou_w', 0))
             
         # Assign columns
         for k, v in h_stats.items(): df[k] = v
@@ -328,7 +367,8 @@ class FeatureEngineer:
         if not pts:
             return {
                 'form_pts': 0, 'form_gf': 0, 'form_ga': 0, 'form_ou': 0, 'form_str': '',
-                'form_sf': 0, 'form_sa': 0, 'form_cf': 0, 'form_ca': 0
+                'form_sf': 0, 'form_sa': 0, 'form_cf': 0, 'form_ca': 0,
+                'form_pts_w': 0, 'form_gf_w': 0, 'form_ga_w': 0, 'form_ou_w': 0,
             }
 
         return {
@@ -340,7 +380,15 @@ class FeatureEngineer:
             'form_sf': np.mean(sf) if sf else 0,
             'form_sa': np.mean(sa) if sa else 0,
             'form_cf': np.mean(cf) if cf else 0,
-            'form_ca': np.mean(ca) if ca else 0
+            'form_ca': np.mean(ca) if ca else 0,
+            # Recency-weighted variants (D2.1.2): the same Pts/GF/GA/OU
+            # series but weighted to favour the most recent matches. Flat
+            # variants stay alongside so the model has both lenses on the
+            # same window.
+            'form_pts_w': _weighted_mean(pts),
+            'form_gf_w':  _weighted_mean(gf),
+            'form_ga_w':  _weighted_mean(ga),
+            'form_ou_w':  _weighted_mean(ou),
         }
 
     def _add_ppg_strength_features(self, df: pd.DataFrame) -> pd.DataFrame:

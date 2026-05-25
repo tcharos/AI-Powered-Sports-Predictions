@@ -107,13 +107,6 @@ RETRY_DELAY_S = 5
 # currently-open bet, and never leave it True between runs.
 EXECUTE_CASHOUT = False
 
-# Hard refuse-cap on the cashout amount. If the pre-click button text
-# parses to a value strictly greater than this (in EUR), the script
-# refuses to commit the cashout even when EXECUTE_CASHOUT=True. Tracks
-# the MAX_STAKE pattern from the Freiburg dryrun — belt-and-braces
-# against a runaway cashout if odds drift unexpectedly.
-MAX_CASHOUT_EUR = 2.0
-
 # How long to wait after the confirm click for a success signal (the
 # button disappearing, or a toast notification, or the row moving from
 # Open Bets to Settled Bets).
@@ -547,10 +540,13 @@ class CashoutDiscovery:
 
         # Branch on EXECUTE_CASHOUT.
         if EXECUTE_CASHOUT:
-            # Real-money path. Validates confirm state, checks the
-            # cashout amount is within MAX_CASHOUT_EUR, prints a loud
-            # banner, sleeps briefly so the user can ctrl+C, then
-            # clicks the same button a second time.
+            # Real-money path. Validates confirm state, parses the
+            # cashout amount (must be > 0), prints a loud banner,
+            # sleeps briefly so the user can ctrl+C, then clicks the
+            # same button a second time. No upper cap — the decision
+            # belongs to the live-stats decision engine (see scenarios
+            # #3/#4 in test_case_scenarios.md); EXECUTE_CASHOUT is the
+            # only kill switch.
             executed = self._execute_confirm_click(
                 bet_container, post_text, in_confirm_state,
             )
@@ -643,7 +639,9 @@ class CashoutDiscovery:
           - in_confirm_state must be True (button text contains
             'confirm'/'επιβεβ' after the first click).
           - The button's class must still include 'confirmation'.
-          - The parsed cashout amount must be > 0 and ≤ MAX_CASHOUT_EUR.
+          - The parsed cashout amount must be > 0 (any positive
+            offer is accepted — there is no upper cap; the cash/hold
+            decision belongs to the live-stats decision engine).
 
         On success: writes a placement_record.json into the dryrun dir
         (same shape as the Freiburg placement audit). Balance pre/post
@@ -693,12 +691,6 @@ class CashoutDiscovery:
                   f"amount from {post_text!r}.")
             self._record('execute_aborted', reason='amount_unparseable',
                          text=post_text)
-            return False
-        if amount > MAX_CASHOUT_EUR:
-            print(f"[cashout-discovery] ABORT: cashout amount €{amount} > "
-                  f"MAX_CASHOUT_EUR €{MAX_CASHOUT_EUR}.")
-            self._record('execute_aborted', reason='amount_above_cap',
-                         amount=amount, cap=MAX_CASHOUT_EUR)
             return False
 
         # Loud banner — last chance to ctrl+C.

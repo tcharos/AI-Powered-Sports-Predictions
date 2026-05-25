@@ -19,7 +19,6 @@ RESULTS_JSON="output/matches_$TARGET_DATE.json"
 PREDICTIONS_CSV="output/predictions_$TARGET_DATE.csv"
 BETS_FILE="output/bets_$TARGET_DATE.json"
 VERIFICATION_CSV="output/verification_$TARGET_DATE.csv"
-REPORT_FILE="output/report_$TARGET_DATE.txt"
 
 echo "========================================"
 echo "    Flashscore Prediction Verification  "
@@ -86,11 +85,16 @@ fi
 echo "[+] Results saved to $RESULTS_JSON"
 
 # 5. Run Evaluation — only if we have predictions to compare against.
+# The evaluator streams its accuracy summary to stdout (still visible
+# during the run); the verification CSV at $VERIFICATION_CSV is the
+# structured source of truth that the rest of the pipeline reads.
+# We no longer persist the stdout summary to a report_<date>.txt file —
+# those accumulated without anything downstream reading them.
 if [ "$HAVE_PREDICTIONS" -eq 1 ]; then
     echo ""
     echo "[*] Comparing Predictions vs Results..."
-    python3 ml_project/evaluate_predictions.py --preds $PREDICTIONS_CSV --results $RESULTS_JSON --output $VERIFICATION_CSV | tee $REPORT_FILE
-    echo "[+] Verification Report saved to $REPORT_FILE"
+    python3 ml_project/evaluate_predictions.py --preds $PREDICTIONS_CSV --results $RESULTS_JSON --output $VERIFICATION_CSV
+    echo "[+] Verification CSV saved to $VERIFICATION_CSV"
 else
     echo "[!] Skipping prediction evaluation (no predictions file)."
 fi

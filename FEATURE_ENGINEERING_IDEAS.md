@@ -36,12 +36,20 @@ Pure compute work on data we already ingest. Each is 1–2 days end-to-end inclu
 **Expected lift**: 1–3% Brier on small/volatile leagues; rounding error on EPL/Bundesliga.
 **Risk**: if we tune the window on the same data we evaluate on, we'll over-fit. Need an outer CV layer.
 
-### 1.2 Recency-weighted form (exponential decay)
+### 1.2 Recency-weighted form (exponential decay) — ✅ BUILT 2026-05-25 (awaiting retrain validation)
 **What**: replace `np.mean(last_5)` with an exponentially weighted mean — most recent game weighted heaviest. Half-life as a hyperparam (e.g. 3 games).
 **Why**: a 5-0 win last week tells you more than a 5-0 win two months ago. The flat mean treats them identically.
 **Cost**: trivial — one-line change in `_get_stats_from_history`.
 **Expected lift**: 1–2% Brier broadly; bigger on leagues where form fluctuates fast.
 **Risk**: another hyperparam (half-life) to tune. Pick by CV, not by gut.
+**Implementation (2026-05-25)**:
+- New module-level `_weighted_mean(values, half_life=FORM_HALF_LIFE_GAMES)` helper in `ml_project/feature_engineering.py`. `FORM_HALF_LIFE_GAMES = 3.0` (positional half-life — 3 games back = ½ weight, 6 games back = ¼). Operates on the same oldest→newest series the existing flat mean already iterates.
+- `_get_stats_from_history` now returns `form_pts_w`, `form_gf_w`, `form_ga_w`, `form_ou_w` alongside the flat keys.
+- `_calculate_rolling` populates `H_form_pts_w` / `A_form_pts_w` (+ gf/ga/ou) per match.
+- Inference path (`ml_project/predict_matches.py:get_team_stats`) re-uses the same `_weighted_mean` so train/serve produce identical values for the same window.
+- Training feature list (`train_model.py:common_features`) now includes all 8 weighted columns alongside the original flat ones — XGBoost picks between "average form" and "form trend".
+- Sanity-tested: across 500 E0 matches, weighted form differs from flat by ~0.14 pts on average (max 0.42) — meaningful signal differentiation, not collinear noise.
+- **Brier validation pending**: next `./bin/retrain_pipeline.sh` run will produce a fresh model + calibrators against the expanded feature set. Compare per-market Brier to the previous best (recorded after the 2026-05-25 morning retrain). Doc target is 1–3% improvement.
 
 ### 1.3 Opponent-adjusted form — ❌ TESTED & ROLLED BACK (2026-05-20)
 
