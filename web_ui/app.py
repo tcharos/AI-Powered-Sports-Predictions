@@ -442,6 +442,14 @@ def _attach_open_bets(live_matches):
     value_fresh = link_fresh
     snap_age_min = int(snap_age_s // 60) if snap_age_s is not None else None
 
+    # Tracks whether we stamped a new persisted link onto any bet this
+    # pass (so we re-save the slip once at the end). Persisting the link
+    # makes it survive snapshot staleness — it stays until the bet
+    # itself resolves (terminal status → filtered off the live panel),
+    # which is the "link until the bet is resolved" behaviour. Also
+    # records pamestoixima_uuid for future settlement reconciliation.
+    link_mutated = False
+
     for m in live_matches:
         if m.get('message'):
             m['open_bets'] = []
@@ -532,6 +540,25 @@ def _attach_open_bets(live_matches):
                 elif adj_prob is not None and adj_prob < 0.20:
                     badge = 'stop_loss'
 
+            # Link existence — True if either a fresh snapshot match was
+            # found this pass (bk_entry) OR the bet was already linked on
+            # a previous pass (persisted flag). Persisting means the link
+            # survives snapshot staleness and stays until the bet itself
+            # resolves (terminal status → filtered off this panel) —
+            # i.e. "link until the bet is resolved".
+            persisted_link = bool(bet.get('linked_to_bookmaker'))
+            linked = (bk_entry is not None) or persisted_link
+            uuid = ((bk_entry or {}).get('pamestoixima_uuid')
+                    or bet.get('pamestoixima_uuid'))
+
+            # First-time establishment: stamp the link onto the slip bet
+            # so it persists across future loads (and snapshot expiry).
+            if bk_entry is not None and not persisted_link:
+                bet['linked_to_bookmaker'] = True
+                if uuid:
+                    bet['pamestoixima_uuid'] = uuid
+                link_mutated = True
+
             enriched.append({
                 'lane': bet.get('lane', 'value'),
                 'type': bet_type,
@@ -541,17 +568,11 @@ def _attach_open_bets(live_matches):
                 'adj_prob': round(adj_prob, 3) if adj_prob is not None else None,
                 'fair_cashout': fair_cashout,
                 'cashout_source': cashout_source,
-                # `linked_to_bookmaker` is True whenever the snapshot has
-                # a record for this match — independent of cashout_source
-                # flag and independent of whether the offer is currently
-                # parseable / not paused. A real bet at the bookmaker
-                # exists either way; the badge surfaces that link so the
-                # user can tell at a glance which virtual bets they also
-                # have skin in the game on. Drives the `🔗 linked` chip in
-                # _open_bets_fragment.html and the live_analysis page's
-                # linked-only filter.
-                'linked_to_bookmaker': bk_entry is not None,
-                'pamestoixima_uuid': (bk_entry or {}).get('pamestoixima_uuid'),
+                # Persisted-or-fresh link (see above). Drives the
+                # `🔗 linked` chip in _open_bets_fragment.html and the
+                # live_analysis page's linked-only filter.
+                'linked_to_bookmaker': linked,
+                'pamestoixima_uuid': uuid,
                 # Snapshot age in minutes (None when no snapshot) — shown
                 # in the cashout-value tooltip so a stale real offer is
                 # honestly labelled rather than silently downgraded.
@@ -564,6 +585,14 @@ def _attach_open_bets(live_matches):
                 'bet_id': bet.get('bet_id'),
             })
         m['open_bets'] = enriched
+
+    # Persist any newly-established links back to the slip (one write).
+    if link_mutated:
+        try:
+            with open(today_slip, 'w') as f:
+                json.dump(slip, f, indent=4)
+        except OSError as e:
+            print(f"Warning: could not persist bookmaker links: {e}")
 
     # In-place filter: drop matches whose every bet is terminal. A
     # match with no bets at all stays on the panel (informational live
