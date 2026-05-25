@@ -1616,6 +1616,12 @@ def place_bets():
                     b.get('selection', ''),
                 )
             b.setdefault('mode', 'virtual')
+            # Normalise the live-betting mark to a bool and persist it on
+            # the slip. Set by the per-bet "Live" checkbox in the slip
+            # preview. This records *intent* only — no real bet is placed
+            # here. The dormant /football/place_real_bets route (and a
+            # future real-betting backend) reads this flag.
+            b['mark_for_real'] = bool(b.get('mark_for_real', False))
 
         current_lane_br = lane_bankrolls('football')
         for lane, stake in stake_by_lane.items():
@@ -1657,6 +1663,48 @@ def place_bets():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@football_bp.route('/place_real_bets', methods=['POST'])
+def place_real_bets():
+    """DORMANT real-betting hook. Receives the bets the user ticked
+    'Live' in the slip preview and reports them back — but DOES NOT
+    place any real bet. The real-betting backend (Pamestoixima
+    placement via real_betting/) is out of scope per NEXT_STEPS until
+    a separate re-evaluation; this route exists so the UI affordance
+    and the request path are in place now, ready to wire to the real
+    flow later.
+
+    When real placement is eventually wired, this is where it would
+    dispatch to real_betting (likely after a confirmation modal +
+    per-bet stake caps + the EXECUTE_* gating used by the dryrun
+    scripts). For now it's a no-op acknowledgement."""
+    try:
+        data = request.get_json(silent=True) or {}
+        marked = data.get('bets', []) or []
+        n = len(marked)
+        # Build a short human summary of what WOULD be placed.
+        lines = []
+        for b in marked[:10]:
+            lines.append(f"{b.get('match', '?')} — {b.get('type', '?')} "
+                         f"{b.get('selection', '?')} @ {b.get('odds', '?')} "
+                         f"(€{b.get('stake_units', '?')})")
+        preview = '; '.join(lines) + (f" (+{n - 10} more)" if n > 10 else '')
+        print(f"[place_real_bets] DORMANT — {n} bet(s) flagged for live "
+              f"betting, NOT placed: {preview}")
+        return jsonify({
+            'message': (f"Real betting is DORMANT — recorded intent for "
+                        f"{n} bet(s) but placed nothing. The marks are saved "
+                        f"on the slip (mark_for_real=true). Wiring to the "
+                        f"bookmaker is out of scope until re-evaluation "
+                        f"(see NEXT_STEPS.md)."),
+            'count': n,
+            'placed': 0,
+            'dormant': True,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 def _load_slip(filepath):
     """Load a single bets_*.json with backfilled fields."""

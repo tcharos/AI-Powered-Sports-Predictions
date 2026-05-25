@@ -138,6 +138,7 @@
                                                 <th>EV</th>
                                                 <th>Stake</th>
                                                 <th title="Potential gross return if the bet wins (stake × odds).">Return</th>
+                                                <th title="Tick to mark this bet for live (real-money) betting on the bookmaker. Marking is recorded on the slip; real placement is not wired yet.">Live</th>
                                                 <th></th>
                                             </tr>
                                         </thead>
@@ -165,6 +166,7 @@
                                                 <th>EV</th>
                                                 <th>Stake</th>
                                                 <th title="Potential gross return if the bet wins (stake × odds).">Return</th>
+                                                <th title="Tick to mark this bet for live (real-money) betting on the bookmaker. Marking is recorded on the slip; real placement is not wired yet.">Live</th>
                                                 <th></th>
                                             </tr>
                                         </thead>
@@ -192,6 +194,7 @@
                                                 <th>EV</th>
                                                 <th>Stake</th>
                                                 <th title="Potential gross return if the bet wins (stake × odds).">Return</th>
+                                                <th title="Tick to mark this bet for live (real-money) betting on the bookmaker. Marking is recorded on the slip; real placement is not wired yet.">Live</th>
                                                 <th></th>
                                             </tr>
                                         </thead>
@@ -204,6 +207,10 @@
 
                     <div class="d-grid gap-2 mt-3">
                         <button class="btn btn-success btn-lg" id="placeBetsBtn" onclick="placeVirtualBets()">🚀 Place All Bets (Virtual)</button>
+                        <button class="btn btn-outline-warning" id="placeRealBtn" onclick="placeMarkedReal()" disabled
+                                title="Submit the bets ticked 'Live' for real-money placement on the bookmaker. DORMANT — the real-betting backend is not wired; this currently just reports which bets are flagged.">
+                            ⚡ Place Marked as Real (<span id="markedRealCount">0</span>) — dormant
+                        </button>
                     </div>
                 </div>
             </div>
@@ -364,13 +371,15 @@
         const tbody = document.getElementById(tbodyId);
         tbody.innerHTML = '';
         if (!bets.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
             return;
         }
         bets.forEach(b => {
             const tr = document.createElement('tr');
             const typeAttr = String(b.type).replace(/"/g, '&quot;');
             const potentialReturn = (Number(b.stake_units) || 0) * (Number(b.odds) || 0);
+            const idAttrs = `data-lane="${b.lane}" data-match-id="${b.match_id || ''}" `
+                          + `data-bet-type="${typeAttr}" data-selection="${b.selection}"`;
             tr.innerHTML = `
                 <td class="small">${b.match}</td>
                 <td><span class="badge ${b.type === '1X2' ? 'bg-secondary' : 'bg-info text-dark'}">${b.type}</span></td>
@@ -380,16 +389,47 @@
                 <td>${b.ev}</td>
                 <td class="fw-bold text-success">€${b.stake_units.toFixed(2)}</td>
                 <td class="text-muted" title="Stake × Odds — gross payout if this bet wins.">€${potentialReturn.toFixed(2)}</td>
+                <td class="text-center">
+                    <input type="checkbox" class="form-check-input" ${b.mark_for_real ? 'checked' : ''}
+                           title="Mark this bet for live (real-money) betting. Recorded on the slip when placed; real placement is not wired yet."
+                           ${idAttrs} onchange="toggleReal(this)">
+                </td>
                 <td class="text-end">
                     <button type="button" class="btn btn-sm btn-link text-danger p-0"
                             title="Remove this bet from the slip"
-                            data-lane="${b.lane}" data-match-id="${b.match_id || ''}"
-                            data-bet-type="${typeAttr}" data-selection="${b.selection}"
+                            ${idAttrs}
                             onclick="removeBet(this)">✕</button>
                 </td>
             `;
             tbody.appendChild(tr);
         });
+    }
+
+    // Mark / unmark a bet for live (real-money) betting. Sets a
+    // `mark_for_real` flag on the in-memory bet object; persisted onto
+    // the slip when "Place All Bets" is clicked. No real placement here.
+    function toggleReal(cb) {
+        const lane = cb.dataset.lane;
+        const mid = cb.dataset.matchId;
+        const typ = cb.dataset.betType;
+        const sel = cb.dataset.selection;
+        currentBets.forEach(b => {
+            if (b.lane === lane && (b.match_id || '') === mid &&
+                String(b.type) === typ && String(b.selection) === sel) {
+                b.mark_for_real = cb.checked;
+            }
+        });
+        updateMarkedCount();
+    }
+
+    // Keep the "N marked for live" hint + the dormant real-place button
+    // in sync with how many bets are currently ticked.
+    function updateMarkedCount() {
+        const n = currentBets.filter(b => b.mark_for_real).length;
+        const el = document.getElementById('markedRealCount');
+        if (el) el.innerText = n;
+        const btn = document.getElementById('placeRealBtn');
+        if (btn) btn.disabled = (n === 0);
     }
 
     function _laneTotals() {
@@ -412,6 +452,7 @@
             if (card) card.style.display = bets.length ? '' : 'none';
         });
         document.getElementById('placeBetsBtn').disabled = (currentBets.length === 0);
+        updateMarkedCount();
         // Hide the whole slip area if every lane is empty. The user can re-open
         // it by clicking Generate Slip again.
         if (currentBets.length === 0) {
@@ -496,7 +537,10 @@
 
                 currentFilename = data.filename;
                 currentBets = data.bets;
+                // Fresh slip — nothing marked for live yet.
+                currentBets.forEach(b => { b.mark_for_real = false; });
                 document.getElementById('placeBetsBtn').disabled = (currentBets.length === 0);
+                updateMarkedCount();
                 resultDiv.style.display = 'block';
             })
             .catch(err => alert("Error fetching wager data: " + err));
@@ -539,17 +583,44 @@
 
     function placeVirtualBets() {
         if (!currentBets.length) return;
-        if (!confirm(`Place ${currentBets.length} virtual bets across all lanes?`)) return;
+        const nReal = currentBets.filter(b => b.mark_for_real).length;
+        const extra = nReal ? `\n\n${nReal} bet(s) are marked for LIVE betting — the mark is recorded on the slip, but no real bet is placed (real betting is dormant).` : '';
+        if (!confirm(`Place ${currentBets.length} virtual bets across all lanes?${extra}`)) return;
 
         fetch('/football/place_bets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            // currentBets carries `mark_for_real` per bet; place_bets persists it.
             body: JSON.stringify({ bets: currentBets, filename: currentFilename })
         })
             .then(res => res.json())
             .then(data => {
                 if (data.error) alert("Error: " + data.error);
                 else { alert(data.message); location.reload(); }
+            })
+            .catch(err => alert("Connection error: " + err));
+    }
+
+    // DORMANT real-betting hook. Submits the bets ticked "Live" to the
+    // /football/place_real_bets route, which records intent but does NOT
+    // place any real bet yet (backend not wired — see NEXT_STEPS). Kept
+    // as the UI entry point + route scaffold for the future real flow.
+    function placeMarkedReal() {
+        const marked = currentBets.filter(b => b.mark_for_real);
+        if (!marked.length) return;
+        if (!confirm(`${marked.length} bet(s) marked for live betting.\n\n`
+            + `Real-money placement is NOT wired yet — this records the intent `
+            + `and reports back. No real bet will be placed. Continue?`)) return;
+
+        fetch('/football/place_real_bets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bets: marked, filename: currentFilename })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) alert("Error: " + data.error);
+                else alert(data.message);
             })
             .catch(err => alert("Connection error: " + err));
     }
