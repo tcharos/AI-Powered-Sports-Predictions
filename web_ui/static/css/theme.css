@@ -197,3 +197,21 @@ body, .card, .table, .navbar, .badge, .btn,
 [data-bs-theme="dark"] .border-lane-value {
     border-color: #a37dc9 !important;
 }
+
+/* Red-card indicator — an actual card-shaped red rectangle with the
+ * count centred inside (a real red card is a vertical rectangle, so
+ * min-width < line-height gives the upright proportion). Used on the
+ * live dashboard + live-analysis rows. */
+.red-card-box {
+    display: inline-block;
+    min-width: 13px;
+    padding: 0 3px;
+    background-color: #d50000;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    text-align: center;
+    border-radius: 2px;
+    vertical-align: middle;
+}
