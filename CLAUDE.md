@@ -171,7 +171,23 @@ The legacy flat keys (`base_unit`, `confidence_threshold_*`, `max_kelly_fraction
 
 ### 4. Real-betting integration — `real_betting/` (DORMANT)
 
-Playwright-driven bookmaker automation. Currently scoped to read-only operations against `pamestoixima.gr` (OPAP). Module skeleton + login flow + Keychain credentials work. Bet placement is officially out of scope per `NEXT_STEPS.md` until a separate re-evaluation. A one-off end-to-end placement test was run on 2026-05-20 (single €10 bet, verified the full plumbing) — the working selectors, DOM structures, and anti-patterns are preserved in **`real_betting/PAMESTOIXIMA_NOTES.md`**. Start there before adding any new Pamestoixima-driving code.
+Playwright-driven bookmaker automation. Currently scoped to **read-only operations** against `pamestoixima.gr` (OPAP). Bet placement is officially out of scope per `NEXT_STEPS.md` until a separate re-evaluation. **Several end-to-end tests have shipped** (audit dumps under `output/real_betting/`, all gitignored — local-only):
+
+- 2026-05-20 — single €10 bet on Freiburg vs Aston Villa (`dryrun_freiburg_villa.py`).
+- 2026-05-22 — cashout commit on Machida vs Urawa (`dryrun_cashout_discovery.py`).
+- 2026-05-25 — €2+€2 scenario-#5 batch placement (`dryrun_batch_placement.py`) + fixture discoverer (`discover_fixtures.py` + `find_fixture_url()` helper) + open-bets scraper (`read_open_bets.py` writing `output/real_betting/open_bets_snapshot.json`).
+
+The working selectors, DOM structures, anti-patterns, and corrections (e.g. "placement success signal is the receipt overlay, NOT slip-empty"; Pamestoixima ↔ Flashscore use different `match_id` schemes — fuzzy team-name join is the actual path) are preserved in **`real_betting/PAMESTOIXIMA_NOTES.md`**. Start there before adding any new Pamestoixima-driving code.
+
+CLI surface (`python -m real_betting --help`): `set-credentials`, `login`, `discover-fixtures`, `read-open-bets`, plus the three `dry-run-*` one-shots for placement / cashout / batch tests.
+
+**Bookmaker-cashout integration into the live UI** (scenario #3 from `real_betting/test_case_scenarios.md`, shipped 2026-05-25):
+- Snapshot file: `output/real_betting/open_bets_snapshot.json` (latest-wins) + append-only `open_bets_history.jsonl`.
+- Consumer: `_load_bookmaker_offers` + `_match_offer_by_teams` + `_attach_open_bets` in `web_ui/app.py`. Joins by Pamestoixima `match_id` first, then fuzzy team-name fallback.
+- Per-sport flag in `data_sets/betting_config.json`: `cashout_source: 'synthetic' | 'bookmaker'` (default `'synthetic'`; flipped to `'bookmaker'` for football 2026-05-25). Staleness window: `cashout_snapshot_max_age_s` (default 600 s).
+- UI badges in `_open_bets_fragment.html`: green `real` / grey `est` (cashout value source), green `🔗 linked` (matched bookmaker record exists).
+- Manual `Refresh Live Snapshot` POSTs to `/football/refresh_live?with_bookmaker=1` and spawns a parallel `read-open-bets` Popen. Auto-5m stays Flashscore-only (headless Pamestoixima is blocked at login — real-betting step 6d still pending).
+- `/football/live_analysis` standalone page filters to bets with `linked_to_bookmaker=True` only (focused "skin in the game" view); dashboard keeps the full listing.
 
 ## Roadmap
 

@@ -330,12 +330,84 @@ the second run used the corrected placement-receipt selector and
 succeeded cleanly. Balance trail: €19.67 → €17.67 → €15.67, both
 Δ exactly €2.00.
 
-Used **hardcoded `match_url` constants** in the BETS list, not the
-new `discover_fixtures.py` discoverer (which is written but not yet
-live-validated, and not yet wired into batch placement). Future
-batch runs should call `find_fixture_url(home, away)` from
-`real_betting/discover_fixtures.py` once the discoverer's selectors
-are confirmed against the live Pamestoixima football landing page.
+Used **hardcoded `match_url` constants** in the BETS list. The
+discoverer wiring landed later the same day — future batch runs can
+omit `match_url` on a BETS entry to trigger `find_fixture_url(home,
+away)` against `output/real_betting/fixtures_<today>.json`.
+
+### 2026-05-25 — Open-bets scraper working (scenario #3B)
+
+`real_betting/read_open_bets.py` driven against the user's two real
+OPEN bets. Confirmed selectors / patterns:
+
+- Row container: `li[id^="my-bets-O-"]`. The id payload is the
+  Pamestoixima UUID — stable identifier per bet.
+- Anchor inside the row carries the canonical match URL with
+  Pamestoixima's own 8-digit numeric `match_id`. Pattern:
+  `/en/football/<league>/<home>-v-<away>/<match-id>` or the
+  `/en/live/football/...` variant for in-play matches.
+- Cashout offer button: `button.full-cashout-root`. Text format:
+  `"Cash Out\n€X.XX"` pre-click. Parse `€\s*([\d.,]+)` for the value.
+- Disabled state markers: `disabled` attribute, `aria-disabled="true"`,
+  or class containing `disabled|paused`. Treat any of those as
+  `paused: true` and emit `cashout_offer: null`.
+- Selection text: `.selectionName` (e.g. `"Over 2.5"`).
+
+**Important ID-scheme gotcha (verified live)**: Pamestoixima's
+`match_id` is **completely different** from Flashscore's. Examples:
+
+| Match | Flashscore match_id | Pamestoixima match_id |
+| ----- | ------------------- | --------------------- |
+| Paderborn vs Wolfsburg | `nFjvRRsQ` | `11012505` |
+| Sandefjord vs Fredrikstad | `CCgR4LMj` | `10595954` |
+
+The bookmaker-offer consumer (`_load_bookmaker_offers` in
+`web_ui/app.py`) tries direct `match_id` lookup first (almost never
+fires) and falls back to **fuzzy team-name match via
+rapidfuzz** (`_match_offer_by_teams`) with a min-score-80 floor on
+the worse of the two names. That's the path that actually surfaces
+offers on the dashboard today.
+
+**Deferred extraction issues** (informational fields only, not
+consumed by the join — not blocking):
+
+- `market` extracts as `"Single\n2.00€"` (the bet-type / return
+  cell) rather than the actual market name like `"Total Goals
+  Over/Under"`. Selector for `.marketName`/`betTypeName` doesn't
+  match this page layout.
+- `odds` parsed as `null` — the regex `(?:@|odds[:\s]+)([\d.,]+)`
+  doesn't match how Pamestoixima renders odds on My Bets rows.
+
+Both fix targets are in the dumped HTML at
+`output/real_betting/open_bets_read_<ts>/02_my_bets_page.html` if/when
+someone iterates.
+
+### 2026-05-25 — Headless mode still blocked
+
+Re-tested headless login (`headless=True` on the Pamestoixima class)
+to see if the open-bets scrape could piggyback on the silent auto-5m
+dashboard refresh. **Failed at login**: the Login button doesn't
+render under headless Chromium ("Could not find the Login button.
+Selectors tried: ..."). This is exactly the case real-betting step
+6d in NEXT_STEPS is designed for (the "headless-mode validation"
+step); it's still pending. Headed-mode policy stays.
+
+Practical consequence: the "Refresh Live Snapshot" button on the
+dashboard / live-analysis page chains the bookmaker scrape **only on
+manual click** (`?with_bookmaker=1` query param). Auto-5m stays
+Flashscore-only — popping a Chromium window every 5 min would be
+unacceptable UX.
+
+### 2026-05-25 — `🔗 linked` badge surfaces the join
+
+`_attach_open_bets` now always loads the bookmaker snapshot
+(independent of `cashout_source` flag) so the link existence can be
+surfaced even when the displayed value is synthetic. Each enriched
+bet record carries `linked_to_bookmaker: bool` and
+`pamestoixima_uuid: str|null`. The dashboard fragment shows a green
+`🔗 linked` chip next to the lane badge when linked, with the UUID
+in the tooltip. The standalone `/football/live_analysis` page filters
+to **only** linked-bet matches — "skin in the game" view.
 
 ## File pointers
 
@@ -344,7 +416,8 @@ are confirmed against the live Pamestoixima football landing page.
 - Single-bet placement (2026-05-20): `real_betting/dryrun_freiburg_villa.py`
 - Cashout discovery + commit (2026-05-22): `real_betting/dryrun_cashout_discovery.py`
 - Batch placement (2026-05-25, scenario #5): `real_betting/dryrun_batch_placement.py`
-- Fixture discoverer + lookup helper (untested live): `real_betting/discover_fixtures.py`
+- Fixture discoverer + lookup helper (live-validated 2026-05-25): `real_betting/discover_fixtures.py`
+- Open-bets scraper (live-validated 2026-05-25, scenario #3B): `real_betting/read_open_bets.py`
 - Audit records of the placements above:
   `output/real_betting/dryrun_freiburg_villa_<ts>/placement_record.json`,
   `output/real_betting/cashout_discovery_<ts>/cashout_placement_record.json`,

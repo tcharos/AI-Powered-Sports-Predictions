@@ -271,24 +271,44 @@ the first one):
 - Time zone on the snapshot timestamp — record as UTC ISO; conversion
   to Athens local time is a display concern.
 
-**Status**: **⚙ PARTIAL** as of 2026-05-25.
-- **3A done**: consumer side shipped. `cashout_source` flag in
-  `data_sets/betting_config.json` (default `'synthetic'`), staleness
-  window `cashout_snapshot_max_age_s` (default 600 s), snapshot
-  loader `_load_bookmaker_offers` in `web_ui/app.py`,
-  `_attach_open_bets` wired to prefer the bookmaker offer when the
-  snapshot has a fresh non-paused entry for the match (falls back
-  to synthetic everywhere else), enriched bet records carry a
-  `cashout_source` field, `_open_bets_fragment.html` shows a small
-  `real`/`est` badge. End-to-end tested with synthetic data across
-  4 cases (bookmaker hit, snapshot-miss fallback, flag-off
-  short-circuit, paused-entry fallback).
-- **3B pending**: the actual `real_betting/read_open_bets.py`
-  scraper that produces `output/real_betting/open_bets_snapshot.json`.
-  Requires a real OPEN bet on the user's Pamestoixima account to
-  validate end-to-end — until then the scraper can still run
-  against an empty My Bets page and produce an empty snapshot
-  (valid baseline).
+**Status**: **PASSED 2026-05-25** — shipped end-to-end across 5
+sub-pieces (3A → 3E):
+
+- **3A — Consumer**: `cashout_source` flag in
+  `data_sets/betting_config.json` (flipped to `'bookmaker'` for
+  football 2026-05-25; `cashout_snapshot_max_age_s = 600`),
+  `_load_bookmaker_offers` helper, `_attach_open_bets` rewired with
+  synthetic fallback, `real`/`est` source badge in
+  `_open_bets_fragment.html`. Verified synthetic across 4 cases.
+- **3B — Scraper**: `real_betting/read_open_bets.py` writes
+  `output/real_betting/open_bets_snapshot.json` + appends
+  `open_bets_history.jsonl`. CLI `python -m real_betting
+  read-open-bets`. Validated against two real OPEN bets — extracted
+  UUIDs, `match_id`, home/away, cashout offer text + parsed value,
+  paused flag.
+- **3C — Join via fuzzy team-name match**: discovered Pamestoixima
+  (8-digit numeric) and Flashscore (8-char alphanumeric) use
+  entirely different `match_id` schemes — the original
+  `match_id`-keyed join could never fire on real data. Added
+  `_match_offer_by_teams()` (rapidfuzz `token_set_ratio`, min-score-80
+  on the worse of the two team names). Synthetic test verified
+  matching against the real snapshot.
+- **3D — Link UI surface**: green `🔗 linked` badge on every
+  enriched bet whose join hits, independent of `cashout_source`
+  preference and parseable-offer state. Standalone
+  `/football/live_analysis` page filters to linked-bet matches only
+  ("skin in the game" view); dashboard keeps the full listing.
+- **3E — Refresh chaining**: manual "Refresh Live Snapshot" button
+  now POSTs to `/football/refresh_live?with_bookmaker=1`, spawning a
+  parallel `read-open-bets` Popen alongside the Flashscore scrape.
+  Auto-5m stays Flashscore-only (headless Pamestoixima blocked at
+  login — step 6d gate still in effect per
+  `PAMESTOIXIMA_NOTES.md` corrections).
+
+**Deferred minor**: `market` extraction returns `"Single\n2.00€"`
+(bet-type cell) instead of `"Total Goals Over/Under"`; `odds`
+parsed as `null`. Both fields are informational, not consumed by
+the join — fixable from the dumped HTML when convenient.
 
 ---
 
