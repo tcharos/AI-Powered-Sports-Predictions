@@ -78,18 +78,31 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from . import config
 from .bookmakers.pamestoixima import Pamestoixima
+from .discover_fixtures import find_fixture_url
 from .session import session_lock
 
 
-# --- bet specs (HARDCODED — fill `match_url` before running) -----------------
+# --- bet specs (match_url is optional; falls back to discoverer lookup) -----
 #
-# Pattern (per PAMESTOIXIMA_NOTES.md):
-#   /en/football/<league-slug>/<teams-slug>/<match-id>
+# Each bet entry needs `home`, `away`, `market`, `selection`,
+# `odds_at_plan`, `stake_eur`. The `match_url` field is now OPTIONAL:
 #
-# The <match-id> is the canonical Pamestoixima fixture identifier; it's
-# stable for the lifetime of the fixture. To find it: open the match's
-# page on https://www.pamestoixima.gr/en/, copy the URL from the address
-# bar, paste below.
+# - When `match_url` is set (a literal Pamestoixima fixture URL),
+#   the script uses it directly. Faster, deterministic, immune to
+#   discoverer coverage gaps. Pattern (per PAMESTOIXIMA_NOTES.md):
+#     /en/football/<league-slug>/<home>-v-<away>/<match-id>
+#
+# - When `match_url` is None (or absent), the script calls
+#   `find_fixture_url(home, away)` against the latest
+#   `output/real_betting/fixtures_<today>.json` snapshot produced by
+#   `python -m real_betting discover-fixtures`. Requires the
+#   discoverer to have been run recently. Fuzzy team-name match via
+#   rapidfuzz token_set_ratio with a min_score of 80.
+#
+# Recommended workflow: leave `match_url` as None for fixtures that
+# are inside the discoverer's 24h window; hardcode it for matches
+# further out (where the discoverer doesn't yet cover them) or as
+# a deterministic override.
 
 BETS = [
     # Paderborn vs Wolfsburg — PLACED 2026-05-25 in run
@@ -340,6 +353,30 @@ class BatchPlacement:
 
     # -- per-bet operations ------------------------------------------------
 
+    def _resolve_match_url(self, bet: dict) -> tuple[Optional[str], str]:
+        """Return (url, source) for a BETS entry.
+          source == 'hardcoded' — the entry's `match_url` was set; use it.
+          source == 'lookup'    — looked up via the discoverer snapshot
+                                  (output/real_betting/fixtures_<today>.json).
+          source == 'missing'   — neither hardcoded nor resolvable; caller
+                                  must abort the batch.
+        The hardcoded URL wins when present so the operator can deterministically
+        override the snapshot (useful for out-of-window fixtures or A/B tests)."""
+        hardcoded = bet.get('match_url')
+        if hardcoded:
+            return hardcoded, 'hardcoded'
+        try:
+            hit = find_fixture_url(bet['home'], bet['away'])
+        except Exception as e:
+            print(f"[batch] find_fixture_url raised: {e!r}")
+            return None, 'missing'
+        if hit and hit.get('fixture_url'):
+            print(f"[batch]   lookup hit: {bet['home']!r} vs {bet['away']!r} "
+                  f"→ {hit['home']!r} vs {hit['away']!r} "
+                  f"(score={hit.get('_match_score')})")
+            return hit['fixture_url'], 'lookup'
+        return None, 'missing'
+
     def _read_slip_counter(self) -> Optional[str]:
         """Read the Betslip counter text (e.g. '(0)' or '(1)'). None on
         failure — treat as 'don't know' and force a defensive clear."""
@@ -400,15 +437,26 @@ class BatchPlacement:
         print(f"[batch] Bets queued: {len(BETS)}, total stake "
               f"€{self.cumulative_stake_planned():.2f}")
 
-        # Up-front URL validation — fail fast before any browser work.
+        # Up-front URL resolution — for each bet, either use the
+        # hardcoded match_url or look it up via the discoverer snapshot.
+        # Resolve everything BEFORE any browser work so failures surface
+        # as a coherent batch validation result, not mid-flight.
+        self._resolved_urls: dict[int, tuple[str, str]] = {}
         for i, b in enumerate(BETS):
-            if not b.get('match_url'):
+            url, source = self._resolve_match_url(b)
+            if not url:
                 print(f"[batch] ABORT: BETS[{i}] ({b['home']} vs "
-                      f"{b['away']}) has no match_url. Paste the "
-                      f"Pamestoixima fixture URL into the BETS list "
-                      f"in `real_betting/dryrun_batch_placement.py` "
-                      f"before re-running.")
+                      f"{b['away']}) — no match_url set AND no match found "
+                      f"in the latest fixtures snapshot. Either:")
+                print(f"[batch]   (a) set 'match_url' explicitly on this "
+                      f"BETS entry, or")
+                print(f"[batch]   (b) run `python -m real_betting "
+                      f"discover-fixtures` first so the snapshot covers "
+                      f"this fixture (only works for in-window fixtures, "
+                      f"currently ~24h rolling).")
                 return False
+            self._resolved_urls[i] = (url, source)
+            print(f"[batch] BET {i} URL ({source}): {url}")
 
         self._shot('00_start')
 
@@ -461,7 +509,14 @@ class BatchPlacement:
             'slip_cleared': False,
             'success': False,
             'failure_reason': None,
+            # Filled in below from self._resolved_urls — preserves
+            # which path (hardcoded vs lookup) supplied the URL.
+            'match_url': None,
+            'match_url_source': None,
         }
+        resolved = self._resolved_urls.get(i)
+        if resolved:
+            record['match_url'], record['match_url_source'] = resolved
 
         # Step 1: pre-iteration slip-empty check + defensive clear.
         self._pre_iteration_clear_slip(step_label=f'iter_{i:02d}_pre_clear')
@@ -495,10 +550,14 @@ class BatchPlacement:
             self.records.append(record)
             return False
 
-        # Step 3: navigate.
-        print(f"\n[batch] Navigating to {bet['match_url']}")
+        # Step 3: navigate. The URL was resolved up-front in run() and
+        # cached on self._resolved_urls (either hardcoded `match_url`
+        # on the bet, or looked up via find_fixture_url from the
+        # discoverer snapshot).
+        match_url, url_source = self._resolved_urls[i]
+        print(f"\n[batch] Navigating to {match_url}  (source: {url_source})")
         try:
-            self.page.goto(bet['match_url'])
+            self.page.goto(match_url)
         except Exception as e:
             record['failure_reason'] = f"goto raised: {e!r}"
             print(f"[batch] {record['failure_reason']}")
@@ -892,15 +951,16 @@ def cmd_dry_run_batch_placement(args) -> int:
           f"€{sum(b['stake_eur'] for b in BETS):.2f} total")
     print()
 
-    # Up-front URL gate before we even spin up a browser.
-    missing = [i for i, b in enumerate(BETS) if not b.get('match_url')]
-    if missing:
-        print(f"[batch] ABORT: BETS entries {missing} have no match_url.")
-        print(f"[batch] Edit `real_betting/dryrun_batch_placement.py` and")
-        print(f"[batch] paste the Pamestoixima fixture URLs (pattern:")
-        print(f"[batch] /en/football/<league-slug>/<teams-slug>/<match-id>)")
-        print(f"[batch] before re-running.")
-        return 1
+    # Up-front sanity: report which bets will use hardcoded URLs vs
+    # the discoverer snapshot. The actual hard validation (URL set OR
+    # lookup hits) happens inside BatchPlacement.run() so we can also
+    # report login state in the same flow.
+    needs_lookup = [i for i, b in enumerate(BETS) if not b.get('match_url')]
+    if needs_lookup:
+        print(f"[batch] {len(needs_lookup)} bet(s) without hardcoded match_url; "
+              f"will look up via find_fixture_url() from the latest snapshot. "
+              f"If the snapshot is stale or missing the fixture, run "
+              f"`python -m real_betting discover-fixtures` first.")
 
     try:
         with session_lock():
