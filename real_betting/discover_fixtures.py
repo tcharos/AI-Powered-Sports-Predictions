@@ -62,9 +62,21 @@ from .session import session_lock
 #     suggests there IS a sport selector in the navigation; clicking
 #     it lands on a sport-specific URL — we go direct.
 FOOTBALL_LANDING_CANDIDATES = (
+    # Primary — discovered 2026-05-25 by inspecting the site nav.
+    # The trailing /11 is Pamestoixima's internal sport ID for football
+    # (other IDs visible in the nav: basketball=/5, tennis=/12, etc.).
+    # The bare /en/sport/football URL exists but redirects to an empty
+    # landing skeleton without rendering any fixtures.
+    'https://www.pamestoixima.gr/en/sport/football/11',
+    # Fallback — 24h coupon page. Lists fixtures across sports; has a
+    # sport-tab selector that defaults to whichever sport was last
+    # viewed on the session (basketball-default problem per
+    # PAMESTOIXIMA_NOTES.md anti-pattern #2). May still produce
+    # event-box-root rows if the session happens to have football
+    # selected; ignored otherwise.
+    'https://www.pamestoixima.gr/en/next24hCoupon',
+    # Older guesses kept as last-resort fallbacks.
     'https://www.pamestoixima.gr/en/sport/football',
-    'https://www.pamestoixima.gr/en/sports/football',
-    'https://www.pamestoixima.gr/en/football',
     'https://www.pamestoixima.gr/en/sport/football/upcoming',
     'https://www.pamestoixima.gr/en/sport/football/all',
 )
@@ -243,6 +255,18 @@ class FixtureDiscoverer:
         # caller can post-hoc parse anything we missed.
         js = """
         () => {
+          // Helper: convert a Pamestoixima URL slug like "ik-start" or
+          // "valerenga-if" to a display-style name "Ik Start" /
+          // "Valerenga If". Imperfect (genuine all-caps acronyms like
+          // "AC" / "FC" come out title-cased) but reliable as a fallback
+          // for matching against our prediction CSVs via fuzzy lookup.
+          const slugToName = (slug) => {
+            if (!slug) return null;
+            return slug.split('-').map(w =>
+              w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)
+            ).join(' ');
+          };
+
           const boxes = document.querySelectorAll(
             '[class*="event-box-root" i], .event-box-root'
           );
@@ -250,7 +274,7 @@ class FixtureDiscoverer:
           const out = [];
           for (const box of boxes) {
             // Find the anchor whose href looks like a fixture URL.
-            // Pattern: /en/football/<slug>/<slug>/<digits>.
+            // Pattern: /en/football/<league-slug>/<home>-v-<away>/<digits>.
             let href = null;
             const anchors = box.querySelectorAll('a[href]');
             for (const a of anchors) {
@@ -264,71 +288,87 @@ class FixtureDiscoverer:
             if (seen.has(href)) continue;
             seen.add(href);
 
-            // Extract teams. Look for team-named children first (Pamestoixima
-            // typically has `.participantHome` / `.participantAway` or
-            // class-substring variants); fall back to splitting the box's
-            // innerText on " v " / " vs ".
-            const text = (box.innerText || '').trim();
+            // Parse the URL — most reliable signal we have. The path is:
+            //   /en/football/<league-slug>/<home-slug>-v-<away-slug>/<match-id>
+            // The "-v-" separator is canonical. Split on it to get the
+            // home/away slugs.
+            const pathMatch = href.match(
+              /\\/en\\/(?:football|live\\/football)\\/([^\\/]+)\\/([^\\/]+)\\/(\\d+)/
+            );
+            const league_slug = pathMatch ? pathMatch[1] : null;
+            const teams_slug = pathMatch ? pathMatch[2] : null;
+            const match_id = pathMatch ? pathMatch[3] : null;
+
+            let home_slug = null, away_slug = null;
+            if (teams_slug) {
+              // Split on the canonical "-v-" separator. There may be
+              // dashes inside the team names (e.g. "rb-leipzig"), so
+              // only split on the FIRST "-v-" occurrence.
+              const sep = teams_slug.indexOf('-v-');
+              if (sep > 0) {
+                home_slug = teams_slug.slice(0, sep);
+                away_slug = teams_slug.slice(sep + 3);
+              }
+            }
+
+            // Primary signal — Pamestoixima-namespaced stable classes
+            // (.homeTeam / .awayTeam under a .teams wrapper). Verified
+            // 2026-05-25 from the dumped next24hCoupon HTML. These give
+            // correctly-capitalised display names (e.g., "IK Start",
+            // "Valerenga IF") which slug-derivation can't reproduce
+            // for genuine acronyms.
+            //
+            // Slug-derived fallback covers layouts where these classes
+            // are absent or pre-render snapshots where the DOM hasn't
+            // hydrated yet.
             let home = null, away = null;
-            const candHome = box.querySelector(
-              '[class*="participantHome" i], [class*="homeName" i], ' +
-              '[class*="home-name" i]'
-            );
-            const candAway = box.querySelector(
-              '[class*="participantAway" i], [class*="awayName" i], ' +
-              '[class*="away-name" i]'
-            );
-            if (candHome && candAway) {
-              home = (candHome.innerText || '').trim();
-              away = (candAway.innerText || '').trim();
-            } else {
-              // Heuristic split: the visible team text usually appears as
-              // "Home\\nAway" on two lines, with odds / market on subsequent
-              // lines. Take the first two non-empty lines that don't look
-              // like times or scores.
-              const lines = text.split(/\\n+/).map(s => s.trim()).filter(Boolean);
-              const teamLines = lines.filter(s =>
-                !/^\\d{1,2}[:.]\\d{2}/.test(s) &&        // not a clock
-                !/^\\d{1,2}\\/\\d{1,2}/.test(s) &&       // not a date
-                !/^(LIVE|FT|HT)$/i.test(s) &&            // not a status badge
-                !/^\\d+(\\.\\d+)?$/.test(s)              // not an odd
-              );
-              if (teamLines.length >= 2) {
-                home = teamLines[0];
-                away = teamLines[1];
-              }
+            const homeEl = box.querySelector('.homeTeam, [class*="homeTeam" i]');
+            const awayEl = box.querySelector('.awayTeam, [class*="awayTeam" i]');
+            if (homeEl && awayEl) {
+              home = (homeEl.innerText || '').trim() || null;
+              away = (awayEl.innerText || '').trim() || null;
+            }
+            if (!home || !away) {
+              home = home || slugToName(home_slug);
+              away = away || slugToName(away_slug);
             }
 
-            // Kickoff text: look for any child whose text matches HH:MM.
+            // Kickoff — Pamestoixima renders it inside <time> under
+            // .event-box-eventDate. Format observed: "Today 15:30",
+            // "Tomorrow 18:00", or absolute date "DD/MM 19:00".
+            // Preserves the bookmaker's exact display so downstream
+            // joins against our predictions CSV can parse with full
+            // context (relative vs absolute).
             let kickoff_text = null;
-            const all = box.querySelectorAll('*');
-            for (const el of all) {
-              const t = (el.textContent || '').trim();
-              const m = t.match(/^(\\d{1,2}[:.]\\d{2})$/);
-              if (m) { kickoff_text = m[1].replace('.', ':'); break; }
+            const dateEl = box.querySelector(
+              '.event-box-eventDate time, [class*="eventDate" i] time, ' +
+              '.event-box-eventDate, [class*="eventDate" i]'
+            );
+            if (dateEl) {
+              kickoff_text = (dateEl.innerText || '').trim() || null;
             }
 
-            // League — best effort: walk up to the nearest ancestor with a
-            // header-like child. League grouping varies; this is informational.
+            // League — visible header is .event-box-sportCompetitionName
+            // (spans like "Norway" / "-" / "Eliteserien"). The slug is
+            // still useful as a stable join key.
             let league = null;
-            let ancestor = box.parentElement;
-            let walked = 0;
-            while (ancestor && walked < 6) {
-              const header = ancestor.querySelector(
-                '[class*="leagueHeader" i], [class*="competitionName" i], ' +
-                '[class*="category" i] h6, [class*="title" i]'
-              );
-              if (header) {
-                league = (header.innerText || '').trim();
-                if (league) break;
-              }
-              ancestor = ancestor.parentElement;
-              walked += 1;
+            const leagueEl = box.querySelector(
+              '.event-box-sportCompetitionName, [class*="sportCompetitionName" i], ' +
+              '[class*="competitionName" i]'
+            );
+            if (leagueEl) {
+              league = (leagueEl.innerText || '').trim().replace(/\\s+/g, ' ') || null;
+            }
+            if (!league && league_slug) {
+              league = slugToName(league_slug);
             }
 
-            // Extract match_id from the href's trailing digits.
-            const idMatch = href.match(/(\\d+)\\/?$/);
-            const match_id = idMatch ? idMatch[1] : null;
+            // Diagnostic: the first few visible lines of the box.
+            // Kept on the record so future selector iteration can
+            // inspect layout variations without re-running.
+            const text = (box.innerText || '').trim();
+            const lines = text.split(/\\n+/).map(s => s.trim()).filter(Boolean);
+            const display_lines = lines.slice(0, 8);
 
             // Absolute URL.
             const absUrl = href.startsWith('http') ? href
@@ -338,6 +378,8 @@ class FixtureDiscoverer:
               home, away, league, kickoff_text,
               fixture_url: absUrl,
               match_id,
+              home_slug, away_slug, league_slug,
+              display_lines,  // informational; for future selector iteration
             });
           }
           return out;
@@ -372,7 +414,11 @@ class FixtureDiscoverer:
         self._shot('01_on_landing')
 
         n_after_scroll = self._scroll_until_stable()
-        self._shot('02_after_scroll')
+        # Dump the post-scroll HTML alongside the screenshot so future
+        # selector iteration can read the actual rendered DOM (event-box
+        # structure, team-name classes, league-header classes) without
+        # spinning up another browser session ad-hoc.
+        self._dump('02_after_scroll')
 
         fixtures = self._extract_fixtures()
         print(f"[discover] Extracted {len(fixtures)} fixtures "

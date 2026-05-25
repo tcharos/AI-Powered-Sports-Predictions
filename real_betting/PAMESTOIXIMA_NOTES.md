@@ -265,6 +265,58 @@ or the empty state was caught by a refresh between snapshots. The
 batch (multi-bet) flow exposed it because the script depends on the
 indicator to progress to the next bet.
 
+### 2026-05-25 — Fixture-listing page selectors confirmed
+
+Discovered while live-testing `real_betting/discover_fixtures.py`:
+
+- **Football landing URL with sport ID**: `/en/sport/football/11` (the
+  `/11` is Pamestoixima's internal football sport ID — visible in the
+  site nav alongside `/5` for basketball, `/12` for tennis, etc.).
+  **HOWEVER**: as of 2026-05-25 this URL renders the sports-nav skeleton
+  without any fixture rows (event-box-root count = 0 even after scroll).
+  Either it requires a date / category filter click, or fixtures are
+  hydrated via a websocket subscription that arrives after our
+  `wait_for_load_state('networkidle')`. Treat as "not currently viable".
+
+- **24-hour coupon entry — works**: `/en/next24hCoupon`. Lists every
+  football fixture kicking off within the next 24h. 9 rows on the
+  sample run (Norwegian + Danish + English + Faroese leagues); listing
+  is virtualised but scroll-until-stable settles in 3 passes. The
+  trade-off is the rolling 24h window — fixtures further out won't
+  appear here. For broader discovery, the calendar page
+  (`/en/calendar`) or per-league pages
+  (`/en/football/<league-slug>`) are the next places to try.
+
+- **Per-fixture container**: `[class*="event-box-root" i]` (confirmed
+  stable; same class used on the match-detail page per earlier notes).
+
+- **Working per-fixture selectors** (verified from dumped DOM):
+  - Home team: `.homeTeam` (or `.team.homeTeam`). Yields the
+    bookmaker's display name with correct caps — e.g. `IK Start`,
+    `Valerenga IF`, `FK Arendal`. Better than slug-derived names
+    which can't reproduce genuine acronyms.
+  - Away team: `.awayTeam` (or `.team.awayTeam`).
+  - Wrapper: `.teams`.
+  - Kickoff: `.event-box-eventDate time`. Renders as `Today 15:30`,
+    `Tomorrow 18:00`, or absolute `DD/MM HH:MM`. Preserve as-is —
+    relative vs absolute format is meaningful downstream.
+  - League header: `.event-box-sportCompetitionName`. Multi-span:
+    `<span>Norway</span><span>-</span><span>Eliteserien</span>` →
+    innerText `Norway-Eliteserien`.
+
+- **Fixture URL pattern (canonical)**:
+  `/en/football/<league-slug>/<home-slug>-v-<away-slug>/<match-id>`
+  — the `-v-` separator is always present. Splitting `teams_slug`
+  on the *first* `-v-` (not any `-`) preserves multi-word names
+  containing dashes like `rb-leipzig`.
+
+- **Lookup helper validated**: `find_fixture_url('IK Start', 'Valerenga')`
+  returns the right record with score 100; `find_fixture_url(
+  'Notts County', 'Salford')` returns Notts County vs Salford City
+  with score 100 even with "City" omitted (fuzz.token_set_ratio is
+  the right comparator). Reversed home/away correctly returns None
+  — the helper requires home-to-home and away-to-away alignment.
+
 ### 2026-05-25 — Successful scenario #5 batch placement
 
 Both bets from scenario #5 in `test_case_scenarios.md` placed end-to-end
