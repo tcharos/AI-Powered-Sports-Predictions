@@ -81,7 +81,7 @@
                 {# Phase 6 + Phase 7: open bets on this match + Cash Out button.
                    Shared fragment with the dashboard's live rows. #}
                 <h6 class="border-bottom pb-2">Open Bets</h6>
-                {% with open_bets = item.open_bets %}
+                {% with open_bets = item.open_bets, compact = True %}
                     {% include '_open_bets_fragment.html' %}
                 {% endwith %}
 
