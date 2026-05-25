@@ -127,18 +127,11 @@ class MatchPredictor:
         last_5 = team_games.tail(5)
         # Calculate means
         sums = {'pts': 0, 'gf': 0, 'ga': 0, 'sf': 0, 'sa': 0, 'cf': 0, 'ca': 0, 'ou': 0}
-        # Parallel buffer for the recency-weighted variants (D2.1.2).
-        # last_5 is ordered oldest -> newest after the .sort_values('date')
-        # done upstream, so the same _weighted_mean helper used at training
-        # time can be applied here without re-deriving weights from dates.
-        from feature_engineering import _weighted_mean as _wm
-        series = {'pts': [], 'gf': [], 'ga': [], 'ou': []}
         count = 0
 
         for _, row in last_5.iterrows():
             s = extract_match_stats(row, team_name)
             for k in sums: sums[k] += s.get(k, 0) # Handle missing stats (NaN -> 0)
-            for k in series: series[k].append(s.get(k, 0))
             count += 1
 
         if count > 0:
@@ -150,17 +143,9 @@ class MatchPredictor:
             stats['form_cf'] = sums['cf'] / count
             stats['form_ca'] = sums['ca'] / count
             stats['form_ou'] = sums['ou'] / count # Proportion of Over 2.5
-            stats['form_pts_w'] = _wm(series['pts'])
-            stats['form_gf_w']  = _wm(series['gf'])
-            stats['form_ga_w']  = _wm(series['ga'])
-            stats['form_ou_w']  = _wm(series['ou'])
         else:
              # Default to 0? Or averages?
-            stats.update({k: 0 for k in [
-                'form_pts', 'form_gf', 'form_ga', 'form_sf', 'form_sa',
-                'form_cf', 'form_ca', 'form_ou',
-                'form_pts_w', 'form_gf_w', 'form_ga_w', 'form_ou_w',
-            ]})
+            stats.update({k: 0 for k in ['form_pts', 'form_gf', 'form_ga', 'form_sf', 'form_sa', 'form_cf', 'form_ca', 'form_ou']})
 
         # 2. Venue Specific Form (Last 5 Home or Away)
         # If we are verifying this team as HOME team, we want last 5 HOME games.
@@ -311,16 +296,8 @@ class MatchPredictor:
                 # print(f"Error calculating stats for {scraper_home} vs {scraper_away}: {e}")
                 h_stats = None # Will fallback to zeros
             
-            if not h_stats: h_stats = {k: 0 for k in [
-                'form_pts', 'form_gf', 'form_ga', 'form_sf', 'form_sa',
-                'form_cf', 'form_ca', 'form_ou',
-                'form_pts_w', 'form_gf_w', 'form_ga_w', 'form_ou_w',
-            ]}
-            if not a_stats: a_stats = {k: 0 for k in [
-                'form_pts', 'form_gf', 'form_ga', 'form_sf', 'form_sa',
-                'form_cf', 'form_ca', 'form_ou',
-                'form_pts_w', 'form_gf_w', 'form_ga_w', 'form_ou_w',
-            ]}
+            if not h_stats: h_stats = {k: 0 for k in ['form_pts', 'form_gf', 'form_ga', 'form_sf', 'form_sa', 'form_cf', 'form_ca', 'form_ou']}
+            if not a_stats: a_stats = {k: 0 for k in ['form_pts', 'form_gf', 'form_ga', 'form_sf', 'form_sa', 'form_cf', 'form_ca', 'form_ou']}
             if not h_spec: h_spec = {k: 0 for k in ['spec_pts', 'spec_gf', 'spec_ga', 'spec_sf', 'spec_sa']}
             if not a_spec: a_spec = {k: 0 for k in ['spec_pts', 'spec_gf', 'spec_ga', 'spec_sf', 'spec_sa']}
 
@@ -354,11 +331,6 @@ class MatchPredictor:
                 'B365H': b365_h, 'B365D': b365_d, 'B365A': b365_a,
                 'H_form_pts': h_stats['form_pts'], 'H_form_gf': h_stats['form_gf'], 'H_form_ga': h_stats['form_ga'],
                 'A_form_pts': a_stats['form_pts'], 'A_form_gf': a_stats['form_gf'], 'A_form_ga': a_stats['form_ga'],
-                # Recency-weighted form (D2.1.2)
-                'H_form_pts_w': h_stats.get('form_pts_w', 0), 'H_form_gf_w': h_stats.get('form_gf_w', 0),
-                'H_form_ga_w': h_stats.get('form_ga_w', 0), 'H_form_ou_w': h_stats.get('form_ou_w', 0),
-                'A_form_pts_w': a_stats.get('form_pts_w', 0), 'A_form_gf_w': a_stats.get('form_gf_w', 0),
-                'A_form_ga_w': a_stats.get('form_ga_w', 0), 'A_form_ou_w': a_stats.get('form_ou_w', 0),
                 'H_elo': home_elo, 'A_elo': away_elo,
                 'H_home_pts': h_spec['spec_pts'], 'H_home_gf': h_spec['spec_gf'], 'H_home_ga': h_spec['spec_ga'],
                 'H_home_sf': h_spec['spec_sf'], 'H_home_sa': h_spec['spec_sa'],

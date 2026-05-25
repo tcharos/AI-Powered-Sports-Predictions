@@ -17,13 +17,6 @@ class ModelTrainer:
         self.common_features = [
             'H_form_pts', 'H_form_gf', 'H_form_ga',
             'A_form_pts', 'A_form_gf', 'A_form_ga',
-            # Recency-weighted form (D2.1.2 from FEATURE_ENGINEERING_IDEAS.md).
-            # Same Pts/GF/GA window as above, but most recent matches carry
-            # heavier weight (half-life ~3 games). Kept alongside the flat
-            # versions so XGBoost can choose between "average form" and
-            # "form trend" depending on the league.
-            'H_form_pts_w', 'H_form_gf_w', 'H_form_ga_w', 'H_form_ou_w',
-            'A_form_pts_w', 'A_form_gf_w', 'A_form_ga_w', 'A_form_ou_w',
             # ELO Ratings
             'H_elo', 'A_elo', 
             # 'elo_diff', # Removed

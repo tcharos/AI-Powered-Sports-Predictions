@@ -36,20 +36,32 @@ Pure compute work on data we already ingest. Each is 1–2 days end-to-end inclu
 **Expected lift**: 1–3% Brier on small/volatile leagues; rounding error on EPL/Bundesliga.
 **Risk**: if we tune the window on the same data we evaluate on, we'll over-fit. Need an outer CV layer.
 
-### 1.2 Recency-weighted form (exponential decay) — ✅ BUILT 2026-05-25 (awaiting retrain validation)
+### 1.2 Recency-weighted form (exponential decay) — ❌ TESTED & ROLLED BACK (2026-05-25)
 **What**: replace `np.mean(last_5)` with an exponentially weighted mean — most recent game weighted heaviest. Half-life as a hyperparam (e.g. 3 games).
 **Why**: a 5-0 win last week tells you more than a 5-0 win two months ago. The flat mean treats them identically.
 **Cost**: trivial — one-line change in `_get_stats_from_history`.
-**Expected lift**: 1–2% Brier broadly; bigger on leagues where form fluctuates fast.
-**Risk**: another hyperparam (half-life) to tune. Pick by CV, not by gut.
-**Implementation (2026-05-25)**:
-- New module-level `_weighted_mean(values, half_life=FORM_HALF_LIFE_GAMES)` helper in `ml_project/feature_engineering.py`. `FORM_HALF_LIFE_GAMES = 3.0` (positional half-life — 3 games back = ½ weight, 6 games back = ¼). Operates on the same oldest→newest series the existing flat mean already iterates.
-- `_get_stats_from_history` now returns `form_pts_w`, `form_gf_w`, `form_ga_w`, `form_ou_w` alongside the flat keys.
-- `_calculate_rolling` populates `H_form_pts_w` / `A_form_pts_w` (+ gf/ga/ou) per match.
-- Inference path (`ml_project/predict_matches.py:get_team_stats`) re-uses the same `_weighted_mean` so train/serve produce identical values for the same window.
-- Training feature list (`train_model.py:common_features`) now includes all 8 weighted columns alongside the original flat ones — XGBoost picks between "average form" and "form trend".
-- Sanity-tested: across 500 E0 matches, weighted form differs from flat by ~0.14 pts on average (max 0.42) — meaningful signal differentiation, not collinear noise.
-- **Brier validation pending**: next `./bin/retrain_pipeline.sh` run will produce a fresh model + calibrators against the expanded feature set. Compare per-market Brier to the previous best (recorded after the 2026-05-25 morning retrain). Doc target is 1–3% improvement.
+**Expected lift (doc, pre-test)**: 1–2% Brier broadly; bigger on leagues where form fluctuates fast.
+**Empirical result (post-test)**: **no measurable lift, globally or per-league**. Rolled back.
+
+**Test setup (2026-05-25)**: built `_weighted_mean(values, half_life=3.0)` helper + 8 new training features (`H_form_{pts,gf,ga,ou}_w`, `A_form_*_w`). Half-life 3 games — most recent match weight 1.0, 3 matches back ½, 6 matches back ¼. Inference path re-used the same helper so train/serve produced identical values. Retrained the full pipeline; calibrators refit; calibration validate passed at 85.7% (full) / 89.2% (minimal) — same band as the pre-D2.1.2 baseline.
+
+**Empirical findings**:
+- **Global CV Brier (1X2)**: 5-fold mean 0.6011 (pre) → 0.6012 (post). Δ = +0.00008. Well within fold-to-fold noise (±0.003).
+- **Per-league ablation** (`scripts/sweep_d212_per_league.py`, 21 leagues with n≥100, 11 685 matches):
+
+| | count |
+|---|---:|
+| Leagues helped (Δ < −0.001) | **0** |
+| Leagues hurt (Δ > +0.001) | **0** |
+| Best per-league Δ | D1: −0.0006 (−0.10%) |
+| Worst per-league Δ | F2: +0.0005 (+0.07%) |
+| Weighted-mean Δ | **−0.0000 (−0.01%)** |
+
+Every per-league delta is within ±0.0006 — noise. Even Serie B (I2, supposedly volatile) only showed Δ=−0.0003.
+
+**Why D2.1.2 didn't help (best hypothesis)**: the model already has plenty of recency signal — ELO updates by goal margin (naturally recency-weighted); season-to-date PPG / attack / defense strength features carry recent trend; the flat L5 mean is already "recent" by construction. The weighted variants were collinear enough that XGBoost found no orthogonal signal to split on.
+
+**Rollback (2026-05-25)**: removed `_weighted_mean`, removed `form_*_w` keys from `_get_stats_from_history`, removed 8 `_w` features from `train_model.common_features`, stripped `_w` wiring from `predict_matches.py`. The currently-deployed model (trained earlier the same day) still has the 8 `_w` columns in its `features_*.json`; predict_matches' existing defensive `if c not in input_df.columns: input_df[c] = 0` block handles them as zero-defaults until the next retrain produces a model trained without them. The ablation script `scripts/sweep_d212_per_league.py` is kept — it's a reusable tool for future feature-engineering decisions.
 
 ### 1.3 Opponent-adjusted form — ❌ TESTED & ROLLED BACK (2026-05-20)
 
