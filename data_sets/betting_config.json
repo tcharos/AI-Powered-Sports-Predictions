@@ -30,7 +30,8 @@
             "model_ev_factor_max": 1.5,
             "value_max_daily_exposure_pct": 0.1,
             "conviction_max_daily_exposure_pct": 0.1,
-            "model_max_daily_exposure_pct": 0.15
+            "model_max_daily_exposure_pct": 0.15,
+            "cashout_source": "bookmaker"
         },
         "nba": {
             "bankrolls": {

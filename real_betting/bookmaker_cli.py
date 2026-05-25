@@ -142,6 +142,15 @@ def cmd_discover_fixtures(args):
     return _impl(args)
 
 
+def cmd_read_open_bets(args):
+    """Read the user's OPEN bets on Pamestoixima into
+    output/real_betting/open_bets_snapshot.json + append per-bet
+    history. Scenario #3B — consumed by scenario #3A's
+    _load_bookmaker_offers helper in web_ui/app.py."""
+    from .read_open_bets import cmd_read_open_bets as _impl
+    return _impl(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog='python -m real_betting',
@@ -217,6 +226,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument('--date', default=None,
                     help='Reserved for future use; today only currently.')
     sp.set_defaults(func=cmd_discover_fixtures)
+
+    # Scenario #3B — read every OPEN bet from the user's My Bets page,
+    # including the current cashout offer per bet. Feeds the scenario
+    # #3A consumer in web_ui/app.py once the bookmaker flag is on.
+    sp = sub.add_parser(
+        'read-open-bets',
+        help='Scrape OPEN bets + current cashout offers from Pamestoixima '
+             'My Bets into output/real_betting/open_bets_snapshot.json. '
+             'Read-only. Headed mode forced.',
+    )
+    sp.set_defaults(func=cmd_read_open_bets)
 
     return p
 

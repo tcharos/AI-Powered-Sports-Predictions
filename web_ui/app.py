@@ -238,22 +238,28 @@ _BOOKMAKER_SNAPSHOT_PATH = os.path.join(
 
 
 def _load_bookmaker_offers(max_age_s):
-    """Return {match_id: {'cashout_offer': float, 'paused': bool,
-    'pamestoixima_uuid': str}} from the scenario #3B snapshot, or {} if
-    the file is missing / unparseable / older than max_age_s.
+    """Load + index the scenario #3B snapshot. Returns a dict
+        {'by_match_id': {<bookmaker_match_id>: entry, ...},
+         'all':         [entry, ...]}
+    or {'by_match_id': {}, 'all': []} when the snapshot is missing,
+    unparseable, or older than `max_age_s`.
 
-    Per-match lookup so the UI can mix bookmaker offers (for matches
-    we have a bet on at the bookmaker) with synthetic estimates (for
-    everything else) without an all-or-nothing toggle."""
+    Two indexes because Flashscore and Pamestoixima use entirely
+    different match-id schemes — Flashscore: 8-char alphanumeric
+    ('nFjvRRsQ'); Pamestoixima: 8-digit numeric ('11012505'). The
+    'by_match_id' map only fires when those IDs happen to align
+    (rare). The 'all' list is the input to a fuzzy team-name fallback
+    in `_attach_open_bets` so offers actually surface."""
+    empty = {'by_match_id': {}, 'all': []}
     if not os.path.exists(_BOOKMAKER_SNAPSHOT_PATH):
-        return {}
+        return empty
     try:
         with open(_BOOKMAKER_SNAPSHOT_PATH) as f:
             snap = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {}
+        return empty
     if not isinstance(snap, dict):
-        return {}
+        return empty
 
     ts = snap.get('ts')
     if ts:
@@ -263,20 +269,50 @@ def _load_bookmaker_offers(max_age_s):
             snap_dt = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
             now_dt = datetime.datetime.now(datetime.timezone.utc)
             if (now_dt - snap_dt).total_seconds() > max_age_s:
-                return {}
+                return empty
         except (ValueError, TypeError):
             # Unparseable timestamp → treat as stale.
-            return {}
+            return empty
 
     by_match_id = {}
+    all_entries = []
     for entry in snap.get('bets', []) or []:
         if not isinstance(entry, dict):
             continue
+        all_entries.append(entry)
         mid = entry.get('match_id')
-        if not mid:
+        if mid:
+            by_match_id[str(mid)] = entry
+    return {'by_match_id': by_match_id, 'all': all_entries}
+
+
+def _match_offer_by_teams(home, away, offers_list, min_score=80):
+    """Fuzzy-match (home, away) against a bookmaker-offers list. Returns
+    the matched entry or None. Score is the *worse* of the two team-name
+    matches — both home AND away must clear `min_score`. Lazy-imports
+    rapidfuzz so the dashboard works even if it ever gets uninstalled."""
+    if not home or not away or not offers_list:
+        return None
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return None
+    h_lo = home.lower().strip()
+    a_lo = away.lower().strip()
+    best_score = 0
+    best = None
+    for entry in offers_list:
+        eh = (entry.get('home') or '').lower().strip()
+        ea = (entry.get('away') or '').lower().strip()
+        if not eh or not ea:
             continue
-        by_match_id[str(mid)] = entry
-    return by_match_id
+        s_home = fuzz.token_set_ratio(h_lo, eh)
+        s_away = fuzz.token_set_ratio(a_lo, ea)
+        worse = min(s_home, s_away)
+        if worse >= min_score and worse > best_score:
+            best_score = worse
+            best = entry
+    return best
 
 
 _TERMINAL_BET_STATUSES = ('WON', 'LOST', 'VOID', 'CASHED_OUT')
@@ -378,7 +414,8 @@ def _attach_open_bets(live_matches):
     snapshot_max_age_s = float(sport_cfg.get('cashout_snapshot_max_age_s', 600))
     bookmaker_offers = (
         _load_bookmaker_offers(snapshot_max_age_s)
-        if cashout_source_pref == 'bookmaker' else {}
+        if cashout_source_pref == 'bookmaker'
+        else {'by_match_id': {}, 'all': []}
     )
 
     for m in live_matches:
@@ -388,12 +425,35 @@ def _attach_open_bets(live_matches):
         match_str = m.get('match', '').strip()
         related = by_match.get(match_str, [])
 
-        # Per-match bookmaker offer lookup. Join key is match_id —
-        # assumes Pamestoixima and Flashscore agree on the canonical
-        # fixture ID. If they don't (scenario #3B will surface that),
-        # the fallback to synthetic below is the safe behaviour.
+        # Bookmaker offer join — TWO paths, tried in order:
+        #
+        # 1. Direct match_id lookup. Cheap O(1), but Flashscore and
+        #    Pamestoixima use entirely different ID schemes (verified
+        #    2026-05-25: Flashscore = 8-char alphanumeric "nFjvRRsQ";
+        #    Pamestoixima = 8-digit numeric "11012505"). So this almost
+        #    never fires in practice.
+        #
+        # 2. Fuzzy team-name match against the full snapshot list. Uses
+        #    rapidfuzz token_set_ratio with a min-score-80 floor on the
+        #    worse of (home, away). This is the path that actually
+        #    surfaces real offers on the dashboard today.
+        #
+        # When the snapshot is missing / stale / flag=='synthetic', both
+        # paths return None and the synthetic fair_cashout formula wins.
         m_id = str(m.get('match_id') or '').strip()
-        bk_entry = bookmaker_offers.get(m_id) if m_id else None
+        bk_entry = None
+        if m_id:
+            bk_entry = bookmaker_offers.get('by_match_id', {}).get(m_id)
+        if bk_entry is None:
+            # Fall back to team-name fuzzy match. The match string is
+            # "Home vs Away" — split and pass to the helper.
+            ms = match_str
+            if ' vs ' in ms:
+                fb_home, fb_away = ms.split(' vs ', 1)
+                bk_entry = _match_offer_by_teams(
+                    fb_home, fb_away,
+                    bookmaker_offers.get('all', []),
+                )
         bk_offer = None
         if bk_entry and not bk_entry.get('paused'):
             try:
