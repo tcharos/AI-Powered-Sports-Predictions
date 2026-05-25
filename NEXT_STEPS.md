@@ -19,8 +19,9 @@ This is the blocker for Phases 3+. Statistical signal on cashout rules requires 
 
 | Date checkpoint | Settled bets (target ≥50/lane) | Action |
 | --------------- | ------------------------------ | ------ |
-| 2026-05-18 (today) | value: 9, conviction: 1, model: 0 | wait |
-| 2026-05-25  (+1 wk) | rerun backtest, eyeball Δ stability | wait |
+| 2026-05-18 | value: 9, conviction: 1, model: 0 | wait |
+| 2026-05-24 | value: 58, conviction: 1, **model: 164** — Value & Model past threshold | run tomorrow's queue ↓ |
+| 2026-05-25  (+1 wk) | rerun backtest, retrain, conviction-gate diagnostic | see "Tomorrow's queue (2026-05-25)" |
 | 2026-06-01  (+2 wk) | likely enough → start Phase 3 + 6 | proceed |
 
 While waiting:
@@ -40,7 +41,7 @@ cd ~/Documents/projects/sports_predictor && \
 Easiest reminder: macOS Calendar / Reminders entry for each checkpoint date. After the run:
 
 1. Update the checkpoint row's third column with actual settled bets per lane (from the run's "Skipped — unsettled=N" line + the per-lane bet counts in the report).
-2. Note Δ trends vs the 2026-05-18 baseline: `late_drift/value = +21.80`, `stop_loss/value = +16.83`, `lock_in_profit/value = −5.81` (n=10).
+2. Note Δ trends vs the 2026-05-18 baseline: `late_drift/value = +21.80`, `stop_loss/value = +16.83`, `lock_in_profit/value = −5.81` (n=10). <br>**2026-05-25 run (n=264, all synth)**: `late_drift/value=+33.23` (+52% vs baseline), `stop_loss/value=+26.16` (+55%), `lock_in_profit/value=−22.63` (~4× more negative). Model lane added: `late_drift/model=+31.86`, `stop_loss/model=+42.95`, `lock_in_profit/model=−4.86`. Direction stable across all cells; magnitude shift >50% on every Value rule — synthetic-trajectory mistrust threshold is now active per the bullet below, real `live_history_*.jsonl` should drive future runs.
 3. If a rule's Δ flips sign or shifts >50% as bets accumulate, that's a signal the synthetic trajectories are misleading and we should wait for more real `live_history_*.jsonl` data before trusting the harness.
 
 ## Real betting integration — Pamestoixima (DORMANT)
@@ -174,6 +175,50 @@ Until then, keep XGBoost + Platt calibration + ev_cap_value as the deployed stac
 - **Calibration spot-check on real data** — once we have ~3 days of `live_history`, write a quick script that runs `LiveAdjuster` on real snapshots from games we know the outcome of, to see if "aggressive prob swings near full-time" survives real-game noise or was a synthetic-trajectory artifact.
 - **Backtest report polish** — `bets_by_type` breakdown (1X2 vs O/U), sortable JSON output.
 - **OS-level integration** — `live_data.json` currently overwritten each refresh; consider keeping last N snapshots in memory for the UI to show "trend" arrows.
+
+## Tomorrow's queue (2026-05-25)
+
+Sequenced — each step depends on the previous one finishing cleanly.
+
+1. **Run yesterday's verification** to settle the 99 OPEN bets from
+   2026-05-24's slip. `./bin/run_verification.sh`. Expect ~30% of the
+   sample to move; re-run the first-pass evaluation after to see how
+   the per-lane numbers shift.
+2. **Run the retrain pipeline.** `./bin/retrain_pipeline.sh` (~20–30
+   min). Bakes in the latest Phase C4 Platt calibrators against any
+   new CSV results that landed in the week — the prime suspect for the
+   Value-lane O/U bleed (−22% ROI on €415 staked over the 9-day window).
+3. **Re-run the cashout backtest harness** so the weekly Δ table in
+   "Weekly backtest re-run" gets an entry: <br>
+   `PYTHONPATH="$(pwd):$(pwd)/ml_project" python3 scripts/run_backtest.py --paths 50`. <br>
+   Update the data-wait table's note line with the new Δ values vs the
+   2026-05-18 baseline (`late_drift/value = +21.80`, `stop_loss/value
+   = +16.83`, `lock_in_profit/value = −5.81`).
+4. **Re-run the conviction-gate diagnostic** — `python3 scripts/sweep_conviction_gate.py`.
+   First run on **2026-05-24** showed: at the current `conviction_min_confidence=0.65`
+   the lane fires <1 bet/week; at **0.58** it would fire ~27/week with
+   the verified subset at **70% WR / +12.9% ROI on O/U (n=20)** and
+   **3-of-3 on 1X2 (small but clean)**. The odds floor 1.40 is doing
+   the real filtering — 86% of Conf ≥ 0.65 1X2 picks are heavy
+   favourites that fail it (Bayern 1.14, Arsenal 1.08, Leverkusen 1.25).
+   The post-retrain re-run is needed because Platt calibration is
+   likely to shrink the Conf distribution further — the right threshold
+   may drop to 0.55. Don't change the gate until tomorrow's diagnostic
+   confirms the band.
+5. **Lower `conviction_min_confidence` in `data_sets/betting_config.json`**
+   to whatever Step 4 surfaces (target band: **0.55–0.58**). Keep
+   `conviction_min_odds=1.40` unchanged — the diagnostic confirms it's
+   the real profitability filter, not the Conf threshold. Document the
+   intent in the same commit ("conviction lane shifts from rare-1X2
+   character to O/U-skewed volume").
+6. **Generate the next slip with the relaxed gate** (`./bin/run_predictions.sh`)
+   so 2026-05-25's bets are placed against both the new model and the
+   new gate — gives a clean A/B baseline for the post-change
+   conviction lane vs the pre-change (today's) one.
+
+After this queue clears, the 2026-06-01 (+2 wk) checkpoint becomes the
+moment to evaluate whether the relaxed conviction gate is producing
+something worth keeping or whether it needs a second tighten.
 
 ## Bugs / fixes queue
 
