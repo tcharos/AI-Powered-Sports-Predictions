@@ -221,21 +221,65 @@ _CASHOUT_HOUSE_HAIRCUT = 0.95
 # Cashout decision thresholds — shared by the display badge in
 # _attach_open_bets AND the auto-cashout executor (/auto_cashout) so the
 # automatic action always matches what the UI shows.
-#   lock_in   : fair cashout has grown to ≥ this multiple of the stake
-#               → bank the profit.
-#   stop_loss : live win-probability for the bet's selection has fallen
-#               below this → cut the loss.
-#   else      : hold (stay in the bet).
+#
+# The decision is driven by `adj_prob` — the LiveAdjuster's synthesis of
+# the live match statistics (score, minute, xG, shots, possession,
+# dominance, red cards). So keying off adj_prob IS deciding from the live
+# stats; we don't re-read raw stats here (that would double-count what
+# already moved adj_prob).
+#
+#   lock_in   : the bet is IN PROFIT and either (a) near-certain to win
+#               (adj_prob high — odds-independent, so it fires even on low
+#               odds where the profit-ratio can never reach 1.5×), or
+#               (b) the cashout is already a big multiple of stake (large
+#               unrealized profit, typically a high-odds bet swinging our
+#               way even before it's near-certain).
+#   stop_loss : live win-probability has collapsed → cut the loss.
+#   else      : hold.
+# A minute floor suppresses BOTH before in-play stats are reliable: the
+# LiveAdjuster only crosses over to trusting in-play data at ~min 30, so
+# acting earlier means acting on noise.
+_AUTO_CASHOUT_LOCK_IN_PROB = 0.85
 _AUTO_CASHOUT_LOCK_IN_RATIO = 1.5
 _AUTO_CASHOUT_STOP_LOSS_PROB = 0.20
+_AUTO_CASHOUT_MIN_MINUTE = 30
 
 
-def _cashout_decision(fair_cashout, stake, adj_prob):
-    """Return 'lock_in' | 'stop_loss' | 'hold' for an OPEN bet given its
-    fair-value cashout, stake, and current adjusted win-probability.
-    Single source of truth for both the badge and auto-cashout."""
+def _parse_minute(live_match):
+    """Best-effort current minute (int) from a live_data match dict.
+    Accepts int, '67', "67'", '45+2', 'HT', 'FT'. Returns None when
+    unknown (the decision then skips the minute floor rather than guess)."""
+    raw = live_match.get('minute', live_match.get('time'))
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    s = str(raw).strip().upper()
+    if 'HT' in s:
+        return 45
+    if 'FT' in s:
+        return 90
+    digits = ''
+    for ch in s:
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+    return int(digits) if digits else None
+
+
+def _cashout_decision(fair_cashout, stake, adj_prob, minute=None):
+    """Return 'lock_in' | 'stop_loss' | 'hold' for an OPEN bet. Single
+    source of truth for both the display badge and auto-cashout.
+    `adj_prob` carries the live-stats signal (see thresholds note)."""
+    # Too early to trust in-play stats → never auto-act.
+    if minute is not None and minute < _AUTO_CASHOUT_MIN_MINUTE:
+        return 'hold'
     if fair_cashout is not None and stake > 0:
-        if fair_cashout / stake >= _AUTO_CASHOUT_LOCK_IN_RATIO:
+        in_profit = fair_cashout >= stake
+        near_certain = adj_prob is not None and adj_prob >= _AUTO_CASHOUT_LOCK_IN_PROB
+        big_profit = fair_cashout / stake >= _AUTO_CASHOUT_LOCK_IN_RATIO
+        if in_profit and (near_certain or big_profit):
             return 'lock_in'
         if adj_prob is not None and adj_prob < _AUTO_CASHOUT_STOP_LOSS_PROB:
             return 'stop_loss'
@@ -558,7 +602,7 @@ def _attach_open_bets(live_matches):
 
             # Status badge — same decision the auto-cashout executor uses
             # (so a 🟢/🔴 badge is exactly what /auto_cashout would act on).
-            badge = _cashout_decision(fair_cashout, stake, adj_prob)
+            badge = _cashout_decision(fair_cashout, stake, adj_prob, _parse_minute(m))
 
             # Link existence — True if either a fresh snapshot match was
             # found this pass (bk_entry) OR the bet was already linked on
@@ -1262,12 +1306,13 @@ def auto_cashout():
         else:
             adj_prob = float((lm.get('adj_probs') or {}).get(prob_key, 0) or 0)
         fair = g.backend.get_cashout_amount(bet, lm)
-        decision = _cashout_decision(fair, stake, adj_prob if adj_prob > 0 else None)
+        minute = _parse_minute(lm)
+        decision = _cashout_decision(fair, stake, adj_prob if adj_prob > 0 else None, minute)
         evaluated += 1
 
         entry = {
             'ts': now_iso, 'bet_id': bet.get('bet_id'), 'match': match_str,
-            'minute': lm.get('minute') or lm.get('time'),
+            'minute': minute,
             'selection': str(bet.get('selection')), 'stake': round(stake, 2),
             'odds': bet.get('odds'), 'adj_prob': round(adj_prob, 3),
             'fair_cashout': fair,
