@@ -292,11 +292,11 @@
                             <tr>
                                 <th>Lane</th>
                                 <th>Match</th>
-                                <th title="Real match outcome — the would-be settlement (WON/LOST) from the final score. For cashed-out bets, compare against the Result column.">Final</th>
+                                <th title="Actual match result in the bet's market (1/X/2 or Over/Under 2.5). Green = matches your selection, red = doesn't. For cashed-out bets, compare against the Result column.">Final</th>
+                                <th title="Actual final score of the match">Score</th>
                                 <th>Selection</th>
                                 <th>Odds</th>
                                 <th>Stake</th>
-                                <th title="Actual final score of the match">Score</th>
                                 <th title="Actual amount returned: payout if won, cashout amount if cashed out, stake refunded if void, 0 if lost.">Return</th>
                                 <th>P/L</th>
                                 <th>Result</th>
@@ -319,24 +319,30 @@
                                           title="Flagged for live (real-money) betting when this slip was placed. Real placement is dormant — this is a recorded intent only.">⚡ live</span>
                                     {% endif %}
                                 </td>
-                                {# Final = real match outcome (would-be settlement). For cashed-out
-                                   bets it's the counterfactual stamped at verification; for settled
-                                   bets it equals Result. Compare with the Result column to judge the
-                                   cashout decision. #}
+                                {# Final = the actual match result in the bet's market: 1/X/2 for
+                                   1X2, Over/Under 2.5 for O/U, derived from the final score. Colored
+                                   green when it matches the bet's selection (would-win at full time),
+                                   red otherwise. #}
                                 {% set _final = bet.settlement_result if bet.settlement_result is defined
                                                 else (bet.result if bet.result in ['WON', 'LOST'] else None) %}
-                                <td title="What the final score makes this bet (would-be settlement) — compare with the Result column to judge the cashout.">
-                                    {% if _final == 'WON' %}
-                                    <span class="badge bg-success">WON</span>
-                                    {% elif _final == 'LOST' %}
-                                    <span class="badge bg-danger">LOST</span>
+                                {% set _final_text = None %}
+                                {% if bet.final_score and '-' in bet.final_score %}
+                                    {% set _fs = bet.final_score.split('-') %}
+                                    {% set _h = _fs[0]|int %}
+                                    {% set _a = _fs[1]|int %}
+                                    {% if bet.type == '1X2' %}
+                                    {% set _final_text = '1' if _h > _a else ('2' if _a > _h else 'X') %}
+                                    {% elif bet.type in ['O/U', 'OU2.5'] %}
+                                    {% set _final_text = 'Over 2.5' if (_h + _a) > 2 else 'Under 2.5' %}
+                                    {% endif %}
+                                {% endif %}
+                                <td title="Actual match result in this bet's market — green if it matches your selection, red if not.">
+                                    {% if _final_text %}
+                                    <span class="badge {{ 'bg-success' if _final == 'WON' else ('bg-danger' if _final == 'LOST' else 'bg-secondary') }}">{{ _final_text }}</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td class="fw-bold">{{ bet.selection }}</td>
-                                <td>{{ bet.odds }}</td>
-                                <td>{{ bet.stake_units|round(2) }}</td>
                                 <td class="small">
                                     {% if bet.final_score %}
                                     <span class="font-monospace">{{ bet.final_score }}</span>
@@ -344,6 +350,9 @@
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
+                                <td class="fw-bold">{{ bet.selection }}</td>
+                                <td>{{ bet.odds }}</td>
+                                <td>{{ bet.stake_units|round(2) }}</td>
                                 <td class="fw-bold" title="Amount returned for this bet's outcome (payout / cashout / refund / 0).">
                                     {% if bet.pnl is defined %}
                                     {{ (bet.stake_units + bet.pnl)|round(2) }}
