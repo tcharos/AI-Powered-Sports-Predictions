@@ -29,11 +29,23 @@
 {% set _lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
 {% set _state_badge = {'lock_in': 'bg-success', 'stop_loss': 'bg-danger', 'hold': 'bg-secondary'} %}
 {% set _state_label = {'lock_in': '🟢 Lock in', 'stop_loss': '🔴 Stop loss', 'hold': '🟡 Hold'} %}
+{% set _state_text = {'lock_in': 'Lock in', 'stop_loss': 'Stop loss', 'hold': 'Hold'} %}
 {% set _state_emoji = {'lock_in': '🟢', 'stop_loss': '🔴', 'hold': '🟡'} %}
 {% if open_bets %}
 {# ───────── compact table layout, no header (live-analysis + dashboard) ───────── #}
 {% if compact %}
 <table class="table table-sm table-striped mb-0 small align-middle">
+    <thead>
+        <tr class="text-muted small">
+            <th></th>
+            <th>Bet</th>
+            <th>Stake</th>
+            <th>If win</th>
+            <th>Est. cashout</th>
+            <th class="text-center">Signal</th>
+            <th></th>
+        </tr>
+    </thead>
     <tbody>
     {% for b in open_bets %}
     {% set _is_bm = b.cashout_source == 'bookmaker' %}
@@ -46,6 +58,7 @@
         </td>
         <td class="text-nowrap"><strong>{{ b.type }}</strong> · {{ b.selection }} @ {{ b.odds }}</td>
         <td class="text-muted text-nowrap">€{{ b.stake }}</td>
+        <td class="text-nowrap" title="Total return if this bet wins (stake × odds).">€{{ '%.2f'|format(b.stake|float * b.odds|float) }}</td>
         <td class="text-nowrap">
             {% if b.fair_cashout is not none %}
             <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
@@ -59,7 +72,7 @@
         </td>
         <td class="text-center">
             <span class="badge {{ _state_badge.get(b.badge, 'bg-secondary') }}"
-                  title="{{ _state_label.get(b.badge, b.badge) }}">{{ _state_emoji.get(b.badge, '') }}</span>
+                  title="{{ _state_label.get(b.badge, b.badge) }}">{{ _state_text.get(b.badge, b.badge) }} {{ _state_emoji.get(b.badge, '') }}</span>
         </td>
         <td class="text-end">
             {% if b.bet_id and b.fair_cashout is not none %}

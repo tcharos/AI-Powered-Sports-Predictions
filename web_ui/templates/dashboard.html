@@ -71,7 +71,7 @@
     <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
         <span>⚡ Live Match Analysis & Adjustments</span>
         <div class="btn-group">
-            <form action="/football/refresh_live?with_bookmaker=1" method="post" class="d-inline" onsubmit="triggerLive(event)">
+            <form action="/football/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
                 <button type="submit" class="btn btn-sm btn-light text-danger fw-bold" id="refreshLiveBtn">⚡ Refresh
                     Live Snapshot</button>
             </form>
@@ -242,7 +242,7 @@
     <div class="card-body d-flex justify-content-between align-items-center">
         <span>No Live Data loaded.</span>
         <div class="d-flex align-items-center gap-2">
-            <form action="/football/refresh_live?with_bookmaker=1" method="post" class="d-inline" onsubmit="triggerLive(event)">
+            <form action="/football/refresh_live" method="post" class="d-inline" onsubmit="triggerLive(event)">
                 <button type="submit" class="btn btn-outline-danger" id="triggerLiveBtn">⚡ Refresh Live Snapshot</button>
             </form>
             <div class="form-check form-check-inline mb-0">
@@ -498,10 +498,10 @@
 
     function triggerLive(event) {
         event.preventDefault();
-        // Use the FORM's action URL, not a hardcoded one — the manual
-        // button's action carries `?with_bookmaker=1` so the bookmaker
-        // open-bets scrape gets chained. (The auto-5m tick uses a bare
-        // fetch below and stays Flashscore-only.)
+        // Flashscore-only refresh (synthetic cashout estimates). The form
+        // action no longer carries `?with_bookmaker=1`, so the manual button
+        // — like the Auto 10m / Auto-cashout paths — never chains the headed
+        // Pamestoixima open-bets scrape.
         const form = event.target;
         fetch(form.action, { method: 'POST' })
             .then(response => {

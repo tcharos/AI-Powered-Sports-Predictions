@@ -36,6 +36,52 @@ def extract_date_from_filename(filename):
 def normalize(name):
     return name.lower().strip() if name else ""
 
+def _lookup_match_result(bet, results_map, result_keys):
+    """Find the bet's match in the results map (direct then fuzzy ≥80).
+    Returns (final_score_str, res_1x2, res_ou) or None if no result is
+    available yet / malformed. Pure lookup — no mutation."""
+    home = bet.get('home')
+    if not home and bet.get('match'):
+        m_str = bet.get('match')
+        if ' vs ' in m_str:
+            home = m_str.split(' vs ')[0]
+        elif ' - ' in m_str:
+            home = m_str.split(' - ')[0]
+    if not home:
+        return None
+    norm_home = normalize(home)
+    result_data = results_map.get(norm_home)
+    if result_data is None:
+        match = process.extractOne(norm_home, result_keys, scorer=fuzz.ratio)
+        if match and match[1] >= 80:
+            result_data = results_map[match[0]]
+    if result_data is None:
+        return None
+    try:
+        h_score = int(result_data['home_score'])
+        a_score = int(result_data['away_score'])
+    except (KeyError, ValueError, TypeError):
+        return None
+    res_1x2 = "1" if h_score > a_score else ("2" if a_score > h_score else "X")
+    res_ou = "OVER" if (h_score + a_score) > 2.5 else "UNDER"
+    return (f"{h_score}-{a_score}", res_1x2, res_ou)
+
+def _selection_won(bet_type, selection, res_1x2, res_ou):
+    """True if the bet's selection won at full time, given the resolved
+    1X2 / O-U outcomes. Mirrors the inline logic used at settlement."""
+    if bet_type == '1X2':
+        sel = str(selection).upper()
+        if sel in ('HOME', '1'): sel = '1'
+        elif sel in ('AWAY', '2'): sel = '2'
+        elif sel in ('DRAW', 'X'): sel = 'X'
+        return sel == res_1x2
+    if bet_type in ('O/U', 'OU2.5'):
+        sel = str(selection).upper()
+        if 'OVER' in sel: sel = 'OVER'
+        elif 'UNDER' in sel: sel = 'UNDER'
+        return sel == res_ou
+    return False
+
 def load_verification_csv(filepath):
     if not os.path.exists(filepath):
         return {}
@@ -134,8 +180,14 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
 
         bets = bets_data.get('bets', [])
 
-        # Fast path: nothing to do if no OPEN bets remain.
-        if bets and not any(b.get('status') == 'OPEN' for b in bets):
+        # Fast path: skip only slips that are ALREADY finalized — no OPEN
+        # bets AND status already CLOSED. A slip whose bets all became
+        # terminal via cashout/void (outside this settlement pass) still
+        # has status OPEN and never reached the close step below, so let it
+        # flow through (Phase A is a no-op with no OPEN bets; Phase B
+        # recomputes totals; the tail sets status=CLOSED).
+        if bets and not any(b.get('status') == 'OPEN' for b in bets) \
+                and bets_data.get('status') == 'CLOSED':
             continue
 
         # Phase A: settle newly-resolvable OPEN bets, credit lane bankrolls
@@ -146,68 +198,42 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
         for bet in bets:
             if not bet.get('status'):
                 bet['status'] = 'OPEN'
-            if bet.get('status') != 'OPEN':
-                continue
+            status = bet.get('status')
+            if status not in ('OPEN', 'CASHED_OUT'):
+                continue  # WON / LOST / VOID already final
 
             # Bet-level date check (defence in depth on top of file-level).
             if target_date and bet.get('date') and not str(bet.get('date')).startswith(target_date):
                 continue
 
-            home = bet.get('home')
-            if not home and bet.get('match'):
-                m_str = bet.get('match')
-                if ' vs ' in m_str:
-                    home = m_str.split(' vs ')[0]
-                elif ' - ' in m_str:
-                    home = m_str.split(' - ')[0]
-            if not home:
+            # Counterfactual for cashed-out bets: stamp the would-be
+            # settlement result (the REAL match outcome) so the slip can
+            # show cash-vs-real side by side. Never touches status / pnl /
+            # bankroll — the cashout already settled those.
+            if status == 'CASHED_OUT':
+                if 'settlement_result' not in bet:
+                    looked = _lookup_match_result(bet, results_map, result_keys)
+                    if looked is not None:
+                        final_score, res_1x2, res_ou = looked
+                        bet['final_score'] = final_score
+                        bet['settlement_result'] = (
+                            'WON' if _selection_won(bet.get('type'), bet.get('selection'),
+                                                    res_1x2, res_ou) else 'LOST')
                 continue
+
+            # --- OPEN bet: settle against the result, or leave OPEN ---
+            looked = _lookup_match_result(bet, results_map, result_keys)
+            if looked is None:
+                pending_now += 1
+                continue  # no result yet / malformed — leave OPEN, retry next run
+            final_score, res_1x2, res_ou = looked
 
             stake = float(bet.get('stake', bet.get('stake_units', 0)))
             odd = float(bet.get('odd', bet.get('odds', 1.0)))
-            bet_type = bet.get('type')
-            selection = bet.get('selection')
-
-            # Result lookup: direct then fuzzy. If neither, LEAVE OPEN.
-            norm_home = normalize(home)
-            result_data = None
-            if norm_home in results_map:
-                result_data = results_map[norm_home]
-            else:
-                match = process.extractOne(norm_home, result_keys, scorer=fuzz.ratio)
-                if match and match[1] >= 80:
-                    result_data = results_map[match[0]]
-
-            if result_data is None:
-                pending_now += 1
-                continue  # leave OPEN — next run will retry
-
-            try:
-                h_score = int(result_data['home_score'])
-                a_score = int(result_data['away_score'])
-            except (KeyError, ValueError, TypeError):
-                pending_now += 1
-                continue  # malformed result; leave OPEN
-
-            bet['final_score'] = f"{h_score}-{a_score}"
-            res_1x2 = "1" if h_score > a_score else ("2" if a_score > h_score else "X")
+            bet['final_score'] = final_score
             bet['result_1x2'] = res_1x2
-            total_goals = h_score + a_score
-            res_ou = "OVER" if total_goals > 2.5 else "UNDER"
             bet['result_ou'] = res_ou
-
-            won = False
-            if bet_type == '1X2':
-                sel = str(selection).upper()
-                if sel in ('HOME', '1'): sel = '1'
-                elif sel in ('AWAY', '2'): sel = '2'
-                elif sel in ('DRAW', 'X'): sel = 'X'
-                won = (sel == res_1x2)
-            elif bet_type in ('O/U', 'OU2.5'):
-                sel = str(selection).upper()
-                if 'OVER' in sel: sel = 'OVER'
-                elif 'UNDER' in sel: sel = 'UNDER'
-                won = (sel == res_ou)
+            won = _selection_won(bet.get('type'), bet.get('selection'), res_1x2, res_ou)
 
             lane = bet.get('lane', 'value')
             if lane not in LANES:

@@ -112,7 +112,7 @@
                             <option value="">— loading… —</option>
                         </select>
                     </div>
-                    <button class="btn btn-dark btn-lg flex-grow-1" onclick="generateSlip()">🎰 Generate Slip</button>
+                    <button id="generateSlipBtn" class="btn btn-dark btn-lg flex-grow-1" onclick="generateSlip()">🎰 Generate Slip</button>
                 </div>
 
                 <div id="wagerResult" class="mt-4" style="display:none;">
@@ -226,7 +226,10 @@
                 <div>
                     <strong>{{ slip.date }}</strong>
                     <span class="badge bg-{{ 'primary' if slip.status == 'OPEN' else 'dark' }} ms-2 me-3">{{ slip.status }}</span>
-                    <span class="text-muted small">
+                    {% set _settled = slip.bets | selectattr('pnl', 'defined') | list %}
+                    {% set _realized_pnl = _settled | sum(attribute='pnl') %}
+                    {% set _realized_return = (_settled | sum(attribute='stake_units')) + _realized_pnl %}
+                    <span class="small">
                         Played: <strong>{{ slip.get('total_stake', 0)|round(2) }}</strong>
                         <span class="mx-1">|</span>
                         Outcome:
@@ -237,6 +240,20 @@
                         <strong class="{{ 'text-success' if slip.get('pnl', 0) > 0 else ('text-danger' if slip.get('pnl', 0) < 0 else 'text-muted') }}">
                             {{ '+' if slip.get('pnl', 0) > 0 else '' }}{{ slip.get('pnl', 0)|round(2) }}
                         </strong>
+                        {% elif _settled | length > 0 %}
+                        <strong>{{ _realized_return|round(2) }}</strong>
+                        <span class="mx-1">|</span>
+                        Diff:
+                        <strong class="{{ 'text-success' if _realized_pnl > 0 else ('text-danger' if _realized_pnl < 0 else 'text-muted') }}">
+                            {{ '+' if _realized_pnl > 0 else '' }}{{ _realized_pnl|round(2) }}
+                        </strong>
+                        {% if _settled | length < slip.bets | length %}
+                        <span class="badge bg-secondary ms-1" style="font-size:0.7em;"
+                              title="Realized so far from settled / cashed-out bets; {{ slip.bets|length - _settled|length }} bet(s) still open.">partial · {{ _settled|length }}/{{ slip.bets|length }}</span>
+                        {% else %}
+                        <span class="badge bg-info text-dark ms-1" style="font-size:0.7em;"
+                              title="Every bet is cashed out / settled, but the slip stays OPEN until verification closes it.">realized</span>
+                        {% endif %}
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
@@ -275,19 +292,20 @@
                             <tr>
                                 <th>Lane</th>
                                 <th>Match</th>
-                                <th>Type</th>
+                                <th title="Real match outcome — the would-be settlement (WON/LOST) from the final score. For cashed-out bets, compare against the Result column.">Final</th>
                                 <th>Selection</th>
                                 <th>Odds</th>
                                 <th>Stake</th>
                                 <th title="Actual final score of the match">Score</th>
-                                <th>Result</th>
+                                <th title="Actual amount returned: payout if won, cashout amount if cashed out, stake refunded if void, 0 if lost.">Return</th>
                                 <th>P/L</th>
+                                <th>Result</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for bet in slip.bets %}
                             {% set _cashed_out = bet.status == 'CASHED_OUT' or bet.result == 'CASHED_OUT' %}
-                            <tr class="{{ 'table-info' if _cashed_out else ('bet-won' if bet.result == 'WON' else ('bet-lost' if bet.result == 'LOST' else '')) }}">
+                            <tr class="{{ 'bet-won' if bet.result == 'WON' else ('bet-lost' if bet.result == 'LOST' else '') }}">
                                 {% set _lane = bet.get('lane', 'value') %}
                                 <td>
                                     <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-lane-value text-dark') }}">
@@ -301,7 +319,21 @@
                                           title="Flagged for live (real-money) betting when this slip was placed. Real placement is dormant — this is a recorded intent only.">⚡ live</span>
                                     {% endif %}
                                 </td>
-                                <td>{{ bet.type }}</td>
+                                {# Final = real match outcome (would-be settlement). For cashed-out
+                                   bets it's the counterfactual stamped at verification; for settled
+                                   bets it equals Result. Compare with the Result column to judge the
+                                   cashout decision. #}
+                                {% set _final = bet.settlement_result if bet.settlement_result is defined
+                                                else (bet.result if bet.result in ['WON', 'LOST'] else None) %}
+                                <td title="What the final score makes this bet (would-be settlement) — compare with the Result column to judge the cashout.">
+                                    {% if _final == 'WON' %}
+                                    <span class="badge bg-success">WON</span>
+                                    {% elif _final == 'LOST' %}
+                                    <span class="badge bg-danger">LOST</span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
                                 <td class="fw-bold">{{ bet.selection }}</td>
                                 <td>{{ bet.odds }}</td>
                                 <td>{{ bet.stake_units|round(2) }}</td>
@@ -310,6 +342,20 @@
                                     <span class="font-monospace">{{ bet.final_score }}</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="fw-bold" title="Amount returned for this bet's outcome (payout / cashout / refund / 0).">
+                                    {% if bet.pnl is defined %}
+                                    {{ (bet.stake_units + bet.pnl)|round(2) }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="fw-bold">
+                                    {% if bet.pnl is defined %}
+                                    {{ '+' if bet.pnl > 0 else '' }}{{ bet.pnl|round(2) }}
+                                    {% else %}
+                                    -
                                     {% endif %}
                                 </td>
                                 <td>
@@ -337,13 +383,6 @@
                                         </form>
                                         {% endif %}
                                     </div>
-                                    {% endif %}
-                                </td>
-                                <td class="fw-bold">
-                                    {% if bet.pnl is defined %}
-                                    {{ '+' if bet.pnl > 0 else '' }}{{ bet.pnl|round(2) }}
-                                    {% else %}
-                                    -
                                     {% endif %}
                                 </td>
                             </tr>
@@ -482,6 +521,16 @@
     }
 
     function generateSlip() {
+        // Guard: no unbet predictions → the dropdown is empty/disabled.
+        // Without this, an enabled button would POST to auto_wager with no
+        // date, and the endpoint would fall back to the latest CSV (even an
+        // already-bet one) and build a slip. Bail instead.
+        const dateSelGuard = document.getElementById('predictionDate');
+        if (!dateSelGuard || dateSelGuard.disabled || !dateSelGuard.value) {
+            alert('No unbet predictions available — generate predictions first.');
+            return;
+        }
+
         const resultDiv = document.getElementById('wagerResult');
         resultDiv.style.display = 'none';
         currentBets = [];
@@ -563,6 +612,7 @@
             .then(r => r.json())
             .then(data => {
                 const dates = (data && data.dates) || [];
+                const genBtn = document.getElementById('generateSlipBtn');
                 dateSel.innerHTML = '';
                 if (!dates.length) {
                     const opt = document.createElement('option');
@@ -572,8 +622,11 @@
                     opt.selected = true;
                     dateSel.appendChild(opt);
                     dateSel.disabled = true;
+                    if (genBtn) genBtn.disabled = true;   // nothing to generate
                     return;
                 }
+                dateSel.disabled = false;
+                if (genBtn) genBtn.disabled = false;
                 dates.forEach((d, i) => {
                     const opt = document.createElement('option');
                     opt.value = d;
@@ -584,6 +637,9 @@
             })
             .catch(() => {
                 dateSel.innerHTML = '<option value="">(fetch failed)</option>';
+                dateSel.disabled = true;
+                const genBtn = document.getElementById('generateSlipBtn');
+                if (genBtn) genBtn.disabled = true;
             });
     });
 
