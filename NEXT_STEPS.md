@@ -192,6 +192,50 @@ These are the two real headroom directions after the D2 finding (cheap, market-p
 
 **Risks**: data reliability + maintenance burden (the expensive part is keeping feeds alive, not the modelling); legal/ToS for new scrape sources; latency (above).
 
+#### D4 scoping — ACTIVE (2026-05-26)
+
+Selected as the next investment after the model-edge investigation closed every other model lever (D2 cheap features dead, D3 refuted, no market edge in the current stack). Operator is researching candidate sources in parallel; **this section defines what a source must deliver before we commit weeks to it.** Goal of v1: a single, cadence-compatible, *backfillable* team-availability feature set that beats the OOF Brier baseline — proving inefficiently-priced data moves the needle before scaling to more signals.
+
+**The crux — backfill, not the live feed.** XGBoost can only use a feature it was *trained* on, and the model trains on `data_sets/MatchHistory/` (~2010→). So a source that only gives *today's* injuries is useless on its own — we need the signal **historically, point-in-time-correct**, for the matches in the training corpus. Confirmed 2026-05-26: the MatchHistory CSVs carry only team-level card counts (`HY/AY/HR/AR`) with no player attribution, and there is no player-level data anywhere in `data_sets/`. So even *suspensions* (rule-derivable in principle) can't be reconstructed from what we have — D4 introduces a player→team availability layer from scratch. **A source that can't supply history is a live-only feed → at best a near-kickoff re-predict path (separate, larger scope), not a v1 training feature.**
+
+**What to look for — source acceptance checklist** (score every candidate against all of these; a "no" on history or point-in-time correctness is disqualifying for v1):
+1. **Historical depth** — availability/injury/suspension records back to ≥2015 (ideally 2010) for our target leagues. *Hard requirement* — no history, no trainable feature.
+2. **Point-in-time correctness** — date-stamped injury *spells* (start/expected-return), so we can ask "who was unavailable on match date D" without leaking later knowledge. A season-level "was injured at some point" flag is leakage, not signal.
+3. **Player→team→fixture joinability** — stable player IDs or names reconcilable to teams we already map (`team_mappings.json` / `entity_resolver.py`). Player-level join is new; prefer a source that also exposes the player's club per date.
+4. **Importance signal** — minutes played / starts, or market value, or position, so absences can be *weighted* (a key striker out ≠ a 3rd-choice fullback out). Unweighted "N players out" is noise — this is what makes or breaks the feature.
+5. **Target-league coverage** — covers `data_sets/target_leagues.json`, *especially the less-covered leagues* where the market is slowest and the edge most likely lives (top-5 leagues are efficiently priced — see D2).
+6. **License / ToS + cadence** — storage/scraping permitted; updates ≥ daily; rate limits survivable; stable enough to maintain (the expensive part is keeping the feed alive).
+
+**Signal ranking for v1** (cadence-fit × backfillability × inefficiency × join-tractability):
+1. **Injuries + suspensions, team-aggregated** — best fit. Known days ahead (✓ night-before cadence), highest inefficiency in lower leagues. Backfill is the hard part (needs a historical source meeting the checklist).
+2. **Suspensions alone** — more deterministic/backfillable than injuries *if* a source has player-level card history (then bans are rule-derivable per league), but that's the same external-source requirement, so it doesn't dodge the checklist.
+3. **Confirmed lineups** — highest raw signal but **deferred**: confirms ~1h pre-kickoff, incompatible with the night-before run. Needs a new near-kickoff re-predict path → its own project, not v1.
+4. **Bookmaker line movement** — cadence-OK (snapshot odds twice), but market-derived (partially self-defeating) and a different data project. Park it.
+
+**Candidate sources to evaluate** (operator researching — assess each against the checklist above, don't assume):
+- **Transfermarkt** — has injuries + suspensions + market value + deep history + player→club; but scraping is ToS-hostile and rate-limited. The richest *if* access is workable.
+- **API-Football / api-sports.io** — injuries + lineups endpoints, player stats; history depth is tier/paid-dependent — verify how far back injuries go and whether they're point-in-time.
+- **Sportmonks / other paid football APIs** — similar; check historical injury depth + license explicitly.
+- **FBref / StatsBomb-backed** — excellent minutes/importance data (feeds requirement #4) but **no injury feed** — a complement for weighting, not the availability source itself.
+- **Site-specific (premierinjuries, physioroom)** — PL-focused, little/no history, wrong coverage for the inefficiency thesis. Likely fail #1 + #5.
+
+**Feature design v1** (team-level — avoid standing up a full per-player entity model first):
+- `H_unavail_weighted` / `A_unavail_weighted` — Σ importance-weight of unavailable players (injury+suspension) per side; importance = rolling season minutes-share (cheap) or market value (if sourced).
+- `avail_diff = A_unavail_weighted − H_unavail_weighted` — the differential is what the model can compare across matches.
+- `H_key_out` / `A_key_out` — binary: is a top-N (by minutes or goals+assists) player out (attacking absences may carry more than the weighted sum suggests).
+- Keep it ~3–5 columns; resist a per-player feature explosion until v1 proves lift.
+
+**Integration points** (concrete, mirrors the existing PPG/strength train/serve-parity pattern):
+- New downloader/scraper → `data_sets/availability/` (date-stamped spells, raw).
+- `data_loader.py` — join availability onto historical match rows by (team, date).
+- `feature_engineering.py` — emit the v1 columns above.
+- `train_model.py` features list + `models/features_*.json`.
+- `predict_matches.py` — fetch *current* availability for upcoming fixtures (night-before snapshot) and compute the identical columns → **train/serve parity is the main correctness risk**, same gotcha the doc already flags for PPG/strength via `HeuristicAdjuster.get_team_strength`.
+
+**Validation gate** (same bar as D2 — don't deploy on faith): OOF Brier on the existing harness (`calibration/diagnose.out_of_fold_predictions`), feature-in vs feature-out. Accept only if (a) Brier improves by a real margin (D2 nulls were ≈ ±0.0002 — beat that decisively), AND (b) the lift **concentrates in the less-covered leagues** the inefficiency thesis predicts — a uniform lift everywhere is a leakage smell (point-in-time bug), not edge.
+
+**Cheap first probe before committing weeks**: pick ONE well-covered, backfillable league from the chosen source, build availability for just that league, and run the OOF in/out comparison. If even a clean single-league backfill shows no Brier lift, the thesis is weak and we stop before the full data-engineering build. If it lifts, scale the scraper to the rest of the target leagues.
+
 ### Things explicitly NOT worth doing pre-emptively
 
 - **Ensemble stacking with XGBoost + LightGBM + CatBoost.** All three are gradient boosting variants — too correlated to give diversity gains. ~2 weeks of work for sub-1% Brier improvement.
@@ -233,7 +277,7 @@ Remaining DC-only motivations (interpretable α/β strengths, BTTS/correct-score
 
 First scoping decision once D3 is greenlit: **pure-DC** (consistency + interpretability, drops xG/form signal, may not beat current 1X2 Brier) vs **Karlis-Ntzoufras hybrid** (keeps the feature signal, more work). Validate either on the existing OOF Brier harness before deploying.
 
-Reach for **D4** instead only if a specific inefficiently-priced signal (esp. injuries/suspensions, which fit the night-before cadence) looks high-value enough to justify standing up a new scraper + data pipeline. Lineups are higher-value but need a new near-kickoff prediction path (latency mismatch).
+**D4 SELECTED as the next investment (2026-05-26)** — with every model-side lever closed and no market edge in the current stack, inefficiently-priced new data is the only remaining path to a real edge. Scope + source-acceptance checklist live under "D4 scoping — ACTIVE" above. Starting point: injuries/suspensions (night-before-cadence-compatible); lineups deferred (need a near-kickoff re-predict path). Operator is researching sources against the checklist before any build; the cheap single-league backfill probe gates the full data-engineering commit.
 
 Until one is picked, keep XGBoost + Platt calibration + ev_cap_value as the deployed stack.
 
