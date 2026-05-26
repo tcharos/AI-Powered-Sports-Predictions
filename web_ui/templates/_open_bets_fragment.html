@@ -31,35 +31,49 @@
 {% set _state_label = {'lock_in': '🟢 Lock in', 'stop_loss': '🔴 Stop loss', 'hold': '🟡 Hold'} %}
 {% set _state_emoji = {'lock_in': '🟢', 'stop_loss': '🔴', 'hold': '🟡'} %}
 {% if open_bets %}
-{# ───────── compact one-line-per-bet layout (live-analysis) ───────── #}
+{# ───────── compact table layout, no header (live-analysis + dashboard) ───────── #}
 {% if compact %}
-{% for b in open_bets %}
-{% set _is_bm = b.cashout_source == 'bookmaker' %}
-<div class="d-flex align-items-center flex-wrap gap-2 small border-bottom py-1">
-    <span class="badge {{ _lane_badge.get(b.lane, 'bg-secondary') }}">{{ b.lane|capitalize }}</span>
-    {% if b.linked_to_bookmaker %}
-    <span title="Matching real bet on Pamestoixima (uuid={{ b.pamestoixima_uuid }}).">🔗</span>
-    {% endif %}
-    <span class="text-nowrap"><strong>{{ b.type }}</strong> · {{ b.selection }} @ {{ b.odds }}</span>
-    <span class="text-muted text-nowrap">€{{ b.stake }}</span>
-    {% if b.fair_cashout is not none %}
-    <span class="text-nowrap fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
-          title="{% if _is_bm %}Bookmaker's actual cashout offer{% if b.cashout_age_min is not none %} ({{ b.cashout_age_min }} min old){% endif %}.{% else %}Internal fair-value estimate (stake × odds × adj_prob × 0.95).{% endif %}">
-        → €{{ b.fair_cashout }}
-        <span class="badge {{ 'bg-success' if _is_bm else 'bg-secondary' }}" style="font-size: 0.6em; vertical-align: middle;">{% if _is_bm %}real{% if b.cashout_age_min %}·{{ b.cashout_age_min }}m{% endif %}{% else %}est{% endif %}</span>
-    </span>
-    {% endif %}
-    <span class="badge {{ _state_badge.get(b.badge, 'bg-secondary') }}"
-          title="{{ _state_label.get(b.badge, b.badge) }}">{{ _state_emoji.get(b.badge, '') }}</span>
-    {% if b.bet_id and b.fair_cashout is not none %}
-    <form action="{{ url_for('football.cashout', bet_id=b.bet_id) }}" method="post"
-          onsubmit="return confirm('Cash out at €{{ b.fair_cashout }}? Bet becomes CASHED_OUT and €{{ b.fair_cashout }} is credited to the {{ b.lane }} bankroll. This cannot be undone.');"
-          class="m-0 ms-auto">
-        <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2">💰 €{{ b.fair_cashout }}</button>
-    </form>
-    {% endif %}
-</div>
-{% endfor %}
+<table class="table table-sm table-striped mb-0 small align-middle">
+    <tbody>
+    {% for b in open_bets %}
+    {% set _is_bm = b.cashout_source == 'bookmaker' %}
+    <tr>
+        <td>
+            <span class="badge {{ _lane_badge.get(b.lane, 'bg-secondary') }}">{{ b.lane|capitalize }}</span>
+            {% if b.linked_to_bookmaker %}
+            <span title="Matching real bet on Pamestoixima (uuid={{ b.pamestoixima_uuid }}).">🔗</span>
+            {% endif %}
+        </td>
+        <td class="text-nowrap"><strong>{{ b.type }}</strong> · {{ b.selection }} @ {{ b.odds }}</td>
+        <td class="text-muted text-nowrap">€{{ b.stake }}</td>
+        <td class="text-nowrap">
+            {% if b.fair_cashout is not none %}
+            <span class="fw-bold {{ 'text-success' if b.fair_cashout > b.stake else 'text-danger' }}"
+                  title="{% if _is_bm %}Bookmaker's actual cashout offer{% if b.cashout_age_min is not none %} ({{ b.cashout_age_min }} min old){% endif %}.{% else %}Internal fair-value estimate (stake × odds × adj_prob × 0.95).{% endif %}">
+                €{{ b.fair_cashout }}
+                <span class="badge {{ 'bg-success' if _is_bm else 'bg-secondary' }}" style="font-size: 0.6em; vertical-align: middle;">{% if _is_bm %}real{% if b.cashout_age_min %}·{{ b.cashout_age_min }}m{% endif %}{% else %}est{% endif %}</span>
+            </span>
+            {% else %}
+            <span class="text-muted">n/a</span>
+            {% endif %}
+        </td>
+        <td class="text-center">
+            <span class="badge {{ _state_badge.get(b.badge, 'bg-secondary') }}"
+                  title="{{ _state_label.get(b.badge, b.badge) }}">{{ _state_emoji.get(b.badge, '') }}</span>
+        </td>
+        <td class="text-end">
+            {% if b.bet_id and b.fair_cashout is not none %}
+            <form action="{{ url_for('football.cashout', bet_id=b.bet_id) }}" method="post"
+                  onsubmit="return confirm('Cash out at €{{ b.fair_cashout }}? Bet becomes CASHED_OUT and €{{ b.fair_cashout }} is credited to the {{ b.lane }} bankroll. This cannot be undone.');"
+                  class="m-0">
+                <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2">💰 €{{ b.fair_cashout }}</button>
+            </form>
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
 {% else %}
 {# ───────── default card layout (dashboard) ───────── #}
 {% for b in open_bets %}
