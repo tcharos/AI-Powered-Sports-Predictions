@@ -138,11 +138,41 @@ Recorded here so it doesn't get lost; not on the active queue. Captured 2026-05-
 
 ### Architectural pivots — only if cheap wins are exhausted
 
-- [ ] **D3 — Bivariate Poisson / Dixon-Coles.** The football-domain inductive bias for joint home/away goal counts. Properties: single model produces 1X2 + O/U + BTTS + correct-score consistently; per-league attack/defence strength parameters that mean something; per-league fitting natural (auto-calibrated by construction, likely makes the C* Platt layer redundant). Catch: native form is parametric and can't use ELO / xG / shots; would need a hybrid (Karlis-Ntzoufras: XGBoost-derived strength estimates feeding Poisson rates). ~3–4 weeks for a working v1. Best candidate IF we eventually want to outgrow XGBoost.
-- [ ] **D4 — More data, not different model.** "Multimodal" in our context = ingest non-tabular signal. Each is a data-acquisition project, not a model project; any signal added would benefit XGBoost too:
-  - **News sentiment** features (manager statements, injury reports).
-  - **Player availability** / lineup feeds (key player out is highly predictive but currently invisible to the model).
-  - **Bookmaker line movement** as a derived feature (line drifts before kickoff carry signal).
+These are the two real headroom directions after the D2 finding (cheap, market-priced tabular features don't move Brier — the model already rides the B365 implied probs). They attack the problem from opposite ends: **D3 changes the model on the data we already have; D4 adds data the market prices inefficiently and keeps the model.** Detailed below so we can pick deliberately.
+
+#### D3 — Bivariate Poisson / Dixon-Coles (new model, existing data)
+
+**What**: model goals directly instead of classifying outcomes. Per team: an attack strength α and defence strength β; a global home advantage γ. Expected goals λ_home = exp(α_home − β_away + γ), λ_away = exp(α_away − β_home); scoreline ~ Poisson(λ_home) × Poisson(λ_away) with the **Dixon-Coles low-score correction** (τ for the 0-0/1-0/0-1/1-1 dependence) and **exponential time-decay** (ξ) down-weighting old matches. Per-league MLE fit via `scipy.optimize`.
+
+**What it produces**: a full joint scoreline distribution → 1X2, O/U *any* line, BTTS, correct-score, all **mutually consistent** by construction. Directly fixes the "1X2 says one thing, O/U another" inconsistency that's the #3 trigger in the decision rule below.
+
+**Fit with current stack (why this is the lower-friction pivot)**:
+- **Data**: needs only `FTHG`, `FTAG`, `date`, team names, `league` — every one already provided by `data_loader.load_historical_data()` from the `MatchHistory/` corpus. **Zero new scraping or data-layer work.** This is the basis for preferring D3 with the current scraper/loader.
+- **Calibration**: per-league fitting is auto-calibrated by construction → likely makes the C4 Platt layer redundant for the DC model (keep it only as a thin safety / drop it).
+- **predict_matches**: add a DC predictor path that emits the same `Home/Draw/Away/Over/Under %` columns from the scoreline matrix, so `auto_wager` + the betting flow consume it unchanged.
+- **standings / ELO**: ELO becomes optional — DC's α/β strengths replace it as the team-rating mechanism (and they're interpretable: per-league attack/defence numbers that mean something).
+
+**Catch / the real work**: native DC is purely parametric on goals — it **cannot use ELO / xG / shots / the form features** the XGBoost model leans on. A pure DC v1 therefore *trades* those signals for goal-distribution consistency; it might not beat the current model on raw 1X2 Brier. To keep the rich features you need the **Karlis-Ntzoufras hybrid**: XGBoost (or a GLM) predicts the Poisson *rates* λ from the full feature set, then the DC correction + scoreline matrix sits on top. That's the version that could genuinely beat the current stack, and it's the bulk of the effort.
+
+**Effort**: ~3–4 weeks for a pure-DC v1 (fit + per-league params + predictor + validation harness). Hybrid adds ~1–2 weeks. **Decision sub-question to settle first**: is the goal pure-DC (consistency, interpretability, drop calibration) or the hybrid (consistency *and* keep xG/form signal)? They're different scopes.
+
+**Risks**: thin leagues (N<~300) give unstable α/β — same low-data problem as the Platt calibrators; needs a pooled/parent-tier fallback. Time-decay ξ is a hyperparam to tune. A pure-DC model could regress 1X2 Brier vs the current feature-rich XGBoost — validate on the OOF harness before deploying, same gate as the D2 features.
+
+#### D4 — More data, not a different model (new data, existing model)
+
+**What**: ingest signals the betting market prices *inefficiently* (the D2 lesson: market-priced signals are dead, so chase the ones the market is slow/bad at). The XGBoost architecture stays; these become new features.
+- **Player availability / confirmed lineups** — highest value. A key player out is huge and the market reacts, but lineup confirmations (~1 h pre-kickoff) and leaks create windows. Flashscore *has* lineups but the current spider doesn't scrape them.
+- **Injury / suspension feeds** — separate source, drives availability.
+- **News sentiment** (manager statements, team news) — needs an NLP pipeline + a news source.
+- **Bookmaker line movement** as a derived feature — drift before kickoff carries sharp-money signal (partially self-defeating since it's market-derived, but the *movement* is information the static odds snapshot loses).
+
+**Fit with current stack (why it's the higher-friction pivot)**:
+- **Data**: NONE of this is in the `MatchHistory/` corpus or the current Flashscore spider. Each signal is a **new scraper + new data-layer columns + ongoing maintenance** (feeds break, sources change ToS). `data_loader` and `feature_engineering` both need real extension.
+- **Latency mismatch**: predictions run the night before for next-day fixtures (per the operational cadence), but lineups confirm ~1 h pre-kickoff — so lineup features only help a *re-run-near-kickoff* prediction mode we don't have yet. Injuries/suspensions are known earlier and fit the night-before cadence better.
+
+**Effort**: each signal is its own data-acquisition project — weeks each, plus permanent maintenance. Lineups are the highest-value, but the latency mismatch means they need a new "late refresh" prediction path. Injury/suspension data is the most cadence-compatible starting point.
+
+**Risks**: data reliability + maintenance burden (the expensive part is keeping feeds alive, not the modelling); legal/ToS for new scrape sources; latency (above).
 
 ### Things explicitly NOT worth doing pre-emptively
 
@@ -150,14 +180,20 @@ Recorded here so it doesn't get lost; not on the active queue. Captured 2026-05-
 - **Tabular neural networks** (TabNet, FT-Transformer). Decade of evidence: GBT > NN on tabular unless you're combining with non-tabular features.
 - **Generic ensembling / model stacking** without genuine model-family diversity. Diminishing returns.
 
-### Decision rule for when to revisit
+### Decision rule: D3 vs D4
 
-Pull D3 (bivariate Poisson) off the shelf if **and only if**:
-1. D1 + D2 have been done (within the last ~6 months), AND
-2. Current Brier is stable across multiple retrains (no easy headroom left), AND
-3. Per-market inconsistencies (1X2 says one thing, O/U says another for the same match) become an observed problem.
+D2 is effectively exhausted for cheap tabular features (3 rolled back; market-priced signals don't move Brier). So the next model investment is D3 or D4. Lean **D3** with the current stack — it reuses `data_loader` + the `MatchHistory/` corpus with **no new data acquisition**, whereas D4 is a data-engineering project (new scrapers, new pipelines, ongoing feed maintenance) before any modelling. (Operator note 2026-05-26: D3 preferred given current scraper/loader coverage.)
 
-Until then, keep XGBoost + Platt calibration + ev_cap_value as the deployed stack.
+Pull **D3** off the shelf when:
+1. D1 + D2 done (✅ — D2 cheap features exhausted), AND
+2. 1X2 Brier stable across retrains with no easy headroom (✅ — confirmed by the D2 nulls), AND
+3. Per-market inconsistency (1X2 vs O/U disagreeing on the same match) is an observed problem — **the open item to confirm**. Before committing the ~3–4 wks, spot-check recent `predictions_*.csv` for matches where the 1X2 pick and the O/U pick imply contradictory scorelines; if it's common, D3's consistency is a concrete win, not just elegance.
+
+First scoping decision once D3 is greenlit: **pure-DC** (consistency + interpretability, drops xG/form signal, may not beat current 1X2 Brier) vs **Karlis-Ntzoufras hybrid** (keeps the feature signal, more work). Validate either on the existing OOF Brier harness before deploying.
+
+Reach for **D4** instead only if a specific inefficiently-priced signal (esp. injuries/suspensions, which fit the night-before cadence) looks high-value enough to justify standing up a new scraper + data pipeline. Lineups are higher-value but need a new near-kickoff prediction path (latency mismatch).
+
+Until one is picked, keep XGBoost + Platt calibration + ev_cap_value as the deployed stack.
 
 ## Future analysis ideas (not yet scoped)
 
