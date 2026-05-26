@@ -192,9 +192,11 @@ These are the two real headroom directions after the D2 finding (cheap, market-p
 
 **Risks**: data reliability + maintenance burden (the expensive part is keeping feeds alive, not the modelling); legal/ToS for new scrape sources; latency (above).
 
-#### D4 scoping — ACTIVE (2026-05-26)
+#### D4 scoping — PARKED as possible next step (2026-05-26)
 
-Selected as the next investment after the model-edge investigation closed every other model lever (D2 cheap features dead, D3 refuted, no market edge in the current stack).
+**Status: parked pending the operator's api-sports coverage research (step 0 go/no-go below).** Scoping is done and the availability half is de-risked (Flashscore "Will not play" is structured, reason-tagged, night-before — see probe findings). The single blocker is *importance*: it must come from api-sports per-player stats, and D4 only proceeds if api-sports covers our **less-covered** leagues (not just top-5). When that's answered, resume at the build plan. Until then this is a possible next step, not active work.
+
+Selected as the next *candidate* investment after the model-edge investigation closed every other model lever (D2 cheap features dead, D3 refuted, no market edge in the current stack).
 
 **Design reframe (2026-05-26, operator) — inference-time rebalancing, NOT a trained feature.** Don't train injuries into XGBoost; apply them as a *post-model adjustment* to the predicted probabilities, exactly like the existing `heuristic_adjuster.py` and the live red-card modifier (`_apply_red_card_modifier` — a structural game-state signal layered on model output, capped, not trained). This **dissolves the backfill crux** that dominated the original scoping: an inference-time adjuster needs only *current* availability for upcoming fixtures, not point-in-time history across the 2010→ corpus. (For context, the backfill problem was real for the trained-feature path: confirmed the MatchHistory CSVs carry only team-level cards `HY/AY/HR/AR`, no player attribution, and there's zero player-level data in `data_sets/`.)
 
@@ -269,7 +271,7 @@ Remaining DC-only motivations (interpretable α/β strengths, BTTS/correct-score
 
 First scoping decision once D3 is greenlit: **pure-DC** (consistency + interpretability, drops xG/form signal, may not beat current 1X2 Brier) vs **Karlis-Ntzoufras hybrid** (keeps the feature signal, more work). Validate either on the existing OOF Brier harness before deploying.
 
-**D4 SELECTED as the next investment (2026-05-26)** — with every model-side lever closed and no market edge in the current stack, inefficiently-priced new data is the only remaining path to a real edge. Scope + source-acceptance checklist live under "D4 scoping — ACTIVE" above. Starting point: injuries/suspensions (night-before-cadence-compatible); lineups deferred (need a near-kickoff re-predict path). Operator is researching sources against the checklist before any build; the cheap single-league backfill probe gates the full data-engineering commit.
+**D4 = the standing candidate for the next investment, currently PARKED (2026-05-26)** — with every model-side lever closed and no market edge in the current stack, inefficiently-priced new data is the only remaining path to a real edge. Reframed as an inference-time injury adjuster (not a trained feature); availability source de-risked (Flashscore), but parked pending the api-sports importance-coverage go/no-go. Full scope + build plan under "D4 scoping — PARKED" above. Resume there once the operator's coverage research lands.
 
 Until one is picked, keep XGBoost + Platt calibration + ev_cap_value as the deployed stack.
 
