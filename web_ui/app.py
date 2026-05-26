@@ -204,7 +204,8 @@ def index():
                           verifications=verifications,
                           league_stats=league_stats,
                           live_matches=live_matches[:50],
-                          scraped_data=scraped_data)
+                          scraped_data=scraped_data,
+                          auto_cashout_armed=_auto_cashout_armed())
 
 
 # Selection → adjusted-probs key for fair-value cashout estimation.
@@ -1238,23 +1239,17 @@ def cashout(bet_id):
     return redirect(request.referrer or url_for('football.index'))
 
 
-@football_bp.route('/auto_cashout', methods=['POST'])
-def auto_cashout():
-    """Automatic cashout sweep — virtual money only, no real bet touched.
+def _run_auto_cashout_sweep(backend):
+    """Evaluate every OPEN bet currently on a live match and cash out (via
+    the lane-cascading `execute_cashout`) those whose decision is non-`hold`
+    (`_cashout_decision`, same thresholds as the display badge). Pricing is
+    the synthetic fair-value estimate, so this exercises cashout TIMING/
+    MECHANISM, not real bookmaker economics — VIRTUAL money only.
 
-    Evaluates every OPEN bet that's currently on a live match and cashes
-    out (via the normal lane-cascading `execute_cashout`) the ones whose
-    decision is `lock_in` / `stop_loss` — the SAME thresholds the display
-    badge uses (`_cashout_decision`). Pricing is the synthetic fair-value
-    estimate (`stake × odds × adj_prob × 0.95`), so this exercises the
-    cashout TIMING/MECHANISM, not real bookmaker economics.
-
-    Intended to be chained after a Flashscore live refresh by the
-    dashboard's "Auto-cashout" toggle. Every evaluation (fired or held)
-    is appended to `output/auto_cashout_log.jsonl` for audit. Returns
-    JSON so the caller can decide whether to reload.
-    """
-    # Load the latest live snapshot once and index it by match string.
+    Pure function (no Flask request context) so BOTH the POST endpoint and
+    the autonomous scheduler thread can call it; pass the backend in. Every
+    evaluation (fired or held) is appended to `output/auto_cashout_log.jsonl`.
+    Returns a summary dict."""
     live_by_match = {}
     live_path = os.path.join(OUTPUT_DIR, 'live_data.json')
     try:
@@ -1265,12 +1260,10 @@ def auto_cashout():
             if isinstance(m, dict) and m.get('match'):
                 live_by_match[m['match'].strip()] = m
     except (OSError, json.JSONDecodeError):
-        return jsonify({'evaluated': 0, 'cashed_count': 0, 'cashed': [],
-                        'note': 'no live snapshot'}), 200
+        return {'evaluated': 0, 'cashed_count': 0, 'cashed': [], 'note': 'no live snapshot'}
 
-    # Collect OPEN bets from active slips (not history), one representative
-    # per conceptual wager (execute_cashout cascades across lanes), so we
-    # don't evaluate/fire the same bet_id more than once.
+    # One representative per conceptual wager (execute_cashout cascades
+    # across lanes), so we don't evaluate/fire the same bet_id twice.
     seen = set()
     representatives = []
     for slip_path in sorted(glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json'))):
@@ -1305,7 +1298,7 @@ def auto_cashout():
             adj_prob = float((lm.get('adj_ou_probs') or {}).get(prob_key, 0) or 0)
         else:
             adj_prob = float((lm.get('adj_probs') or {}).get(prob_key, 0) or 0)
-        fair = g.backend.get_cashout_amount(bet, lm)
+        fair = backend.get_cashout_amount(bet, lm)
         minute = _parse_minute(lm)
         decision = _cashout_decision(fair, stake, adj_prob if adj_prob > 0 else None, minute)
         evaluated += 1
@@ -1320,7 +1313,7 @@ def auto_cashout():
             'decision': decision, 'executed': False, 'amount': None,
         }
         if decision != 'hold':
-            ok = g.backend.execute_cashout(bet, lm)
+            ok = backend.execute_cashout(bet, lm)
             if ok:
                 entry['executed'] = True
                 entry['amount'] = fair
@@ -1329,7 +1322,6 @@ def auto_cashout():
                                'selection': str(bet.get('selection'))})
         log_lines.append(entry)
 
-    # Append the audit trail (one JSON object per evaluated bet).
     if log_lines:
         try:
             with open(os.path.join(OUTPUT_DIR, 'auto_cashout_log.jsonl'), 'a') as f:
@@ -1338,8 +1330,53 @@ def auto_cashout():
         except OSError:
             pass
 
-    return jsonify({'evaluated': evaluated, 'cashed_count': len(cashed),
-                    'cashed': cashed}), 200
+    return {'evaluated': evaluated, 'cashed_count': len(cashed), 'cashed': cashed}
+
+
+# --- Auto-cashout arming (server-side, browser-independent) ----------------
+# The autonomous scheduler thread (started in __main__) refreshes Flashscore
+# + runs the sweep every _AUTO_CASHOUT_INTERVAL_S while armed. Arming is
+# persisted to disk so it survives a server restart and does NOT depend on a
+# browser tab being open — the cashout actually executes, it isn't just a
+# badge a human has to click.
+_AUTO_CASHOUT_ARM_PATH = os.path.join(OUTPUT_DIR, 'auto_cashout_armed.json')
+_AUTO_CASHOUT_INTERVAL_S = 10 * 60
+
+
+def _auto_cashout_armed():
+    try:
+        with open(_AUTO_CASHOUT_ARM_PATH) as f:
+            return bool(json.load(f).get('armed'))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def _set_auto_cashout_armed(on: bool):
+    try:
+        with open(_AUTO_CASHOUT_ARM_PATH, 'w') as f:
+            json.dump({'armed': bool(on),
+                       'changed': datetime.datetime.now().isoformat(timespec='seconds')}, f)
+    except OSError:
+        pass
+
+
+@football_bp.route('/auto_cashout', methods=['POST'])
+def auto_cashout():
+    """Run ONE auto-cashout sweep now (manual/diagnostic trigger). The
+    scheduler thread runs this autonomously when armed; this endpoint is
+    handy for an immediate sweep against the current snapshot. JSON out."""
+    return jsonify(_run_auto_cashout_sweep(g.backend)), 200
+
+
+@football_bp.route('/auto_cashout/arm', methods=['POST'])
+def auto_cashout_arm():
+    """Arm/disarm the autonomous server-side auto-cashout loop. Body/query
+    `on=1|0`. While armed, the background thread refreshes Flashscore and
+    sweeps every 10 min regardless of whether any browser tab is open."""
+    raw = (request.form.get('on') or request.args.get('on') or '').strip().lower()
+    on = raw in ('1', 'true', 'on', 'yes')
+    _set_auto_cashout_armed(on)
+    return jsonify({'armed': on}), 200
 
 
 @football_bp.route('/void_bet/<bet_id>', methods=['POST'])
@@ -1607,6 +1644,27 @@ def live_analysis():
     # Fallback/Empty state handled in template
     return render_template('live.html', matches=matches_data)
 
+def _launch_live_refresh(with_bookmaker=False):
+    """Start the Flashscore live scrape (`scripts/run_live_analysis.py`).
+    Returns the Popen, or None if a live scrape is already running. Shared
+    by the /refresh_live route and the autonomous auto-cashout scheduler."""
+    if TASKS.get('live') and TASKS['live'].get('process') and TASKS['live']['process'].poll() is None:
+        return None
+    script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_live_analysis.py')
+    log_file = open(os.path.join(LOG_DIR, 'live.log'), 'w')
+    # ml_project imports need both repo root and ml_project/ on PYTHONPATH.
+    env = os.environ.copy()
+    ml_paths = [PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'ml_project')]
+    env['PYTHONPATH'] = os.pathsep.join([p for p in ml_paths + [env.get('PYTHONPATH', '')] if p])
+    cmd = ['venv/bin/python', script_path]
+    if with_bookmaker:
+        cmd.append('--with-bookmaker')
+    proc = subprocess.Popen(
+        cmd, cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env)
+    TASKS['live'] = {'process': proc, 'start_time': datetime.datetime.now()}
+    return proc
+
+
 @football_bp.route('/refresh_live', methods=['POST'])
 def refresh_live():
     """Kicks off `scripts/run_live_analysis.py` (Flashscore live scrape).
@@ -1615,39 +1673,17 @@ def refresh_live():
     scrape finishes, conditionally chains the Pamestoixima open-bets
     scrape ONLY IF a live match has an open bet on it (otherwise there's
     nothing for a cashout offer to attach to, so the slow ~25s headed
-    Chromium scrape is skipped). The auto-5m dashboard polling omits the
+    Chromium scrape is skipped). The auto-refresh polling omits the
     flag entirely (Pamestoixima needs headed mode — Akamai blocks
-    headless — so popping a Chromium window every 5 min is off the
+    headless — so popping a Chromium window every refresh is off the
     table). See PAMESTOIXIMA_NOTES.md "Corrections"."""
-    script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_live_analysis.py')
     with_bookmaker = (request.args.get('with_bookmaker')
                       or request.form.get('with_bookmaker'))
     try:
-        if TASKS.get('live') and TASKS['live']['process'] and TASKS['live']['process'].poll() is None:
-             flash('Live analysis is already running!', 'warning')
-             return redirect(url_for('football.index'))
-
-        log_file = open(os.path.join(LOG_DIR, 'live.log'), 'w')
-        # ml_project imports need both repo root and ml_project/ on PYTHONPATH
-        # (same convention as bin/run_predictions.sh).
-        env = os.environ.copy()
-        existing_pp = env.get('PYTHONPATH', '')
-        ml_paths = [PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'ml_project')]
-        env['PYTHONPATH'] = os.pathsep.join([p for p in ml_paths + [existing_pp] if p])
-        # The Pamestoixima scrape is now chained from inside the script
-        # (gated on a live match having an open bet) rather than spawned
-        # here in parallel — that's what lets us skip it when nothing
-        # relevant is live, instead of always paying the ~25s.
-        cmd = ['venv/bin/python', script_path]
-        if with_bookmaker:
-            cmd.append('--with-bookmaker')
-        proc = subprocess.Popen(
-            cmd, cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env
-        )
-
-        TASKS['live'] = {'process': proc, 'start_time': datetime.datetime.now()}
-
-        if with_bookmaker:
+        proc = _launch_live_refresh(with_bookmaker=bool(with_bookmaker))
+        if proc is None:
+            flash('Live analysis is already running!', 'warning')
+        elif with_bookmaker:
             flash('Live refresh started — bookmaker offers will refresh too '
                   'if a live match has an open bet (brief Chromium window).', 'info')
         else:
@@ -2437,6 +2473,45 @@ def landing():
 app.register_blueprint(football_bp, url_prefix='/football')
 
 
+def _auto_cashout_scheduler():
+    """Autonomous background loop: while armed (`auto_cashout_armed.json`),
+    refresh Flashscore then run the cashout sweep every
+    `_AUTO_CASHOUT_INTERVAL_S` — independent of any browser tab, so the
+    cashout actually EXECUTES rather than waiting on a manual user action.
+    Daemon thread (started below). Each tick is guarded so one failure
+    can't kill the loop. Virtual money only — no real bet is touched."""
+    import time
+    import logging
+    log = logging.getLogger('auto_cashout')
+    last_run = 0.0
+    while True:
+        time.sleep(20)  # cheap when idle; responsive to arm/disarm
+        try:
+            if not _auto_cashout_armed():
+                continue
+            now = time.time()
+            if now - last_run < _AUTO_CASHOUT_INTERVAL_S:
+                continue
+            last_run = now
+            # Use a running scrape if one exists, else launch one; then wait.
+            existing = (TASKS.get('live') or {}).get('process')
+            proc = existing if (existing is not None and existing.poll() is None) \
+                else _launch_live_refresh(with_bookmaker=False)
+            if proc is not None:
+                for _ in range(120):           # wait up to ~4 min for the scrape
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(2)
+            res = _run_auto_cashout_sweep(VirtualBettingBackend(output_dir=OUTPUT_DIR))
+            if res.get('cashed_count'):
+                log.warning('auto-cashout fired: %s', res)
+        except Exception as e:
+            log.warning('auto-cashout tick failed: %s', e)
+
+
 if __name__ == '__main__':
+    # Autonomous auto-cashout loop (executes server-side, no browser needed).
+    import threading
+    threading.Thread(target=_auto_cashout_scheduler, daemon=True).start()
     # Disable debug for performance
     app.run(debug=False, port=5001, host='0.0.0.0')
