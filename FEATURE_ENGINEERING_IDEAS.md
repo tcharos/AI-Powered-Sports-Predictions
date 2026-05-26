@@ -137,11 +137,26 @@ Keep existing unweighted features unchanged, add A + B + C as *new* columns. Let
 **Expected lift**: 2–4% Brier on the affected matches (a fraction of the dataset), so the global lift is more modest — maybe 0.5–1%.
 **Risk**: same-name teams across divisions / promotions across confederations need careful handling. `entity_resolver.py` covers most.
 
-### 1.5 Rest days / fixture congestion
+### 1.5 Rest days / fixture congestion — ❌ TESTED & ROLLED BACK (2026-05-26)
 **What**: `H_rest_days`, `A_rest_days` = days since each team's previous match. Also `rest_diff = H - A`.
 **Why**: well-documented effect — three games in a week vs a fully-rested opponent matters. Currently invisible to the model.
 **Cost**: small. Pure date arithmetic on existing match history.
-**Expected lift**: 1–2% Brier, concentrated on midweek fixtures and post-cup matchdays.
+**Expected lift (doc, pre-test)**: 1–2% Brier, concentrated on midweek fixtures and post-cup matchdays.
+**Empirical result (post-test)**: **no measurable lift, anywhere** — including on the congested subsets the doc predicted it would help. Rolled back.
+
+**Test setup**: `H_rest_days`/`A_rest_days`/`rest_diff` built in `_add_rest_days` (cap/sentinel 14), train + serve, added to `common_features`. Same per-league + subset OOF 1X2 Brier ablation used to kill §1.2.
+
+**Findings** (5-fold OOF, 11 685 matches):
+- Global weighted-mean Brier delta (with rest − without): **+0.0001 (+0.01%)** — flat, within noise. 1 league helped, 1 hurt, 19 neutral.
+- **Subset test (the concentrated-effect hypothesis)** — even where rest *should* matter most:
+  - `|rest_diff| ≥ 3` (n=1049): +0.0002
+  - `|rest_diff| ≥ 4` (n=522): +0.0001
+  - either team rest ≤ 3 / congested (n=1482): −0.0002
+  - both teams rested (n=8180): +0.0001
+  All within noise. The concentrated effect didn't show.
+
+**Why it didn't help (strategic insight — applies to §1.2 too)**: the model's strongest features are the **bookmaker implied probabilities** (`IP_H/D/A` from B365 odds). The betting market already prices rest / congestion (it knows the fixture calendar), so feeding the model a raw version of a signal the odds already encode gives XGBoost nothing orthogonal. Two cheap features now rolled back (§1.2 recency form, §1.5 rest) both plausibly for this reason.
+**Implication for the rest of D2**: candidates the market *also* efficiently prices (promoted-team, H2H, manager-change) are likely to come up similarly flat. The real headroom is either (a) signals the market prices *inefficiently* (rare/hard-to-quantify — injuries to specific key players, lineup leaks), or (b) dropping the odds-dependence so the model must learn fundamentals (a bigger architectural choice, overlaps with D3). Worth weighing before spending more days on Tier-1 date/form features.
 **Risk**: low. Just be sure to skip the first matchday of each season cleanly (no prior match → use a sentinel like 14 days).
 
 ### 1.6 Head-to-head specifics (last 2–3 H2H)

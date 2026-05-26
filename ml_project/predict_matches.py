@@ -151,7 +151,7 @@ class MatchPredictor:
         # If we are verifying this team as HOME team, we want last 5 HOME games.
         # But this method is generic. Let's return both or split?
         # Let's return separate dicts for Home and Away specific form.
-        
+
         return stats
 
     def get_venue_specific_stats(self, team_name, is_home_focus, date_before):
