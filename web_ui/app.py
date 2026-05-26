@@ -1967,12 +1967,22 @@ def compute_sport_summary(bets_dir):
             s['settled'] += 1
             # CASHED_OUT is checked first so it doesn't fall through to the
             # VOID else-branch. Cashout amount + pnl are stored at cashout
-            # time (Phase 7 will populate them); we trust those over recomputing.
+            # time; we trust those over recomputing.
             if status == 'CASHED_OUT' or result == 'CASHED_OUT':
-                s['cashed_out'] += 1
+                s['cashed_out'] += 1  # memo subset; also folded into won/lost below
                 cashout_amount = float(bet.get('cashout_amount', stake))
+                pnl_v = float(bet.get('pnl', cashout_amount - stake))
                 s['returned'] += cashout_amount
-                s['pnl'] += float(bet.get('pnl', cashout_amount - stake))
+                s['pnl'] += pnl_v
+                # Win% counts the FULL flow including the cashout decision:
+                # once cashed out the position is closed, so the REALIZED
+                # money is the outcome — cashout > stake is a win, < stake a
+                # loss. The final match result is moot here (it's shown only
+                # in the slip's Final column for reference). Break-even = push.
+                if pnl_v > 0:
+                    s['won'] += 1
+                elif pnl_v < 0:
+                    s['lost'] += 1
             elif result == 'WON' or status == 'WON':
                 s['won'] += 1
                 s['returned'] += stake + float(bet.get('pnl', 0))
