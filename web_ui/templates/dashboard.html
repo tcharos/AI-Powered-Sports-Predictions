@@ -78,8 +78,15 @@
             <div class="form-check form-check-inline ms-2 mb-0">
                 <input class="form-check-input" type="checkbox" id="autoRefreshLive">
                 <label class="form-check-label small text-white" for="autoRefreshLive"
-                       title="Auto-refresh every 5 min while this tab is visible (paused when tab is hidden)">
-                    Auto 5m
+                       title="Auto-refresh every 10 min while this tab is visible (paused when tab is hidden)">
+                    Auto 10m
+                </label>
+            </div>
+            <div class="form-check form-check-inline ms-1 mb-0">
+                <input class="form-check-input" type="checkbox" id="autoCashout">
+                <label class="form-check-label small text-white" for="autoCashout"
+                       title="When the auto-refresh runs, automatically cash out OPEN bets whose live decision is lock-in (cashout ≥ 1.5× stake) or stop-loss (win prob < 20%), at the ESTIMATED fair value. Virtual money only — no real bet is placed.">
+                    Auto-cashout
                 </label>
             </div>
             <form action="/football/clear_live" method="post" class="d-inline ms-2">
@@ -241,8 +248,15 @@
             <div class="form-check form-check-inline mb-0">
                 <input class="form-check-input" type="checkbox" id="autoRefreshLive">
                 <label class="form-check-label small" for="autoRefreshLive"
-                       title="Auto-refresh every 5 min while this tab is visible (paused when tab is hidden)">
-                    Auto 5m
+                       title="Auto-refresh every 10 min while this tab is visible (paused when tab is hidden)">
+                    Auto 10m
+                </label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" id="autoCashout">
+                <label class="form-check-label small" for="autoCashout"
+                       title="When the auto-refresh runs, automatically cash out OPEN bets whose live decision is lock-in (cashout ≥ 1.5× stake) or stop-loss (win prob < 20%), at the ESTIMATED fair value. Virtual money only — no real bet is placed.">
+                    Auto-cashout
                 </label>
             </div>
         </div>
@@ -604,38 +618,83 @@
     wireCollapsible('leagueStatsBody',   'leagueStatsChevron',   'leagueStatsOpen',   false);
     wireCollapsible('scrapedDataBody',   'scrapedDataChevron',   'scrapedDataOpen',   false);
 
-    // Live auto-refresh toggle. Persists state in localStorage; pauses when
-    // the tab is hidden (visibilitychange / document.visibilityState).
-    // Skips the trigger if a previous live task is still 'running'.
+    // Live auto-refresh (10 min) + optional auto-cashout. State persists in
+    // localStorage; the loop pauses while the tab is hidden. A single timer
+    // drives both toggles. Each tick: if Auto 10m is on, trigger a
+    // Flashscore-only refresh (no bookmaker scrape); if Auto-cashout is on,
+    // run the cashout sweep AFTER the refresh finishes (or against the
+    // existing snapshot when refresh is off). Skips while a live task runs.
     (function () {
         const cb = document.getElementById('autoRefreshLive');
-        if (!cb) return;
+        const cbCash = document.getElementById('autoCashout');
+        if (!cb && !cbCash) return;
         const KEY = 'liveAutoRefresh';
-        const INTERVAL_MS = 5 * 60 * 1000;
+        const KEY_CASH = 'liveAutoCashout';
+        const INTERVAL_MS = 10 * 60 * 1000;
         let timer = null;
+
+        // POST the auto-cashout sweep; reload to reflect new CASHED_OUT
+        // states only if something was actually cashed out.
+        function sweepCashout() {
+            fetch('/football/auto_cashout', { method: 'POST' })
+                .then(r => r.json())
+                .then(res => { if (res && res.cashed_count > 0) location.reload(); })
+                .catch(() => {});
+        }
+
+        // Wait for the live scrape to finish (poll /status, ~2 min cap),
+        // then sweep against the fresh snapshot.
+        function sweepWhenReady() {
+            let tries = 0;
+            const poll = setInterval(() => {
+                tries++;
+                fetch('/status').then(r => r.json()).then(s => {
+                    const running = s.live && s.live.state === 'running';
+                    if (running && tries <= 40) return;
+                    clearInterval(poll);
+                    if (running) return;          // gave up; next tick retries
+                    sweepCashout();
+                }).catch(() => { clearInterval(poll); });
+            }, 3000);
+        }
 
         function tick() {
             if (document.visibilityState !== 'visible') return;
+            const doRefresh = cb && cb.checked;
+            const doCash = cbCash && cbCash.checked;
+            if (!doRefresh && !doCash) return;
             fetch('/status').then(r => r.json()).then(s => {
                 if (s.live && s.live.state === 'running') return;
-                fetch('/football/refresh_live', { method: 'POST' });
+                if (doRefresh) {
+                    fetch('/football/refresh_live', { method: 'POST' })
+                        .then(() => { if (doCash) sweepWhenReady(); });
+                } else if (doCash) {
+                    sweepCashout();               // no refresh; use current snapshot
+                }
             }).catch(() => { /* network blip: skip this tick */ });
         }
 
-        function start() {
-            if (timer) return;
-            timer = setInterval(tick, INTERVAL_MS);
-        }
-        function stop() {
-            if (timer) { clearInterval(timer); timer = null; }
+        function syncTimer() {
+            const want = (cb && cb.checked) || (cbCash && cbCash.checked);
+            if (want && !timer) timer = setInterval(tick, INTERVAL_MS);
+            else if (!want && timer) { clearInterval(timer); timer = null; }
         }
 
-        cb.checked = localStorage.getItem(KEY) === '1';
-        if (cb.checked) start();
-        cb.addEventListener('change', () => {
-            localStorage.setItem(KEY, cb.checked ? '1' : '0');
-            cb.checked ? start() : stop();
-        });
+        if (cb) {
+            cb.checked = localStorage.getItem(KEY) === '1';
+            cb.addEventListener('change', () => {
+                localStorage.setItem(KEY, cb.checked ? '1' : '0');
+                syncTimer();
+            });
+        }
+        if (cbCash) {
+            cbCash.checked = localStorage.getItem(KEY_CASH) === '1';
+            cbCash.addEventListener('change', () => {
+                localStorage.setItem(KEY_CASH, cbCash.checked ? '1' : '0');
+                syncTimer();
+            });
+        }
+        syncTimer();
     })();
     updateStatus();
 </script>

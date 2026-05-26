@@ -218,6 +218,30 @@ _SELECTION_TO_PROB_KEY = {
 
 _CASHOUT_HOUSE_HAIRCUT = 0.95
 
+# Cashout decision thresholds — shared by the display badge in
+# _attach_open_bets AND the auto-cashout executor (/auto_cashout) so the
+# automatic action always matches what the UI shows.
+#   lock_in   : fair cashout has grown to ≥ this multiple of the stake
+#               → bank the profit.
+#   stop_loss : live win-probability for the bet's selection has fallen
+#               below this → cut the loss.
+#   else      : hold (stay in the bet).
+_AUTO_CASHOUT_LOCK_IN_RATIO = 1.5
+_AUTO_CASHOUT_STOP_LOSS_PROB = 0.20
+
+
+def _cashout_decision(fair_cashout, stake, adj_prob):
+    """Return 'lock_in' | 'stop_loss' | 'hold' for an OPEN bet given its
+    fair-value cashout, stake, and current adjusted win-probability.
+    Single source of truth for both the badge and auto-cashout."""
+    if fair_cashout is not None and stake > 0:
+        if fair_cashout / stake >= _AUTO_CASHOUT_LOCK_IN_RATIO:
+            return 'lock_in'
+        if adj_prob is not None and adj_prob < _AUTO_CASHOUT_STOP_LOSS_PROB:
+            return 'stop_loss'
+    return 'hold'
+
+
 # Bookmaker cashout snapshot — scenario #3B in
 # real_betting/test_case_scenarios.md produces this file. Schema (when
 # the scraper is wired):
@@ -532,13 +556,9 @@ def _attach_open_bets(live_matches):
                 fair_cashout = synthetic_cashout
                 cashout_source = 'synthetic'
 
-            # Status badge (informational only; no auto-action attached).
-            badge = 'hold'
-            if fair_cashout is not None and stake > 0:
-                if fair_cashout / stake >= 1.5:
-                    badge = 'lock_in'
-                elif adj_prob is not None and adj_prob < 0.20:
-                    badge = 'stop_loss'
+            # Status badge — same decision the auto-cashout executor uses
+            # (so a 🟢/🔴 badge is exactly what /auto_cashout would act on).
+            badge = _cashout_decision(fair_cashout, stake, adj_prob)
 
             # Link existence — True if either a fresh snapshot match was
             # found this pass (bk_entry) OR the bet was already linked on
@@ -1172,6 +1192,109 @@ def cashout(bet_id):
           f'({lanes_label}); net P/L {sign}{total_profit:.2f}.',
           'success')
     return redirect(request.referrer or url_for('football.index'))
+
+
+@football_bp.route('/auto_cashout', methods=['POST'])
+def auto_cashout():
+    """Automatic cashout sweep — virtual money only, no real bet touched.
+
+    Evaluates every OPEN bet that's currently on a live match and cashes
+    out (via the normal lane-cascading `execute_cashout`) the ones whose
+    decision is `lock_in` / `stop_loss` — the SAME thresholds the display
+    badge uses (`_cashout_decision`). Pricing is the synthetic fair-value
+    estimate (`stake × odds × adj_prob × 0.95`), so this exercises the
+    cashout TIMING/MECHANISM, not real bookmaker economics.
+
+    Intended to be chained after a Flashscore live refresh by the
+    dashboard's "Auto-cashout" toggle. Every evaluation (fired or held)
+    is appended to `output/auto_cashout_log.jsonl` for audit. Returns
+    JSON so the caller can decide whether to reload.
+    """
+    # Load the latest live snapshot once and index it by match string.
+    live_by_match = {}
+    live_path = os.path.join(OUTPUT_DIR, 'live_data.json')
+    try:
+        with open(live_path) as f:
+            live_data = json.load(f)
+        matches = live_data if isinstance(live_data, list) else (live_data.get('matches') or [])
+        for m in matches:
+            if isinstance(m, dict) and m.get('match'):
+                live_by_match[m['match'].strip()] = m
+    except (OSError, json.JSONDecodeError):
+        return jsonify({'evaluated': 0, 'cashed_count': 0, 'cashed': [],
+                        'note': 'no live snapshot'}), 200
+
+    # Collect OPEN bets from active slips (not history), one representative
+    # per conceptual wager (execute_cashout cascades across lanes), so we
+    # don't evaluate/fire the same bet_id more than once.
+    seen = set()
+    representatives = []
+    for slip_path in sorted(glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json'))):
+        try:
+            with open(slip_path) as f:
+                slip = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for b in slip.get('bets', []):
+            if b.get('status') != 'OPEN':
+                continue
+            key = b.get('bet_id') or (b.get('match'), b.get('type'), b.get('selection'))
+            if key in seen:
+                continue
+            seen.add(key)
+            if 'date' not in b:
+                b['date'] = slip.get('date')
+            representatives.append(b)
+
+    evaluated = 0
+    cashed = []
+    log_lines = []
+    now_iso = datetime.datetime.now().isoformat(timespec='seconds')
+    for bet in representatives:
+        match_str = (bet.get('match') or '').strip()
+        lm = live_by_match.get(match_str)
+        if lm is None or lm.get('message'):
+            continue  # not in play / no adjusted probs → can't price or decide
+        stake = float(bet.get('stake_units', bet.get('stake', 0)) or 0)
+        prob_key = _SELECTION_TO_PROB_KEY.get(bet.get('selection'))
+        if bet.get('type') == 'O/U':
+            adj_prob = float((lm.get('adj_ou_probs') or {}).get(prob_key, 0) or 0)
+        else:
+            adj_prob = float((lm.get('adj_probs') or {}).get(prob_key, 0) or 0)
+        fair = g.backend.get_cashout_amount(bet, lm)
+        decision = _cashout_decision(fair, stake, adj_prob if adj_prob > 0 else None)
+        evaluated += 1
+
+        entry = {
+            'ts': now_iso, 'bet_id': bet.get('bet_id'), 'match': match_str,
+            'minute': lm.get('minute') or lm.get('time'),
+            'selection': str(bet.get('selection')), 'stake': round(stake, 2),
+            'odds': bet.get('odds'), 'adj_prob': round(adj_prob, 3),
+            'fair_cashout': fair,
+            'ratio': round(fair / stake, 3) if (fair and stake) else None,
+            'decision': decision, 'executed': False, 'amount': None,
+        }
+        if decision != 'hold':
+            ok = g.backend.execute_cashout(bet, lm)
+            if ok:
+                entry['executed'] = True
+                entry['amount'] = fair
+                cashed.append({'bet_id': bet.get('bet_id'), 'match': match_str,
+                               'decision': decision, 'amount': fair,
+                               'selection': str(bet.get('selection'))})
+        log_lines.append(entry)
+
+    # Append the audit trail (one JSON object per evaluated bet).
+    if log_lines:
+        try:
+            with open(os.path.join(OUTPUT_DIR, 'auto_cashout_log.jsonl'), 'a') as f:
+                for e in log_lines:
+                    f.write(json.dumps(e) + '\n')
+        except OSError:
+            pass
+
+    return jsonify({'evaluated': evaluated, 'cashed_count': len(cashed),
+                    'cashed': cashed}), 200
 
 
 @football_bp.route('/void_bet/<bet_id>', methods=['POST'])
