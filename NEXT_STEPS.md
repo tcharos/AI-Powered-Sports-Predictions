@@ -198,7 +198,14 @@ Remaining DC-only motivations (interpretable α/β strengths, BTTS/correct-score
 
 **Odds-dependence ablation (2026-05-26, informs both D2 and D3):** OOF 1X2 with vs without the 5 odds-derived features — Brier 0.6013 → 0.6108 (+1.6%), acc 50.5% → 49.2%, logloss 1.0050 → 1.0192. **The model is fundamentals-driven, not an odds-echo.** Corrects the earlier D2 framing: the recency-form / rest-days nulls are collinearity with ELO + season-PPG + form (fundamentals), not "the market already prices it." The odds add only a thin polish.
 
-**The cheap experiment that actually survives (candidate, not yet scheduled): odds-free XGBoost variant for model-vs-market value betting.** Train the existing pipeline with the 5 odds features excluded (≈0 new code — just a feature-list switch + a separate model artifact under e.g. `models/odds_free/`), producing a genuinely independent estimate. Then backtest **betting where it disagrees with the market line** (the model-vs-market edge hypothesis — the real question under D3). ~an afternoon vs ~a month for DC. Keep it isolated from the production model (separate artifact dir, no UI wiring) until a backtest shows edge.
+**Odds-free variant + model-vs-market backtest — DONE 2026-05-26, REFUTED.** Ran it (`scripts/run_odds_free_backtest.py`, output `output/odds_free/`): OOF 1X2 for with-odds vs odds-free models, flat-stake EV backtest on B365 odds over 14 027 matches. Results:
+- Both models LOSE: with-odds ROI −9.5%→−13.6%, odds-free −9.6%→−14.6% across EV thresholds 0.00→0.20. Market is efficient.
+- **Odds-free is *worse*, not better** — independence didn't surface value; its line-disagreements are noise. Model-vs-market hypothesis refuted.
+- **Higher EV threshold → worse ROI for both** — the model's "high EV" marks its own overconfidence, not value. The EV ranking is *anti-predictive* at the top end.
+
+**This closes the D3 / model-edge line entirely** (consistency refuted, odds-independence cheaply replicable AND valueless, raw model has no market edge). No more model-accuracy or model-independence work is worth doing for betting edge against this market with this data.
+
+**Spillover finding for the betting side (more important than D3):** the EV-anti-predictivity is a candidate mechanism for the **Value lane's negative ROI** (−16% in the 2026-05-24 eval) — the lane sizes up on model EV, which is backwards at the high end. Worth a dedicated look: re-run the backtest with the production Platt-calibrated probs (calibration should trim the worst over-confident high-EV bets) and reconsider whether the value lane's EV-gating/sizing needs to invert or cap harder. That's a betting-strategy item, not a model item.
 
 First scoping decision once D3 is greenlit: **pure-DC** (consistency + interpretability, drops xG/form signal, may not beat current 1X2 Brier) vs **Karlis-Ntzoufras hybrid** (keeps the feature signal, more work). Validate either on the existing OOF Brier harness before deploying.
 
