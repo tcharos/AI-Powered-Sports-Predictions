@@ -1443,13 +1443,14 @@ def live_analysis():
 def refresh_live():
     """Kicks off `scripts/run_live_analysis.py` (Flashscore live scrape).
     When the request carries `with_bookmaker=1` (manual-button path),
-    ALSO spawns a separate `python -m real_betting read-open-bets`
-    subprocess that refreshes `output/real_betting/open_bets_snapshot.json`
-    so the live panel sees fresh bookmaker cashout offers — see
-    PAMESTOIXIMA_NOTES.md "Corrections" for the snapshot freshness
-    requirement. The auto-5m dashboard polling deliberately omits the
-    flag (Pamestoixima requires headed mode; popping a Chromium window
-    every 5 minutes is too disruptive)."""
+    passes `--with-bookmaker` to the script — which, after the Flashscore
+    scrape finishes, conditionally chains the Pamestoixima open-bets
+    scrape ONLY IF a live match has an open bet on it (otherwise there's
+    nothing for a cashout offer to attach to, so the slow ~25s headed
+    Chromium scrape is skipped). The auto-5m dashboard polling omits the
+    flag entirely (Pamestoixima needs headed mode — Akamai blocks
+    headless — so popping a Chromium window every 5 min is off the
+    table). See PAMESTOIXIMA_NOTES.md "Corrections"."""
     script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_live_analysis.py')
     with_bookmaker = (request.args.get('with_bookmaker')
                       or request.form.get('with_bookmaker'))
@@ -1465,36 +1466,24 @@ def refresh_live():
         existing_pp = env.get('PYTHONPATH', '')
         ml_paths = [PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'ml_project')]
         env['PYTHONPATH'] = os.pathsep.join([p for p in ml_paths + [existing_pp] if p])
+        # The Pamestoixima scrape is now chained from inside the script
+        # (gated on a live match having an open bet) rather than spawned
+        # here in parallel — that's what lets us skip it when nothing
+        # relevant is live, instead of always paying the ~25s.
+        cmd = ['venv/bin/python', script_path]
+        if with_bookmaker:
+            cmd.append('--with-bookmaker')
         proc = subprocess.Popen(
-            ['venv/bin/python', script_path],
-            cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env
+            cmd, cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env
         )
 
         TASKS['live'] = {'process': proc, 'start_time': datetime.datetime.now()}
 
-        # Optional: chain the Pamestoixima open-bets scrape on the
-        # manual click path. Runs in parallel with the Flashscore scrape
-        # (independent processes). The Pamestoixima CLI forces headed
-        # mode — expect a Chromium window to pop briefly.
         if with_bookmaker:
-            already_running = (TASKS.get('bookmaker')
-                               and TASKS['bookmaker']['process']
-                               and TASKS['bookmaker']['process'].poll() is None)
-            if already_running:
-                flash('Bookmaker refresh already running; skipping duplicate spawn.', 'info')
-            else:
-                bm_log = open(os.path.join(LOG_DIR, 'bookmaker.log'), 'w')
-                bm_proc = subprocess.Popen(
-                    ['venv/bin/python', '-m', 'real_betting', 'read-open-bets'],
-                    cwd=PROJECT_ROOT, stdout=bm_log, stderr=subprocess.STDOUT, env=env,
-                )
-                TASKS['bookmaker'] = {'process': bm_proc,
-                                      'start_time': datetime.datetime.now()}
-                flash('Live + bookmaker refresh started! '
-                      '(Pamestoixima opens a Chromium window briefly.)', 'info')
-                return redirect(url_for('football.index'))
-
-        flash('Live analysis started! Auto-refreshing...', 'info')
+            flash('Live refresh started — bookmaker offers will refresh too '
+                  'if a live match has an open bet (brief Chromium window).', 'info')
+        else:
+            flash('Live analysis started! Auto-refreshing...', 'info')
     except Exception as e:
         flash(f"Error starting live analysis: {e}", 'danger')
 

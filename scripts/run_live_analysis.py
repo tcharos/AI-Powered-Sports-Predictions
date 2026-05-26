@@ -95,6 +95,14 @@ def _open_bet_priors_by_team():
 
 
 def main():
+    # `--with-bookmaker`: after the Flashscore scrape, conditionally
+    # trigger the (slow, headed) Pamestoixima open-bets scrape — but
+    # ONLY if a live match actually has an open bet on it (the only case
+    # where a cashout offer would be shown). Set by the manual "Refresh
+    # Live Snapshot" button; avoids a pointless ~25s Chromium scrape
+    # when nothing relevant is live.
+    with_bookmaker = '--with-bookmaker' in sys.argv
+
     # Open-bet priors built early so we know whether the run is
     # worth doing at all when there's no predictions file.
     synthesized_rows = _open_bet_priors_by_team()
@@ -349,8 +357,45 @@ def main():
         
     with open(LIVE_OUTPUT, 'w') as f:
         json.dump(final_results, f, indent=2)
-        
+
     print(f"Updated live data for {len(final_results)} matches.")
+
+    # Conditionally chain the Pamestoixima open-bets scrape. Gated on a
+    # live match having an OPEN bet — that's the only case where a real
+    # cashout offer would be attached + shown. Skips the slow headed
+    # scrape entirely when nothing relevant is live. (The early-return
+    # "no live matches" paths above never reach here, so they also skip.)
+    if with_bookmaker:
+        open_bet_matches = set()
+        bets_path = os.path.join(OUTPUT_DIR, f"bets_{TODAY_FILE_DATE}.json")
+        if os.path.exists(bets_path):
+            try:
+                with open(bets_path) as f:
+                    slip = json.load(f)
+                open_bet_matches = {
+                    (b.get('match') or '').strip()
+                    for b in slip.get('bets', [])
+                    if b.get('status') == 'OPEN' and b.get('match')
+                }
+            except (OSError, ValueError):
+                pass
+        live_matches = {(r.get('match') or '').strip()
+                        for r in final_results if not r.get('message')}
+        relevant = open_bet_matches & live_matches
+        if relevant:
+            print(f"[live] {len(relevant)} live match(es) with open bets — "
+                  f"triggering Pamestoixima open-bets scrape.")
+            try:
+                bm_log = open(os.path.join("logs", "bookmaker.log"), 'w')
+                subprocess.Popen(
+                    ["venv/bin/python", "-m", "real_betting", "read-open-bets"],
+                    stdout=bm_log, stderr=subprocess.STDOUT,
+                )
+            except Exception as e:
+                print(f"[live] Could not start Pamestoixima scrape: {e}")
+        else:
+            print("[live] No live match has an open bet — skipping "
+                  "Pamestoixima scrape (nothing for offers to attach to).")
 
 if __name__ == "__main__":
     main()
