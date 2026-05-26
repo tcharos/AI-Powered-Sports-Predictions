@@ -1305,7 +1305,7 @@ def _run_auto_cashout_sweep(backend):
 
         entry = {
             'ts': now_iso, 'bet_id': bet.get('bet_id'), 'match': match_str,
-            'minute': minute,
+            'minute': minute, 'type': bet.get('type'),
             'selection': str(bet.get('selection')), 'stake': round(stake, 2),
             'odds': bet.get('odds'), 'adj_prob': round(adj_prob, 3),
             'fair_cashout': fair,

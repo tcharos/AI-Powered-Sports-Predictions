@@ -34,6 +34,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
 | NBA predictions / verification / retrain | `./bin/run_nba_predictions.sh`, `./bin/run_nba_verification.sh`, `./bin/retrain_nba_pipeline.sh` |
 | Live in-play snapshot (one-shot) | `python3 scripts/run_live_analysis.py` — also exposed in the UI as the "Refresh Live Snapshot" button |
 | Cashout backtest harness | `python3 scripts/run_backtest.py --start YYYY-MM-DD --end YYYY-MM-DD` (CLI only; see `ml_project/backtest/`) |
+| Evaluate auto-cashout decisions | `python3 scripts/evaluate_auto_cashout.py` (joins `output/auto_cashout_log.jsonl` to `verification_*.csv`: cash vs hold-to-settlement, net Δ; run after verification) |
 | Start/stop web UI (Flask, port 5001) | `./bin/manage_server.sh {start\|stop\|restart\|status}` — logs to `logs/ui.log` |
 
 Run a single spider manually:
