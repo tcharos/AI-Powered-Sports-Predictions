@@ -40,6 +40,24 @@ cd ~/Documents/projects/sports_predictor && \
 
 Model-lane figures added at the 2026-05-25 run: `late_drift/model=+31.86`, `stop_loss/model=+42.95`, `lock_in_profit/model=−4.86`. **Direction stable**; magnitude shift >50% on every Value rule = synthetic-trajectory mistrust threshold engaged — real `live_history_*.jsonl` should drive future runs.
 
+## Lane performance — live snapshot (2026-05-26)
+
+Cumulative virtual P/L across all settled slips (`output/bets_*.json` + `output/history/`, timestamped backups excluded). ROI = pnl / total stake (VOID stake included in denominator, so it drags settled-only ROI slightly toward 0).
+
+| Lane | Bets | W | L | Cashed | Void | Open | Stake € | P/L € | ROI |
+| ---- | ---: | -: | -: | -----: | ---: | ---: | ------: | ----: | --: |
+| **value** | 79 | 27 | 36 | 2 | 12 | 2 | 532.35 | −58.75 | **−11.0%** |
+| **conviction** | 3 | 1 | 0 | 0 | 1 | 1 | 14.37 | +1.93 | +13.4% |
+| **model** | 265 | 116 | 97 | 4 | 42 | 6 | 515.28 | +21.51 | **+4.2%** |
+| TOTAL | 347 | 144 | 133 | | | | 1062.00 | −35.31 | −3.3% |
+
+**Answer to "are conviction/model doing better than value?": yes — but read it carefully.**
+- **Value −11.0%** (63 settled) is the only clearly-negative lane, and it tracks the calibrated value-lane backtest's bad-end expectation. This is the lane the EV-anti-predictivity verdict (below) is about — *no surgery fixes it; the model has no edge to EV-gate on.*
+- **Model +4.2%** on 265 bets (213 settled) is the most meaningful live positive — but the odds-free/EV backtests established the model has **no durable market edge**, so this is most likely a favourable short run (10-day window), not a real signal. Don't extrapolate it; the honest prior is that the model lane also drifts toward −margin over a long sample. The broad-coverage flat-ish sizing just avoids the value lane's mistake of *sizing up on high-EV = overconfident* picks.
+- **Conviction +13.4% on n=3 is statistically meaningless** — the 0.65→0.58 gate relaxation (2026-05-25) has barely started feeding it. Re-judge at the 2026-06-08 checkpoint once it has ~30+ bets.
+
+**Bottom line:** the lane ordering (model > conviction > value) is consistent with the model-edge findings — the value lane's EV-sizing actively hurts, broad/flat coverage does least harm — but none of the three has a demonstrated positive edge, and the overall book is −3.3%. This is the expected outcome of betting an edgeless (market-matching) model, and it's the core go/no-go input for real betting (see the value-lane verdict under "Future model improvements").
+
 ## Real betting integration — Pamestoixima (DORMANT)
 
 Target bookmaker: `pamestoixima.gr` (OPAP). Main account, **read-only operations only**.
@@ -207,7 +225,7 @@ Remaining DC-only motivations (interpretable α/β strengths, BTTS/correct-score
 
 **Spillover finding for the betting side (more important than D3):** the EV-anti-predictivity is a candidate mechanism for the **Value lane's negative ROI**. Followed up with a calibrated, lane-replicating backtest (`scripts/run_value_lane_backtest.py`, output `output/odds_free/value_lane_backtest.json`, 14 027 matches OOF, 1X2):
 - **Flat EV sweep stays anti-predictive after Platt calibration** — higher EV threshold → worse ROI (cal: −9.6% @ EV≥0 → −14.2% @ EV≥0.20). High model-EV = overconfidence, not value, calibrated or not.
-- **Value-lane replica (deployed gate + Option-B sizing): raw −10.4% → calibrated −3.9% ROI.** Calibration cuts bets 5,092→1,392 (shrinks the overconfident probs that clear the gate) and roughly halves the loss. Production uses calibrated probs, so the deployed lane's true expectation is **~−4%, not −10%** — and the live −16% (n=58) was small-sample noise on top of that.
+- **Value-lane replica (deployed gate + Option-B sizing): raw −10.4% → calibrated −3.9% ROI.** Calibration cuts bets 5,092→1,392 (shrinks the overconfident probs that clear the gate) and roughly halves the loss. Production uses calibrated probs, so the deployed lane's true expectation is **~−4%, not −10%**. Live value lane is at −11.0% (63 settled; see "Lane performance" snapshot above) — tracking the raw end, likely because the post-Platt heuristic adjuster (not replicated in the backtest) re-introduces some overconfidence, plus O/U bets and small-sample variance.
 
 **Verdict (2026-05-26): the value lane needs NO surgery and CANNOT be fixed into profit.** −3.9% ≈ the bookmaker margin — the lane is paying the vig, not capturing edge. Its negativity is the direct consequence of the model having no edge against an efficient market (established across the D2→D3→odds-free arc), not a lane misconfiguration. No tweak (harder cap, drop EV sizing, invert) makes an edgeless model profitable; calibration is the one thing that materially helps and it's already deployed.
 
