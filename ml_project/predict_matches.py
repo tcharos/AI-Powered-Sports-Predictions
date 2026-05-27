@@ -112,18 +112,60 @@ class MatchPredictor:
         else:
             print("No league_calibration.json found — predictions will use raw probs.")
 
-        # Player-availability injury adjuster (D4 / N3). OFF by default — the
-        # shift magnitudes are unvalidated defaults (no historical availability
-        # to OOF-fit). Enriched availability (N2) is keyed by Flashscore
-        # match_id; only loaded when the flag is on.
+        # Player-availability injury adjuster (D4 / N3). Two modes:
+        #   APPLY    — `use_availability_adjustment=true`: shift 1X2 probs.
+        #   LOG-ONLY — flag off (default) but availability data present: compute
+        #              the would-be shift and log it for N4 forward validation,
+        #              without touching the probs. The shift magnitudes are
+        #              unvalidated defaults (no historical availability to
+        #              OOF-fit), so log-only is the safe first mode.
+        # Enriched availability (N2) is loaded unconditionally (cheap; {} when no
+        # files) so log-only works with the flag off. The presence of
+        # availability_importance_*.json is itself the opt-in to logging.
         self.use_availability_adjustment = _load_football_flag('use_availability_adjustment', False)
-        self.availability = _load_availability_importance() if self.use_availability_adjustment else {}
-        if self.use_availability_adjustment:
+        self.availability = _load_availability_importance()
+        if self.availability:
             n_cov = sum(1 for v in self.availability.values() if isinstance(v, dict) and v.get('covered'))
-            print(f"Availability adjuster ON — {len(self.availability)} fixtures loaded "
-                  f"({n_cov} SoFIFA-covered).")
+            mode = "APPLY" if self.use_availability_adjustment else "LOG-ONLY"
+            print(f"Availability adjuster {mode} — {len(self.availability)} fixtures loaded "
+                  f"({n_cov} SoFIFA-covered); would-be shifts → output/availability_log_<date>.jsonl.")
 
     # ... (existing methods) ...
+
+    def _log_availability(self, match_date_obj, match_id, league, home, away,
+                          wt_home, wt_away, pre_1x2, post_1x2, source, applied):
+        """Append one record to output/availability_log_<date>.jsonl (D4 / N4).
+
+        Seeds the forward validation: each line carries the pre- and would-be
+        post-N3 1X2 vectors plus the per-side depletion weights, so an
+        adjusted-vs-unadjusted Brier can be computed once outcomes settle (joined
+        by match_id to the verification CSV). `applied` records whether the shift
+        was actually applied to the prediction (APPLY) or only logged (LOG-ONLY).
+        Non-fatal — a logging failure never breaks predictions.
+        """
+        try:
+            date = match_date_obj.strftime("%Y-%m-%d")
+        except Exception:
+            date = datetime.date.today().isoformat()
+        try:
+            rec = {
+                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "date": date,
+                "match_id": match_id,
+                "league": league,
+                "home_team": home,
+                "away_team": away,
+                "avail_wt_home": round(float(wt_home), 3),
+                "avail_wt_away": round(float(wt_away), 3),
+                "pre_1x2": [round(float(x), 5) for x in pre_1x2],
+                "post_1x2": [round(float(x), 5) for x in post_1x2],
+                "source": source,
+                "applied": bool(applied),
+            }
+            with open(os.path.join("output", f"availability_log_{date}.jsonl"), "a") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception as e:
+            print(f"[avail-log] non-fatal: {e!r}")
 
     def get_team_stats(self, team_name, date_before):
         """
@@ -464,24 +506,32 @@ class MatchPredictor:
                 enabled=self.use_league_calibration)
 
             # --- PLAYER-AVAILABILITY ADJUSTMENT (D4 / N3) ---
-            # Shift 1X2 toward the less-depleted side, post-calibration /
-            # pre-heuristic. No-op unless the flag is on AND this fixture has
-            # SoFIFA-covered availability data. O/U left unchanged in v1.
+            # Post-calibration / pre-heuristic. The would-be shift is always
+            # computed when this fixture has SoFIFA-covered availability data;
+            # APPLYING it to probs_1x2 is gated on use_availability_adjustment.
+            # LOG-ONLY (flag off) records the would-be shift for N4 without
+            # changing the probs. O/U left unchanged in v1.
             avail_wt_home = avail_wt_away = 0.0
             avail_shift = 0.0
             avail_src = ''
-            if self.use_availability_adjustment:
-                av = self.availability.get(match.get('match_id'))
-                if av and av.get('covered'):
-                    avail_wt_home = side_depletion(av.get('home'))
-                    avail_wt_away = side_depletion(av.get('away'))
-                    pre_avail_1x2 = probs_1x2.copy()
-                    probs_1x2, applied_av, avail_src_mode = apply_availability_adjustment(
-                        probs_1x2, av.get('home'), av.get('away'), league_name,
-                        enabled=True)
-                    if applied_av:
-                        avail_shift = float(probs_1x2[0] - pre_avail_1x2[0])  # signed home delta
-                        avail_src = avail_src_mode or ''
+            av = self.availability.get(match.get('match_id'))
+            if av and av.get('covered'):
+                avail_wt_home = side_depletion(av.get('home'))
+                avail_wt_away = side_depletion(av.get('away'))
+                pre_avail_1x2 = probs_1x2.copy()
+                wouldbe_1x2, applied_av, avail_src_mode = apply_availability_adjustment(
+                    pre_avail_1x2, av.get('home'), av.get('away'), league_name,
+                    enabled=True)
+                if applied_av:
+                    avail_shift = float(wouldbe_1x2[0] - pre_avail_1x2[0])  # signed home delta
+                    avail_src = avail_src_mode or ''
+                    self._log_availability(
+                        match_date_obj, match.get('match_id', ''), league_name,
+                        scraper_home, scraper_away, avail_wt_home, avail_wt_away,
+                        pre_avail_1x2, wouldbe_1x2, avail_src,
+                        applied=self.use_availability_adjustment)
+                    if self.use_availability_adjustment:
+                        probs_1x2 = wouldbe_1x2  # APPLY mode
 
             # Extract O/U Odds (Moved Up)
             try:

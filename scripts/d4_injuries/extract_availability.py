@@ -47,6 +47,24 @@ from bs4 import BeautifulSoup
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT_DIR = os.path.join(ROOT, "output")
 
+# Coverage set for the optional --covered-only filter: only scrape lineups for
+# leagues SoFIFA can enrich (N2), since N3 no-ops on the rest. Import is
+# best-effort (needs ml_project on PYTHONPATH); None = filter disabled.
+try:
+    from availability.sofifa_importance import FLASHSCORE_TO_SOFIFA as _F2S
+    _COVERED_LEAGUES = set(_F2S)
+except Exception:
+    _COVERED_LEAGUES = None
+
+
+def _canon_league(league: str) -> str:
+    """Strip phase/playoff suffix so the league matches the coverage keys
+    (mirrors predict_matches.py): "FRANCE: Ligue 1 - Play Offs" -> "FRANCE: Ligue 1"."""
+    if league and ":" in league:
+        country, rest = league.split(":", 1)
+        return f"{country.strip()}: {rest.split(' - ', 1)[0].strip()}"
+    return league
+
 # ---------------------------------------------------------------------------
 # Parsing (pure, testable offline against cached HTML)
 # ---------------------------------------------------------------------------
@@ -170,13 +188,21 @@ async def _scrape_one(page, url):
     return html, title
 
 
-async def run(date_str=None):
+async def run(date_str=None, covered_only=False):
     from playwright.async_api import async_playwright
 
     matches_path = _latest_matches_file(date_str)
     date = re.search(r"matches_(\d{4}-\d{2}-\d{2})", matches_path).group(1)
     matches = json.load(open(matches_path))
     print(f"[avail] {len(matches)} fixtures from {os.path.basename(matches_path)}")
+
+    if covered_only and _COVERED_LEAGUES is not None:
+        before = len(matches)
+        matches = [m for m in matches if _canon_league(m.get("league", "")) in _COVERED_LEAGUES]
+        print(f"[avail] --covered-only: {len(matches)}/{before} fixtures in SoFIFA-covered leagues")
+    elif covered_only:
+        print("[avail] --covered-only requested but coverage set unavailable "
+              "(ml_project not on PYTHONPATH); scraping all fixtures.")
 
     result = {}
     async with async_playwright() as p:
@@ -242,5 +268,6 @@ if __name__ == "__main__":
     if args and args[0] == "--from-html":
         _selftest(args[1])
     else:
-        date_arg = args[0] if args and re.match(r"\d{4}-\d{2}-\d{2}", args[0]) else None
-        asyncio.run(run(date_arg))
+        covered_only = "--covered-only" in args
+        date_arg = next((a for a in args if re.match(r"\d{4}-\d{2}-\d{2}", a)), None)
+        asyncio.run(run(date_arg, covered_only=covered_only))

@@ -117,12 +117,29 @@ if [ "$NEED_SCRAPE" == "true" ]; then
     fi
 fi
 
+# Export PYTHONPATH to include project root and ml_project so imports work
+# (needed by both the availability step below and the predictor).
+export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
+
+# 2b. Player availability → importance (D4 / N1 + N2). Non-fatal.
+# N1 scrapes the Flashscore "Will not play" list per fixture (--covered-only:
+# only SoFIFA-covered leagues, to skip wasted scrapes); N2 joins SoFIFA OVR to
+# produce output/availability_importance_<date>.json. The predictor loads that
+# and, by default, runs LOG-ONLY — it records the would-be injury shift for N4
+# forward validation WITHOUT changing predictions (set
+# use_availability_adjustment=true in betting_config.json to actually apply it).
+echo ""
+echo "[*] Extracting player availability (D4 / N1+N2)..."
+if python3 scripts/d4_injuries/extract_availability.py "$DATE" --covered-only \
+   && python3 ml_project/availability/sofifa_importance.py "output/availability_$DATE.json"; then
+    echo "[+] Availability importance ready."
+else
+    echo "[!] Availability step failed (non-fatal); predictions proceed without injury data."
+fi
+
 # 3. Run Prediction
 echo ""
 echo "[*] Running ML Prediction Engine..."
-
-# Export PYTHONPATH to include project root and ml_project so imports work
-export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project
 
 # Check if JSON is valid (rudimentary check) or just run script
 if [ ! -s "$OUTPUT_JSON" ]; then
