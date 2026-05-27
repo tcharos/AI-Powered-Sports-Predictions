@@ -14,3 +14,6 @@ __pycache__/
 .DS_Store
 .env
 *.session_state
+
+# seleniumbase / soccerdata browser byproducts (D4 injury probes)
+downloaded_files/
