@@ -29,6 +29,13 @@
     "EUROPE: Europa League",
     "EUROPE: Europa League - League phase",
     "EUROPE: Europa League - Play Offs",
+    "EUROPE: Euro",
+    "EUROPE: Euro Qualification",
+    "EUROPE: Euro Final Tournament",
+    "EUROPE: UEFA Nations League - League A",
+    "EUROPE: UEFA Nations League - League B",
+    "EUROPE: UEFA Nations League - League C",
+    "EUROPE: UEFA Nations League - League D",
     "FINLAND: Veikkausliiga",
     "FINLAND: Veikkausliiga - Championship",
     "FINLAND: Veikkausliiga - Championship Group",
@@ -97,5 +104,9 @@
     "SWITZERLAND: Super League - Relegation",
     "SWITZERLAND: Super League - Relegation Group",
     "TURKEY: Super Lig",
-    "USA: MLS"
+    "USA: MLS",
+    "WORLD: World Cup",
+    "WORLD: World Cup Qualification",
+    "WORLD: World Cup Final Tournament",
+    "WORLD: World Cup Play Offs"
 ]
