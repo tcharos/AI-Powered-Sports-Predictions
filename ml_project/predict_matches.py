@@ -20,18 +20,47 @@ from ml_project.calibration.league_aliases import LEAGUE_ALIASES
 # National-team competitions are routed to the NT model (predict_nt_batch.py),
 # NOT this club predictor — see scripts/national_teams/.
 from ml_project.national_teams.nt_competitions import is_international
+# Player-availability injury adjuster (D4 / N3). Applied after Platt, before the
+# heuristic adjuster — see ml_project/availability/.
+from ml_project.availability.adjust import (
+    apply_availability_adjustment, side_depletion,
+)
 
 
-def _load_league_calibration_flag(default: bool = True) -> bool:
-    """Read `use_league_calibration` from `data_sets/betting_config.json`
-    (football's sport entry). Falls back to `default` on any error."""
+def _load_football_flag(key: str, default: bool) -> bool:
+    """Read a boolean flag from football's entry in `data_sets/betting_config.json`.
+    Falls back to `default` on any error."""
     try:
         with open('data_sets/betting_config.json', 'r') as f:
             cfg = json.load(f)
-        return bool(cfg.get('sports', {}).get('football', {}).get(
-            'use_league_calibration', default))
+        return bool(cfg.get('sports', {}).get('football', {}).get(key, default))
     except Exception:
         return default
+
+
+def _load_league_calibration_flag(default: bool = True) -> bool:
+    """Read `use_league_calibration` from football's betting-config entry."""
+    return _load_football_flag('use_league_calibration', default)
+
+
+def _load_availability_importance(output_dir: str = "output") -> dict:
+    """Merge every `output/availability_importance_*.json` into {match_id: record}.
+
+    These are the N2-enriched availability files (per fixture: covered flag +
+    per-side absentees with importance weights). match_id is globally unique on
+    Flashscore, so merging across dates is safe; later files win on collision.
+    Returns {} if none exist or on error.
+    """
+    merged = {}
+    try:
+        for path in sorted(glob.glob(os.path.join(output_dir, "availability_importance_*.json"))):
+            with open(path) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                merged.update(data)
+    except Exception:
+        pass
+    return merged
 
 
 class MatchPredictor:
@@ -82,6 +111,17 @@ class MatchPredictor:
             print("League calibration disabled via betting_config.json:use_league_calibration=false")
         else:
             print("No league_calibration.json found — predictions will use raw probs.")
+
+        # Player-availability injury adjuster (D4 / N3). OFF by default — the
+        # shift magnitudes are unvalidated defaults (no historical availability
+        # to OOF-fit). Enriched availability (N2) is keyed by Flashscore
+        # match_id; only loaded when the flag is on.
+        self.use_availability_adjustment = _load_football_flag('use_availability_adjustment', False)
+        self.availability = _load_availability_importance() if self.use_availability_adjustment else {}
+        if self.use_availability_adjustment:
+            n_cov = sum(1 for v in self.availability.values() if isinstance(v, dict) and v.get('covered'))
+            print(f"Availability adjuster ON — {len(self.availability)} fixtures loaded "
+                  f"({n_cov} SoFIFA-covered).")
 
     # ... (existing methods) ...
 
@@ -423,6 +463,26 @@ class MatchPredictor:
                 probs_ou, league_name, self.calibration_data,
                 enabled=self.use_league_calibration)
 
+            # --- PLAYER-AVAILABILITY ADJUSTMENT (D4 / N3) ---
+            # Shift 1X2 toward the less-depleted side, post-calibration /
+            # pre-heuristic. No-op unless the flag is on AND this fixture has
+            # SoFIFA-covered availability data. O/U left unchanged in v1.
+            avail_wt_home = avail_wt_away = 0.0
+            avail_shift = 0.0
+            avail_src = ''
+            if self.use_availability_adjustment:
+                av = self.availability.get(match.get('match_id'))
+                if av and av.get('covered'):
+                    avail_wt_home = side_depletion(av.get('home'))
+                    avail_wt_away = side_depletion(av.get('away'))
+                    pre_avail_1x2 = probs_1x2.copy()
+                    probs_1x2, applied_av, avail_src_mode = apply_availability_adjustment(
+                        probs_1x2, av.get('home'), av.get('away'), league_name,
+                        enabled=True)
+                    if applied_av:
+                        avail_shift = float(probs_1x2[0] - pre_avail_1x2[0])  # signed home delta
+                        avail_src = avail_src_mode or ''
+
             # Extract O/U Odds (Moved Up)
             try:
                 ov_str = match.get('over_2_5', '0.0')
@@ -528,6 +588,13 @@ class MatchPredictor:
                 'Under % (raw)': f"{raw_probs_ou[0]:.2f}",
                 'Cal 1X2 Source': cal_src_1x2 or '',
                 'Cal O/U Source': cal_src_ou or '',
+                # Availability adjuster (D4 / N3) audit. Wts are per-side
+                # depletion (Σ reason_weight×importance); Shift is the signed
+                # home-prob delta; Source is the league-efficiency tier.
+                'Home Avail Wt': f"{avail_wt_home:.1f}",
+                'Away Avail Wt': f"{avail_wt_away:.1f}",
+                'Avail Shift': f"{avail_shift:+.3f}",
+                'Avail Source': avail_src,
                 'Adj Logs': "; ".join(adj_logs),
                 'match_id': match.get('match_id', '')
             })
@@ -567,6 +634,7 @@ class MatchPredictor:
                         'Home Win % (raw)', 'Draw % (raw)', 'Away Win % (raw)',
                         'Over % (raw)', 'Under % (raw)',
                         'Cal 1X2 Source', 'Cal O/U Source',
+                        'Home Avail Wt', 'Away Avail Wt', 'Avail Shift', 'Avail Source',
                         'Adj Logs', 'match_id']
              existing = [c for c in desired if c in res_df.columns]
              print("\n--- PREDICTIONS ---")
