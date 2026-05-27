@@ -305,9 +305,29 @@ Operator ask (2026-05-27): explore `soccerdata`'s **ClubElo** scraper as a bette
 
 **Fit (low friction):** `soccerdata.ClubElo` is **plain HTTP** (CSV API at `api.clubelo.com`), **no browser** — discreet by default, unlike SoFIFA/FBref. Methods: `read_by_date` (all clubs on a date) + `read_team_history` (one club's full **dated** history). Dated history ⇒ **point-in-time queryable → backfillable into training** (unlike injuries) — a clean swap-in/augment candidate with a proper OOF accept/reject gate.
 
-**Open questions for the probe:** (a) **coverage** — ClubElo is European-club-centric; does it cover Argentina/Brazil/China/Japan/MLS or return NaN? (soccerdata notes "leagues only covered by clubelo will have NaN".) If non-European is empty, ClubElo *augments* (a second ELO feature for European matches) rather than *replaces* our engine. (b) **methodology shift** — ClubElo's formula ≠ our goal-margin-K engine, so feature distribution changes → requires retrain + calibrator refit, and the swap must beat current ELO on OOF Brier to deploy. (c) **train/serve parity** — historical for training, current for inference, via the same dated API. (d) name-join ClubElo clubs ↔ `team_mappings.json`.
+**Coverage PROBED (2026-05-27) → AUGMENT, not replace.** `read_by_date` = 630 clubs / 55 countries. **European: strong** (ENG 44, ESP 42, ITA 40, GER/FRA 36, POR/NED/TUR 18, BEL 16, GRE 14, DEN/AUT/SCO 12, IRL/FIN 4 — note GRE/FIN beat SoFIFA's depth). **Non-European: ZERO** (ARG, BRA, CHN, JPN, MEX, USA all 0). So our home-grown ELO **stays** for non-European leagues; ClubElo becomes a *better* ELO feature for European matches and fixes the cross-league European-cup gap (its whole point). Clean schema (`rank, country, level, elo, from, to, league`); `from`/`to` give point-in-time validity → backfillable.
 
-**Lean:** probe coverage first (`read_by_date` for a recent date; check our non-European target clubs). If European coverage is solid, OOF-test ClubElo-as-feature against the current ELO on the existing harness. Replace-vs-augment falls out of the coverage answer.
+**Remaining questions:** (a) **methodology shift** — ClubElo's formula ≠ our goal-margin-K engine → feature distribution changes, requires retrain + calibrator refit, and the swap/add must beat current ELO on OOF Brier to deploy. (b) **train/serve parity** — historical for training (`read_team_history`), current for inference, same dated API. (c) name-join ClubElo clubs ↔ `team_mappings.json`.
+
+**Lean (next step):** OOF-test ClubElo-as-an-added-feature (alongside our ELO, for European matches) against the current-ELO baseline on the existing Brier harness. Augment is the confirmed shape; the open question is purely whether it adds OOF lift.
+
+#### D7 — National-team competitions subsystem (NEW; scoped + data de-risked 2026-05-27)
+
+Operator decisions (2026-05-27): **scope = bettable** (WC/Euro **qualifiers + UEFA Nations League**, not just the rare finals); **ratings source = eloratings.net** (ready-made national-team Elo). This is a **separate model/subsystem**, sibling to the club football and NBA pipelines — the club feature stack (per-club ELO, league-strength, promotion, league form) does NOT transfer to national teams.
+
+**Data source DE-RISKED — eloratings.net is ideal** (probe: `scripts/national_teams/probe_eloratings.py`). Plain HTTP, **no browser, no Cloudflare** (discreet). Serves TSV files:
+- `<Country>.tsv` = **match-by-match history** (Spain: 780 matches, 1920→2026). 16-col schema (confirmed): `year, month, day, home_cc, away_cc, home_score, away_score, comp_code, neutral_flag, elo_delta, home_elo, away_elo, rank_deltas…`. So **results + competition filter + per-match point-in-time ELO come from ONE file** — no separate ELO backfill needed.
+- `World.tsv` (current rankings), `<YEAR>.tsv` (year-end snapshots, 1950→).
+- **Competition codes** (enumerated): qualifiers `WQ`/`EQ`; Nations League `ENA`/`ENB`/`ENC`/`END` (divisions) + `ENL` (finals), all 2018+. Friendlies `F`, finals `WC`/`EC`, plus `CC`/`OG`/`HHC`. **Bettable filter = `{WQ, EQ, ENA, ENB, ENC, END, ENL}`** (Spain alone: 264 qualifier + ~30 NL matches).
+
+**Architecture / build plan:**
+1. **eloratings fetcher + dataset builder** — pull all `<Country>.tsv`, parse the 16-col schema, filter to bettable comps, assemble a unified international-match dataset (date, teams, scores, comp, home/away ELO, neutral). Reuses no scraping infra (plain `requests`).
+2. **Feature engineering (ELO-centric, odds-free)** — home/away ELO + diff, competition type, neutral-venue/host flag, recent international form (derivable from the series), rest. NO league-strength/promotion. **Odds-free by necessity** (eloratings has no odds; football-data.co.uk doesn't cover quals/NL) — acceptable per the odds-free ablation (+1.6% Brier), and NT ELO is an unusually strong signal, so an ELO-driven NT model is reasonable.
+3. **Train NT 1X2 + O/U 2.5 models** (same markets as club, to reuse the betting engine/UI). Validate OOF on the existing Brier harness; calibrate per-competition if useful.
+4. **Live path** — add the NT competitions to `data_sets/target_leagues.json` so the existing Flashscore spider scrapes upcoming NT fixtures **with 1X2 + O/U odds** (the live-odds source the training corpus lacks). Predictor maps Flashscore NT team names ↔ eloratings country codes (fuzzy name-join, like the Pamestoixima/SoFIFA joins).
+5. **UI integration** — expose as a new sport in the multi-sport UI (`SPORTS` list + a blueprint, mirroring the NBA pattern); the lane/bankroll/betting engine is already sport-agnostic.
+
+**Open items:** confirm non-European qualifier codes (CONMEBOL etc. — Spain only shows European; check a South-American nation); whether `home_elo`/`away_elo` are pre- or post-match (shift by one per team if post); eloratings country-code ↔ Flashscore name mapping table; ToS sanity check on eloratings scraping (light, infrequent, cache the per-country files).
 
 ## Future analysis ideas (not yet scoped)
 
