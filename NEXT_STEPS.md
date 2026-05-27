@@ -295,7 +295,24 @@ Operator ask (2026-05-27): explore `soccerdata`'s **FBref** scraper to fetch his
 
 **Required steps if pursued:** (a) register target competitions in `league_dict.json`; (b) headless rate-limited fetcher (FBref/StatsBomb throttles hard); (c) **ETL adapter** FBref schedule/results → the MatchHistory CSV schema `data_loader` expects (column rename + the gate-1 odds decision); (d) entity resolution FBref names ↔ `team_mappings.json`; (e) OOF-validate any new feature/competition on the existing Brier harness before deploying. xG window caveat: FBref xG is reliable only ~2017+, so an xG feature shrinks the training window or needs pre-2017 imputation.
 
-**Lean:** start with gate-2(ii) — pull FBref **xG for matches we already have** and OOF-test it as a feature — before any attempt to ingest whole new competitions. Lowest friction; directly tests the one signal that might not be dead.
+**Lean:** start with gate-2(ii) — pull **xG for matches we already have** and OOF-test it as a feature — before any attempt to ingest whole new competitions. Lowest friction; directly tests the one signal that might not be dead.
+
+##### D5 gate-2(ii) — Historical-xG-as-a-feature probe (SCOPED 2026-05-27; source = Understat, not FBref)
+
+The cheapest, most-promising slice of D5, scoped as a standalone OOF accept/reject test (same gate as the D2 features and D6). **Source switched FBref → Understat** because Understat is **plain HTTP** (no Selenium/Cloudflare — discreet, fast), xG-native, and the reference xG dataset; FBref's only edge (broader coverage) is irrelevant here since the test is Big-5-only anyway.
+
+**Probe done — `scripts/d5_xg/probe_understat.py` (reproducible, READ-ONLY).** Findings:
+- **Data shape:** `Understat.read_schedule()` already carries match-level `home_xg` / `away_xg` next to `date, home_team, away_team, home_goals, away_goals, is_result` — the whole signal in ONE plain-HTTP call per league-season. (No need for the heavier `read_team_match_stats`.)
+- **Coverage:** Big-5 only (ENG/ESP/GER/ITA/FRA top flights) + RFPL on the site — the *most efficient* markets, the opposite of where D2 says the edge lives. xG window ~2014/15+, so the feature is NaN for the 2010-2014 slice of the corpus.
+- **Name join (the crux): SOLVED — 100% on EPL 23/24** (20/20 at WRatio≥80, within-league). Understat full names ("Manchester City"/"Nottingham Forest"/"Wolverhampton Wanderers") → corpus short names ("Man City"/"Nott'm Forest"/"Wolves"); the borderline ones cleared 80-86, so other league-seasons may need a small override map (the D4/D6 escape-hatch pattern), keyed within-league to avoid cross-league false matches.
+
+**Build plan (X0–X3, isolated under `scripts/d5_xg/` / no production touch until the gate passes):**
+- **X0 — Probe + scope. ✅ DONE (2026-05-27).** Above.
+- **X1 — Fetcher + name-reconciled merge.** `scripts/d5_xg/fetch_understat_xg.py`: for each Big-5 league × season 2014/15→current, `read_schedule()` → reconcile team names (within-league WRatio + override map) → merge `home_xg`/`away_xg` onto the corpus rows by `(date, home_team, away_team)`. Output an xG-augmented MatchHistory slice (Big-5, 2014+) for the test — do NOT overwrite the canonical corpus.
+- **X2 — Leakage-free xG features + OOF gate.** Add rolling/season-to-date **xG-for** and **xG-against** per team (shifted to exclude the current match — mirror the existing goal-based form/strength features, but xG instead of goals). Run 5-fold TimeSeriesSplit OOF 1X2 + O/U Brier WITH vs WITHOUT the xG features on the Big-5 2014+ subset (reuse the D6 ablation harness). **Gate: deploy only if ≥1% Brier improvement on a meaningful share of leagues** (same bar as D6); else close and document.
+- **X3 — Wire in (only if X2 passes).** Add the Understat fetch to the data-refresh path, extend `feature_engineering.py` with the xG features (NaN-safe: only Big-5 2014+ populated, XGBoost branches on missing), retrain + refit calibrators. If X2 fails, close like D6 — keep the probe + scripts for a future re-test.
+
+**Prior: low** (D2 + D6 say more tabular signal rarely moves Brier; honest expectation is this closes). It's run *because* it's now cheap and it's the one untested "maybe-not-dead" signal — not because the odds favour it. **Coverage caveat stands:** even a Brier win lands only in the Big-5, where Brier→profit conversion is worst (efficient market) — so a "passes the gate but doesn't help betting" outcome is plausible and would still be a close.
 
 #### D6 — ClubElo as the ELO source (better/cross-league ratings via soccerdata; NOT scheduled — exploration)
 
