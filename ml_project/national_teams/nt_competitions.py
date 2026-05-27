@@ -1,0 +1,50 @@
+"""Single source of truth for which scraped competitions are NATIONAL-TEAM
+football (routed to the NT model) vs club football (the existing predictor).
+
+Used by both the club predictor's skip-guard (predict_matches.py) and the NT
+batch predictor, so the routing can never disagree.
+
+Base name = the league label with playoff/group/division suffixes stripped
+(mirrors predict_matches.py's canonicalisation), so e.g.
+  "EUROPE: UEFA Nations League - League A" -> "EUROPE: UEFA Nations League".
+"""
+
+# National-team competitions (base names) — these route to the NT model.
+INTERNATIONAL_BASES = {
+    "WORLD: World Cup",
+    "WORLD: World Cup Qualification",
+    "WORLD: World Cup Final Tournament",
+    "WORLD: World Cup Play Offs",
+    "EUROPE: Euro",
+    "EUROPE: Euro Qualification",
+    "EUROPE: Euro Final Tournament",
+    "EUROPE: UEFA Nations League",
+}
+
+# Subset played at neutral venues (finals tournaments) → predict orientation-
+# averaged with no home advantage. Qualifiers + Nations League are home/away.
+# TODO: host-nation home advantage in finals (USA/Can/Mex for WC 2026) is a
+# refinement — v1 treats all finals matches as neutral.
+NEUTRAL_BASES = {
+    "WORLD: World Cup",
+    "WORLD: World Cup Final Tournament",
+    "EUROPE: Euro",
+    "EUROPE: Euro Final Tournament",
+}
+
+
+def base_name(league_name: str) -> str:
+    if ":" in league_name:
+        country, rest = league_name.split(":", 1)
+        return f"{country.strip()}: {rest.split(' - ', 1)[0].strip()}"
+    return league_name.strip()
+
+
+def is_international(league_name: str) -> bool:
+    """True if this competition is national-team football (route to NT model)."""
+    return base_name(league_name) in INTERNATIONAL_BASES
+
+
+def is_neutral_competition(league_name: str) -> bool:
+    """True if matches are at neutral venues (finals tournaments)."""
+    return base_name(league_name) in NEUTRAL_BASES

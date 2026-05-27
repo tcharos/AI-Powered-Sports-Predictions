@@ -139,6 +139,16 @@ else
     exit 1
 fi
 
+# 4. National-Team Predictions (router): the club predictor skips international
+# competitions (World Cup / Euro / Nations League); this appends their rows to
+# the same predictions_<date>.csv using the eloratings model. Non-fatal — if it
+# fails, club predictions remain intact.
+echo ""
+echo "[*] Running National-Team Prediction (eloratings model)..."
+python3 scripts/national_teams/predict_nt_batch.py --matches "$OUTPUT_JSON" \
+    && echo "[+] National-Team Prediction Complete." \
+    || echo "[!] NT prediction step failed (non-fatal); club predictions intact."
+
 echo ""
 echo "========================================"
 echo "           Pipeline Finished            "

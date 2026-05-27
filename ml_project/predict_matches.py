@@ -17,6 +17,9 @@ from ml_project.calibration.apply import (
     apply_platt_1x2, apply_platt_ou, load_calibration_data,
 )
 from ml_project.calibration.league_aliases import LEAGUE_ALIASES
+# National-team competitions are routed to the NT model (predict_nt_batch.py),
+# NOT this club predictor — see scripts/national_teams/.
+from ml_project.national_teams.nt_competitions import is_international
 
 
 def _load_league_calibration_flag(default: bool = True) -> bool:
@@ -229,6 +232,13 @@ class MatchPredictor:
             scraper_home = match.get('home_team')
             scraper_away = match.get('away_team')
             league_name = match.get('league', 'Unknown')
+
+            # ROUTING: national-team competitions (World Cup, Euro, Nations
+            # League) are handled by the NT model, not this club predictor.
+            # The club model has no ELO/standings for national teams, so skip
+            # them here — predict_nt_batch.py appends their rows afterwards.
+            if is_international(league_name):
+                continue
 
             # Strip playoff / group-stage / phase suffixes so standings
             # lookup, Platt calibration, and the league_cat feature all
