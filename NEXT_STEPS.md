@@ -309,7 +309,9 @@ Operator ask (2026-05-27): explore `soccerdata`'s **ClubElo** scraper as a bette
 
 **Remaining questions:** (a) **methodology shift** — ClubElo's formula ≠ our goal-margin-K engine → feature distribution changes, requires retrain + calibrator refit, and the swap/add must beat current ELO on OOF Brier to deploy. (b) **train/serve parity** — historical for training (`read_team_history`), current for inference, same dated API. (c) name-join ClubElo clubs ↔ `team_mappings.json`.
 
-**Lean (next step):** OOF-test ClubElo-as-an-added-feature (alongside our ELO, for European matches) against the current-ELO baseline on the existing Brier harness. Augment is the confirmed shape; the open question is purely whether it adds OOF lift.
+**OOF-tested 2026-05-27 → NO LIFT; D6 closed.** `scripts/d6_clubelo_ablation.py` (+ `d6_cache_prepared.py`). Three arms — baseline (our ELO) / +clubelo (augment) / clubelo-only (replace) — 5-fold TimeSeriesSplit on the **9,536 ClubElo-covered European domestic matches** (within-country name-join; global fuzzy was rejected after it false-matched `New York City`→`Man City` / `Atletico-MG`→`Atletico`, so resolution is keyed by an explicit label→country map + per-country matching). Result: **1X2 Δ −0.00%, O/U Δ −0.03%; clubelo-only Δ −0.01%; 0/16 leagues improve ≥1%.** Our home-grown ELO and ClubElo are predictively equivalent — a second ELO source is **redundant**, consistent with the D2 lesson (more features don't move Brier). **Not deploying.**
+
+**The one untested motivation:** ClubElo's real selling point is a *common cross-league scale for European-CUP matchups* — which this test can't probe because the corpus has no cup training data (that's the D5 / odds-gap problem). So D6 is closed for domestic prediction; the cross-league-cup angle stays parked behind D5. Scripts kept for a re-test if cup data ever lands.
 
 #### D7 — National-team competitions subsystem (NEW; scoped + data de-risked 2026-05-27)
 
