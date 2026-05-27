@@ -17,3 +17,6 @@ __pycache__/
 
 # seleniumbase / soccerdata browser byproducts (D4 injury probes)
 downloaded_files/
+
+# national-teams generated corpus (regenerable via build_dataset.py) + raw cache
+data_sets/national_teams/*.csv
