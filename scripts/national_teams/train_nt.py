@@ -29,13 +29,18 @@ MODEL_DIR = ROOT / "models" / "national_teams"
 HOME_ADV_ELO = 100  # eloratings' home-field bonus (~100 Elo pts); 0 if neutral
 FORM_N = 5          # rolling window over a team's last N internationals
 
+# NOTE: the raw `neutral` flag and absolute ELO levels are deliberately EXCLUDED.
+# eloratings lists the seed/favourite as "home" in neutral tournament matches, so
+# a raw `neutral` feature learns "neutral -> home wins" (garbage for a true
+# neutral matchup). Venue enters ONLY through elo_exp's home-advantage term
+# (home_adv=0 when neutral); elo_diff carries the favourite. This fixed an
+# inverted-prediction bug (equal teams neutral -> 66% home, away 0%).
 FEATURES = [
-    "elo_diff", "abs_elo_diff", "home_elo_pre", "away_elo_pre", "elo_exp",
-    "neutral", "is_friendly",
+    "elo_diff", "abs_elo_diff", "elo_exp", "is_friendly",
     "home_form_pts", "home_form_gd", "home_form_gf",
     "away_form_pts", "away_form_gd", "away_form_gf",
 ]
-ELO_ONLY = ["elo_exp", "elo_diff", "neutral"]  # baseline
+ELO_ONLY = ["elo_exp", "elo_diff"]  # baseline
 
 
 def multiclass_brier(y_true, y_prob, n=3):
@@ -68,7 +73,12 @@ def rolling_form(df: pd.DataFrame) -> pd.DataFrame:
 
 def build(since: int) -> pd.DataFrame:
     df = pd.read_csv(CSV, parse_dates=["date"])
-    df = df[df["date"].dt.year >= since].reset_index(drop=True)
+    df = df[df["date"].dt.year >= since]
+    # Train on GENUINE home/away only. Neutral tournament matches list the
+    # seed/favourite as "home", which poisons home-advantage learning (it made
+    # elo_exp non-monotonic near even matchups). Neutral fixtures are handled at
+    # predict-time by zeroing home_adv AND averaging both orientations.
+    df = df[df["neutral"] == 0].reset_index(drop=True)
     df["idx"] = df.index
     df["elo_diff"] = df.home_elo_pre - df.away_elo_pre
     df["abs_elo_diff"] = df.elo_diff.abs()
