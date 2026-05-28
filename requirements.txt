@@ -16,7 +16,13 @@ thefuzz==0.22.1
 flask==3.1.2
 
 # NBA
-pbpstats==1.3.11
+# pbpstats dropped: its rich endpoints need stats.nba.com via providers our
+# network couldn't reach with raw requests; nba_api ships proper headers and
+# works. nba_api covers the daily refresh — fixtures (ScoreboardV3) + appending
+# fresh game-log rows (LeagueGameLog) — see ml_project/nba/fetch_nba_daily.py.
+# Historical training corpus is built from a local archive — see
+# ml_project/nba/process_archive.py.
+nba_api==1.11.4
 
 # Real betting (dormant — macOS Keychain credentials + Playwright stealth)
 keyring==25.7.0

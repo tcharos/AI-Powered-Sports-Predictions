@@ -1,247 +1,202 @@
+"""NBA daily predictor — winner + total, trained-feature-parity at serve time.
+
+Reads ``data_sets/NBA/fixtures_<date>.json`` (the upcoming games written by
+``fetch_nba_daily.py fixtures``), computes per-fixture features from the **same
+corpus** ``data_sets/NBA/team_game_stats.csv`` the model was trained on (no
+Flashscore-standings season-average proxy), runs the winner + total models, and
+writes ``output_basketball/predictions_nba_<date>.csv``.
+
+**Train/serve parity** is the design point. The features are computed by
+mirroring ``nba_feature_engineering`` exactly: shifted/rolled over each team's
+prior games in the corpus, venue-matched l5 form, rest_days + b2b from the
+date-of-last-game, and pre-game ELO from the cached final ratings in
+``nba_elo.json``. The predictor reads the same ``features_{winner,total}.json``
+manifests the trainer wrote, so column order/identity drift is impossible.
+
+Odds / EV / Kelly are intentionally out of scope here — Phase 3 wires the
+betting flow that joins ESPN odds and computes EV. The predictor's CSV carries
+the model outputs only (`Home Win Prob`, `Predicted Winner`, `Predicted Total`,
+plus the pre-game ELOs for explainability).
+"""
+
+import argparse
+import datetime
 import json
-import pandas as pd
-import numpy as np
-import pickle
 import os
-import glob
-from datetime import datetime
-from nba_utils import get_full_name, get_abbr
+import pickle
+import sys
 
-# Constants
-MATCH_FILE_PATTERN = "output_basketball/nba_matches_*_final.json"
-STATS_DIR = "data_sets/NBA"
-MODEL_WINNER = "models/nba/winner_model.pkl"
-MODEL_TOTAL = "models/nba/total_model.pkl"
-ODDS_FILE = "output_basketball/espn_odds.json"
+import numpy as np
+import pandas as pd
 
-def load_latest_matches():
-    files = glob.glob(MATCH_FILE_PATTERN)
-    if not files:
-        print("No match files found.")
-        return []
-    # Get latest
-    latest_file = max(files, key=os.path.getctime)
-    print(f"Loading matches from {latest_file}...")
-    with open(latest_file, 'r') as f:
-        return json.load(f)
 
-def load_stats_file(filename):
-    path = os.path.join(STATS_DIR, filename)
-    if not os.path.exists(path):
-        print(f"Warning: Stats file not found: {path}")
-        return {}
-    with open(path, 'r') as f:
-        return json.load(f)
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA = os.path.join(_REPO, "data_sets", "NBA")
+CORPUS = os.path.join(DATA, "team_game_stats.csv")
+ELO_CACHE = os.path.join(DATA, "nba_elo.json")
+FIXTURES_TMPL = os.path.join(DATA, "fixtures_{date}.json")
 
-def parse_stats_row(team_data):
-    if not team_data or "raw_cells" not in team_data:
-        return None
-    cells = team_data["raw_cells"]
-    if len(cells) < 6:
-        return None
-    try:
-        gp = float(cells[2])
-        wins = float(cells[3])
-        score_str = cells[5]
-        pts_for, pts_against = map(float, score_str.split(':'))
-        return {
-            "pts_avg": pts_for / gp if gp > 0 else 0,
-            "allowed_avg": pts_against / gp if gp > 0 else 0,
-            "win_pct": wins / gp if gp > 0 else 0
-        }
-    except Exception as e:
-        return None
+MODEL_DIR = os.path.join(_REPO, "models", "nba")
+WINNER_MODEL = os.path.join(MODEL_DIR, "winner_model.pkl")
+TOTAL_MODEL = os.path.join(MODEL_DIR, "total_model.pkl")
+WINNER_FEATURES = os.path.join(MODEL_DIR, "features_winner.json")
+TOTAL_FEATURES = os.path.join(MODEL_DIR, "features_total.json")
+CALIBRATION_PATH = os.path.join(DATA, "nba_calibration.json")
 
-def get_team_features(team_name, stats_l5, stats_l10):
-    feat_l5 = parse_stats_row(stats_l5.get(team_name))
-    feat_l10 = parse_stats_row(stats_l10.get(team_name))
-    
-    if not feat_l5: return None
-    if not feat_l10: feat_l10 = feat_l5
-    
-    return {
-        "pts_l5": feat_l5["pts_avg"],
-        "allowed_l5": feat_l5["allowed_avg"],
-        "win_l5": feat_l5["win_pct"],
-        "pts_l10": feat_l10["pts_avg"],
-        "allowed_l10": feat_l10["allowed_avg"],
-        "win_l10": feat_l10["win_pct"]
-    }
+OUT_DIR = os.path.join(_REPO, "output_basketball")
 
-def load_espn_odds():
-    if not os.path.exists(ODDS_FILE):
-        return {}
-    with open(ODDS_FILE, 'r') as f:
-        data = json.load(f)
-    odds_map = {}
-    for game in data:
-        # Include Date in Key for uniqueness?
-        # Or store list of games per team and filter by date later?
-        # A team only plays once per day basically.
-        # But we need to know the date of the odd.
-        
-        team = game["home_team"]
-        date_header = game.get("date_header", "")
-        
-        if team not in odds_map:
-            odds_map[team] = []
-        odds_map[team].append(game)
-        
-    return odds_map
+# Mirrors nba_feature_engineering — kept duplicate here to keep the predictor
+# self-contained (no cross-module dependency on a re-import of the trainer).
+ELO_INIT = 1500.0
+ROLL_METRICS = {
+    "pts":         "teamScore",
+    "pts_allowed": "opponentScore",
+    "win":         "win",
+    "fg_pct":      "fieldGoalsPercentage",
+    "fg3_pct":     "threePointersPercentage",
+    "ft_pct":      "freeThrowsPercentage",
+    "reb":         "reboundsTotal",
+    "ast":         "assists",
+    "tov":         "turnovers",
+    "plus_minus":  "plusMinusPoints",
+}
+L10_METRICS = ("pts", "pts_allowed", "win", "plus_minus")
+VENUE_METRICS = ("pts", "pts_allowed", "win")
 
-def parse_odds_line(raw_odds):
-    parts = raw_odds.split('|')
-    parts = [p.strip() for p in parts]
-    market_total = None
-    home_spread = None
-    
-    def get_val(s, key_char=''):
-        try:
-            val_str = s.split(' ')[0]
-            if key_char: val_str = val_str.replace(key_char, '')
-            return float(val_str)
-        except: return None
 
-    if len(parts) >= 5:
-        if parts[1].startswith('o'): market_total = get_val(parts[1], 'o')
-        elif parts[4].startswith('u'): market_total = get_val(parts[4], 'u')
-        home_spread = get_val(parts[3])
-        
-    return market_total, home_spread
+def team_features(team_id: int, is_home: bool, game_date: pd.Timestamp,
+                  team_rows: pd.DataFrame, elo: dict) -> dict:
+    """Serve-time feature vector for one team for a fixture on ``game_date``.
 
-def match_odds_by_date(home_team, target_date_str, odds_map):
-    # target_date_str: "2025-12-15"
-    # odds_map: { "Team": [ {date_header: "Monday, December 15", ...}, ... ] }
-    
-    if home_team not in odds_map:
-        return None
-        
-    games = odds_map[home_team]
-    
-    # Needs to match date.
-    # Convert "2025-12-15" to "Monday, December 15" format?
-    # Or strict check?
-    try:
-        dt = datetime.strptime(target_date_str, "%Y-%m-%d")
-        # ESPN Header: "Monday, December 15"
-        # Let's construct it.
-        # Note: %A = Day Name, %B = Month Name, %d = Day (padded?) or %-d (unpadded)
-        # Python strftime on non-padded days varies by OS.
-        # ESPN uses "December 15" (space + number).
-        # Let's try simple match.
-        
-        target_day = dt.strftime("%d").lstrip('0')
-        target_month = dt.strftime("%B")
-        
-        for g in games:
-            header = g.get("date_header", "")
-            if target_month in header and f" {target_day}" in header:
-                return g
-                
-    except:
-        pass
-        
-    # Fallback: exact team match if only 1 game in list?
-    if len(games) == 1:
-        return games[0]
-        
-    return None
+    Filters the team's rows to ``date < game_date`` (so the upcoming game's own
+    truth, if for some reason already in the corpus, can't leak), then computes
+    the same shift+rolling means + venue-matched form the trainer did. Returns
+    a flat dict without the ``home_``/``away_`` prefix — caller adds it.
+    """
+    prior = team_rows[team_rows["date"] < game_date.strftime("%Y-%m-%d")].sort_values("date")
 
-def main():
-    try:
-        with open(MODEL_WINNER, 'rb') as f: clf = pickle.load(f)
-        with open(MODEL_TOTAL, 'rb') as f: reg = pickle.load(f)
-    except Exception as e:
-        print(f"Error loading models: {e}")
-        return
-
-    matches = load_latest_matches()
-    stats_l5_overall = load_stats_file("form_last_5_overall.json")
-    stats_l10_overall = load_stats_file("form_last_10_overall.json")
-    espn_odds = load_espn_odds()
-    
-    predictions = []
-    print(f"Generating predictions for {len(matches)} matches...")
-    
-    for m in matches:
-        home = m['home_team']
-        away = m['away_team']
-        
-        hf = get_team_features(home, stats_l5_overall, stats_l10_overall)
-        af = get_team_features(away, stats_l5_overall, stats_l10_overall)
-        
-        if not hf or not af:
-            print(f"Skipping {home} vs {away} - Missing Stats")
-            continue
-            
-        X = [[
-            hf['pts_l5'], hf['allowed_l5'], hf['win_l5'],
-            af['pts_l5'], af['allowed_l5'], af['win_l5'],
-            hf['pts_l10'], hf['allowed_l10'], hf['win_l10'],
-            af['pts_l10'], af['allowed_l10'], af['win_l10']
-        ]]
-        
-        win_prob = clf.predict_proba(X)[0][1]
-        pred_total = reg.predict(X)[0]
-        
-        # Match with Odds
-        market_total = "N/A"
-        home_spread = "N/A"
-        
-        eff_total = None
-        
-        # New Date-Aware Lookup
-        target_date = m.get('date', 'Tomorrow')
-        match_data = match_odds_by_date(home, target_date, espn_odds)
-        
-        if match_data:
-            mt, hs = parse_odds_line(match_data.get("raw_odds", ""))
-            if mt: 
-                market_total = mt
-                eff_total = mt
-            if hs is not None: 
-                home_spread = hs
-        
-        ou_pick = "Pass"
-        if eff_total:
-            diff = pred_total - eff_total
-            if diff > 3: ou_pick = "OVER"
-            elif diff < -3: ou_pick = "UNDER"
-        
-        predictions.append({
-            "Date": m.get('date', 'Tomorrow'),
-            "Home Team": home,
-            "Away Team": away,
-            "Home Win %": round(win_prob * 100, 1),
-            "Spread (Home)": home_spread,
-            "Total (Market)": market_total,
-            "Total (Model)": round(pred_total, 1),
-            "O/U Pick": ou_pick,
-            "Confidence": round(abs(win_prob - 0.5) * 2 * 100, 1)
-        })
-       # Output
-    if predictions:
-        output_dir = "output_basketball"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Determine date from first prediction (they should all be for same day usually)
-        # If mixed dates, we pick the first one or most common. First one is safe for "Tomorrow" batches.
-        file_date = predictions[0]['Date']
-        
-        # Sanitization: ensure YYYY-MM-DD
-        try:
-            datetime.strptime(file_date, '%Y-%m-%d')
-        except:
-            # Fallback if scraping gave weird date string
-            file_date = datetime.now().strftime('%Y-%m-%d')
-
-        out_df = pd.DataFrame(predictions)
-        out_path = os.path.join(output_dir, f"predictions_nba_{file_date}.csv")
-        out_df.to_csv(out_path, index=False)
-        print(f"\n✅ Predictions saved to {out_path}")
-        print(out_df.to_string())
+    out: dict = {}
+    # Schedule signals
+    if len(prior):
+        last_date = pd.to_datetime(prior["date"].iloc[-1])
+        rd = max(0, min(14, (game_date - last_date).days))
     else:
-        print("No predictions generated.")
+        rd = 7
+    out["rest_days"] = int(rd)
+    out["b2b"] = 1 if rd == 1 else 0
+    out["elo_pre"] = float(elo.get(str(team_id), ELO_INIT))
+
+    last5 = prior.tail(5)
+    for short, col in ROLL_METRICS.items():
+        out[f"l5_{short}"] = float(last5[col].mean()) if len(last5) else np.nan
+
+    last10 = prior.tail(10)
+    for short in L10_METRICS:
+        out[f"l10_{short}"] = float(last10[col := ROLL_METRICS[short]].mean()) if len(last10) else np.nan
+
+    # Venue-matched: prior games at the same venue type (home vs away) as this one.
+    venue_prior = prior[prior["home"] == (1 if is_home else 0)].tail(5)
+    for short in VENUE_METRICS:
+        col = ROLL_METRICS[short]
+        out[f"venue_l5_{short}"] = float(venue_prior[col].mean()) if len(venue_prior) else np.nan
+
+    return out
+
+
+def build_predict_row(home_team_id: int, away_team_id: int, game_date: pd.Timestamp,
+                      corpus: pd.DataFrame, elo: dict) -> dict:
+    home_rows = corpus[corpus["teamId"] == home_team_id]
+    away_rows = corpus[corpus["teamId"] == away_team_id]
+    row: dict = {}
+    for k, v in team_features(home_team_id, True, game_date, home_rows, elo).items():
+        row[f"home_{k}"] = v
+    for k, v in team_features(away_team_id, False, game_date, away_rows, elo).items():
+        row[f"away_{k}"] = v
+    return row
+
+
+def predict(date_str: str | None = None) -> int:
+    date_str = date_str or (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    fix_path = FIXTURES_TMPL.format(date=date_str)
+    if not os.path.exists(fix_path):
+        print(f"[predict] no fixtures file: {fix_path}\n"
+              f"  run: python3 ml_project/nba/fetch_nba_daily.py fixtures --date {date_str}",
+              file=sys.stderr)
+        return 1
+    fixtures = json.load(open(fix_path))
+    print(f"[predict] {len(fixtures)} fixtures from {os.path.basename(fix_path)}")
+    if not fixtures:
+        print("[predict] no games — nothing to predict.")
+        return 0
+
+    print(f"[predict] reading corpus {CORPUS}")
+    corpus = pd.read_csv(CORPUS, low_memory=False, usecols=[
+        "gameId", "date", "teamId", "home", "teamScore", "opponentScore",
+        "fieldGoalsPercentage", "threePointersPercentage", "freeThrowsPercentage",
+        "reboundsTotal", "assists", "turnovers", "plusMinusPoints", "win",
+    ])
+    elo = json.load(open(ELO_CACHE)) if os.path.exists(ELO_CACHE) else {}
+
+    with open(WINNER_MODEL, "rb") as f: winner = pickle.load(f)
+    with open(TOTAL_MODEL, "rb") as f: total = pickle.load(f)
+    win_features = json.load(open(WINNER_FEATURES))
+    tot_features = json.load(open(TOTAL_FEATURES))
+
+    # Platt calibration is applied if the file exists; otherwise raw passes through.
+    # (Phase 3 will gate this behind a use_nba_calibration flag in betting_config.)
+    from nba_calibration import load_calibration_data, apply_home_win_platt
+    cal = load_calibration_data(CALIBRATION_PATH)
+    if cal:
+        print(f"[predict] calibration loaded (Brier improvement "
+              f"{cal.get('brier_before',0) - cal.get('brier_after',0):+.4f}); will apply.")
+    else:
+        print("[predict] no calibration file — raw probabilities will be served.")
+
+    game_date = pd.Timestamp(date_str)
+    rows: list[dict] = []
+    for fx in fixtures:
+        h_id, a_id = fx.get("home_team_id"), fx.get("away_team_id")
+        if not h_id or not a_id:
+            print(f"  ⚠ skipping fixture with missing team_id: {fx}")
+            continue
+        feats = build_predict_row(int(h_id), int(a_id), game_date, corpus, elo)
+        x_win = pd.DataFrame([{f: feats.get(f, np.nan) for f in win_features}])
+        x_tot = pd.DataFrame([{f: feats.get(f, np.nan) for f in tot_features}])
+        raw_p = float(winner.predict_proba(x_win)[0, 1])
+        cal_p, cal_applied, cal_src = apply_home_win_platt(raw_p, cal, enabled=bool(cal))
+        pred_total = float(total.predict(x_tot)[0])
+        rows.append({
+            "Date":               date_str,
+            "Home Team":          fx.get("home_team"),
+            "Away Team":          fx.get("away_team"),
+            "Home ELO":           int(feats.get("home_elo_pre", ELO_INIT)),
+            "Away ELO":           int(feats.get("away_elo_pre", ELO_INIT)),
+            "Home Win Prob":      round(cal_p, 4),
+            "Home Win Prob (raw)": round(raw_p, 4),
+            "Cal Source":         cal_src or "",
+            "Predicted Winner":   "HOME" if cal_p >= 0.5 else "AWAY",
+            "Predicted Total":    round(pred_total, 2),
+            "Home Rest":          feats.get("home_rest_days"),
+            "Away Rest":          feats.get("away_rest_days"),
+            "Home B2B":           feats.get("home_b2b"),
+            "Away B2B":           feats.get("away_b2b"),
+            "gameId":             fx.get("gameId"),
+        })
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUT_DIR, f"predictions_nba_{date_str}.csv")
+    df = pd.DataFrame(rows)
+    df.to_csv(out_path, index=False)
+    print(f"\n[predict] wrote {len(rows)} predictions → {out_path}")
+    if len(df):
+        print(df[["Home Team", "Away Team", "Home ELO", "Away ELO",
+                  "Home Win Prob", "Predicted Total", "Home Rest", "Away Rest"]]
+              .to_string(index=False))
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--date", default=None, help="YYYY-MM-DD; default tomorrow")
+    args = ap.parse_args()
+    sys.exit(predict(args.date))
