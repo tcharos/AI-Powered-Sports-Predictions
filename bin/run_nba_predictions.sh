@@ -45,6 +45,18 @@ if ! python3 ml_project/nba/fetch_nba_daily.py fixtures --date "$TARGET_DATE"; t
     exit 1
 fi
 
+# 2b. ESPN odds (non-fatal). Writes output_basketball/espn_odds_<date>.json with
+# moneyline + total + per-side juice (American + decimal). Phase 3's betting
+# flow joins this to predictions for EV/Kelly; the predictor itself works
+# without odds, so a fetch failure should NOT block prediction.
+echo ""
+echo "[*] Fetching ESPN odds (non-fatal) ..."
+if python3 ml_project/nba/fetch_espn_odds.py --date "$TARGET_DATE"; then
+    echo "[+] Odds fetched."
+else
+    echo "[!] Odds fetch failed (non-fatal) — predictions will be served without EV/Kelly."
+fi
+
 # 3. Predict (corpus-derived features + Platt-calibrated P(home_win))
 echo ""
 echo "[*] Running predictor ..."

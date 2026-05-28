@@ -352,7 +352,7 @@ NBA was a detached subsystem (UI off, models from Dec-2024, pbpstats geo-blocked
 **Deferred follow-ups** (after Phase 3, or as small standalones):
 - **Retune** `tune_nba_models.py` for the new 40-feature set — current `best_params_*.json` were tuned on the old 12-feature era and load gracefully (training ran), but optimal hyperparameters likely shifted.
 - **Update** `evaluate_nba_predictions.py` to the new prediction-CSV columns (`Home Win Prob` + `Home Win Prob (raw)` + `Cal Source` + `Predicted Winner`/`Predicted Total`, gameId join). Currently flagged non-fatal in `run_nba_verification.sh`.
-- **Repair / replace** `fetch_espn_odds.py` — Dec-2024 DOM selectors are fragile. Needed by Phase 3 for EV/Kelly; the predictor itself works without odds.
+- ~~**Repair / replace** `fetch_espn_odds.py`~~ ✅ DONE 2026-05-28 — rewritten as a plain-HTTP JSON client over ESPN's site.api scoreboard (moneyline + total + per-side juice, American→decimal). Per-date output. Wired into `run_nba_predictions.sh` as a non-fatal step. **Caveat**: ESPN doesn't preserve historical odds (`odds: []` for completed games), so this is a forward-only source.
 - **Advanced stats** (pace / four-factors / per-possession) would help the model, but stats.nba.com (the only practical source from this machine) is blocked; revisit if a Cloudflare-friendly alternative surfaces.
 
 ## Future analysis ideas (not yet scoped)
