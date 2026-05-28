@@ -381,7 +381,7 @@ class Pamestoixima(Bookmaker):
     # --- stubs (later steps) ----------------------------------------------
 
     def find_fixtures(self, date: str) -> List[dict]:
-        raise NotImplementedError("Fixture discovery lands in step 6b. See NEXT_STEPS.md.")
+        raise NotImplementedError("Fixture discovery lands in step 6b. See FOOTBALL_NEXT_STEPS.md.")
 
     def get_odds(self, fixture_url: str) -> dict:
-        raise NotImplementedError("Odds scrape lands in step 6c. See NEXT_STEPS.md.")
+        raise NotImplementedError("Odds scrape lands in step 6c. See FOOTBALL_NEXT_STEPS.md.")

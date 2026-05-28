@@ -143,7 +143,7 @@ class ModelTrainer:
         # from these features — the binary draw model has low discriminative
         # power even at lower thresholds (rec@0.3 ≈ 0.23). It's effectively
         # a near-constant predictor that contributes little signal beyond
-        # the multi-class 1X2 model. See NEXT_STEPS D0 for the proper fix
+        # the multi-class 1X2 model. See FOOTBALL_NEXT_STEPS D0 for the proper fix
         # (richer features or different architecture).
         params = {
             'objective': 'binary:logistic',

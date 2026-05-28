@@ -227,12 +227,12 @@ Click strategies in order: `get_by_role('tab', name='All', exact=True)`,
   block at Place Bet.
 - **Stake-input minimum**: €10 worked; the minimum stake on Pamestoixima
   for sports is documented as €0.50 but a live test would confirm.
-- **Fixture discovery from team names**: separate problem (NEXT_STEPS
+- **Fixture discovery from team names**: separate problem (FOOTBALL_NEXT_STEPS
   step 6c). The coupon page is the entry point but has the basketball-
   default problem on fresh sessions. Likely path: scrape
   `/en/sport/football/<league-id>` pages directly.
 - **My Bets history scraping**: needed for settlement reconciliation
-  (NEXT_STEPS step 10). Untouched so far.
+  (FOOTBALL_NEXT_STEPS step 10). Untouched so far.
 
 ## Corrections / lessons learned
 
@@ -411,7 +411,7 @@ https://errors.edgesuite.net/18.4b173317...
 
 **Conclusion**: headless is NOT viable for Pamestoixima without
 escalating to a C++-fingerprint-patched browser (CloakBrowser /
-patchright — see "Optional escalation" in NEXT_STEPS). Per that note,
+patchright — see "Optional escalation" in FOOTBALL_NEXT_STEPS). Per that note,
 do NOT adopt preemptively: we don't *need* headless — headed mode
 works for the on-demand ~25 s scrape. This is the concrete evidence
 that real-betting step 6d ("headless validation") cannot pass on the
@@ -453,7 +453,7 @@ to **only** linked-bet matches — "skin in the game" view.
 
 ## Policy reminder
 
-**`NEXT_STEPS.md`'s "read-only operations only" policy remains the
+**`FOOTBALL_NEXT_STEPS.md`'s "read-only operations only" policy remains the
 official stance until mass-production release.** The 2026-05-20 e2e
 placement was a per-run override via `EXECUTE_PLACE_BET=True` in the
 dryrun script, NOT a policy change. Phase 9 work in the proper

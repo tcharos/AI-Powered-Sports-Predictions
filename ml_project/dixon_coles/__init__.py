@@ -1,4 +1,4 @@
-"""Dixon-Coles / bivariate-Poisson scoreline model — D3 (NEXT_STEPS.md).
+"""Dixon-Coles / bivariate-Poisson scoreline model — D3 (FOOTBALL_NEXT_STEPS.md).
 
 ISOLATED, EXPERIMENTAL package. Deliberately self-contained and
 DC-namespaced so it can't disturb the production XGBoost flow:

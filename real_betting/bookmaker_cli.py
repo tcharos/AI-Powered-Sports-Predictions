@@ -8,7 +8,7 @@ Usage (either invocation works — `__main__.py` re-exports `main`):
     python -m real_betting.bookmaker_cli find-fixtures <bookmaker> [--date YYYY-MM-DD]
 
 Step 1 (module skeleton): every subcommand wires up cleanly but raises
-NotImplementedError with a pointer to the relevant NEXT_STEPS.md step.
+NotImplementedError with a pointer to the relevant FOOTBALL_NEXT_STEPS.md step.
 The point of step 1 is to verify the plumbing, not to do anything yet.
 """
 
@@ -108,7 +108,7 @@ def cmd_login(args):
 def cmd_find_fixtures(args):
     """Scrape today's (or --date's) fixtures from a bookmaker."""
     print(f"[stub] find-fixtures {args.bookmaker} date={args.date}: not implemented yet.")
-    print("       See NEXT_STEPS.md → 'Real betting integration' step 6b.")
+    print("       See FOOTBALL_NEXT_STEPS.md → 'Real betting integration' step 6b.")
     return 1
 
 
@@ -155,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog='python -m real_betting',
         description='Dormant real-betting integration. Read-only operations '
-                    'against a bookmaker. See NEXT_STEPS.md.',
+                    'against a bookmaker. See FOOTBALL_NEXT_STEPS.md.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = p.add_subparsers(dest='command', required=True, metavar='<command>')
@@ -175,7 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser('login', help='Authenticate against a bookmaker.')
     _bookmaker_arg(sp)
     sp.add_argument('--headless', action='store_true',
-                    help='Run Chromium headless. Default: headed (see NEXT_STEPS step 8).')
+                    help='Run Chromium headless. Default: headed (see FOOTBALL_NEXT_STEPS step 8).')
     sp.add_argument('--fresh-session', action='store_true',
                     help='Ignore saved storage state; always start from a blank browser.')
     sp.set_defaults(func=cmd_login)

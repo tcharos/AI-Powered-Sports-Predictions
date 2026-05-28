@@ -520,7 +520,7 @@ class PamestoiximaBackend(BettingBackend):
     """Phase 9 placeholder. Every method raises NotImplementedError
     pointing at the transition doc + the bookmaker notes.
 
-    When real-betting integration matures (NEXT_STEPS.md Pamestoixima
+    When real-betting integration matures (FOOTBALL_NEXT_STEPS.md Pamestoixima
     Step 9 re-evaluation), these methods will:
       - get_balance: call Pamestoixima.get_balance() (already
                      implemented for read-only login flow).

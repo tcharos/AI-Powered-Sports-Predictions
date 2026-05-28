@@ -1,0 +1,275 @@
+# Euroleague Next Steps
+
+Euroleague-specific roadmap. Sibling to `FOOTBALL_NEXT_STEPS.md` (football / cashout / cross-cutting) and `NBA_NEXT_STEPS.md` (NBA).
+
+For project-wide context (cashout phases, real-betting integration, cross-cutting model experiments) see `FOOTBALL_NEXT_STEPS.md`. NBA work — the closest architectural prior, since both are basketball + same UI/betting shape — lives in `NBA_NEXT_STEPS.md`. Mirror NBA's three-phase shape unless a Euroleague-specific reason forces a divergence.
+
+## Scope (lock down before Phase 1)
+
+Open questions to answer before any code:
+
+1. **Competition scope.** Default: men's top-tier **ULEB Euroleague** only (no EuroCup, no Basketball Champions League, no domestic leagues). If we want EuroCup too, decide now — `euroleague-api` covers both for free, so the marginal cost is in the model (one combined model or two?) not the data fetch.
+2. **Markets.** Default: **moneyline + total points** (mirrors NBA Phase 3 v1). Point spread is the dominant Euroleague market in some books — add as v1.5 once moneyline ships.
+3. **Re-use vs. duplicate of the NBA pipeline.** Two basketball pipelines side-by-side is fine; the feature engineering (rest_days, b2b, L5/L10 rolling, venue-matched L5, ELO) transfers wholesale. Decision: copy `ml_project/nba/` → `ml_project/euroleague/` and diverge where needed, rather than parameterising a shared module before we know what differs. Same call as NBA-vs-football.
+4. **Cadence.** Euroleague plays ~2× / week per team during the regular season (Oct–Apr) + playoffs through May/early-June. Daily predict/verify is overkill on off-days; same `bin/run_*.sh` cadence is fine, those just no-op on empty slates.
+
+## Phase status
+
+| # | Phase | Status | Notes |
+| --- | --- | --- | --- |
+| 0 | Data-source evaluation (this doc) | ✅ DONE (2026-05-28, mod. Flashscore probe deferred) | `euroleague_odds` evaluated → demoted (stale OddsPortal scraper). `euroleague-api` probed → GREEN. EuroCup decided IN, combined-model architecture decided. Multi-season historical fetch in progress (E + U, 2016-17 → 2024-25, builder at `scripts/euroleague_probe/fetch_seasons.py`). Only Flashscore Euroleague coverage probe remains; deferred to next season (off-season now). |
+| 1 | Data layer | ⬜ TODO | Mirrors NBA Phase 1. Build the canonical long-format corpus (one row per team per game) under `data_sets/Euroleague/team_game_stats.csv`. Daily refresh (yesterday's results + tomorrow's fixtures) idempotent and dedup-safe. Headers / rate limits / `time.sleep` discipline same as NBA. Branch: `feat/euroleague-onboarding-data`. |
+| 2 | Model + calibration | ⬜ TODO | Mirrors NBA Phase 2. ELO_pre + L5/L10 rolling + venue-matched L5 + rest/b2b. Two models: winner `XGBClassifier`, total `XGBRegressor`. 5-fold TimeSeriesSplit. Single global Platt on `P(home_win)` (Euroleague = effectively one league for our purposes — same shape as NBA's calibration). Outputs: `models/euroleague/{winner,total}.json` (+ feature manifests) and `data_sets/Euroleague/euroleague_calibration.json`. |
+| 3 | UI + betting integration | ⬜ TODO | Mirrors NBA Phase 3. **Football-isolation guarantee** applies again: zero edits to `football_bp` routes / templates / shared betting code. New `EuroleagueBettingBackend(VirtualBettingBackend)` (`SPORT='euroleague'`) + `euroleague` entry in `betting_config.json` (additive) + new blueprint per the "Adding a new sport" steps in `CLAUDE.md`. Reuse the already-sport-agnostic `sports_config` / `compute_sport_summary(bets_dir)` helpers. |
+| 3.5 | Betting dashboard tab — placeholder | ✅ DONE (2026-05-28) | Fourth tab added to `templates/betting_tabbed.html` in canonical landing order (All / Football / 🏆 Euroleague / 🏀 NBA). Dormant placeholder card pointing at `EUROLEAGUE_NEXT_STEPS.md`. `/betting` route allowlist updated, docstring updated. Real per-bet panel = Phase B, lands with Phase 3. |
+| 3.5b | Landing-page card + navbar entry | ✅ DONE (2026-05-28) | `SPORTS` list in `web_ui/app.py` gets a third entry (`slug: euroleague`, `active: False`, no `bets_dir` so it's skipped by cross-sport summary aggregation). Landing page reshaped from 2-per-row (`col-md-6`) to 3-per-row (`col-md-4`) + tighter card padding so the three cards fit on one row at md+ widths. Navbar Sport ▾ dropdown auto-inherits. |
+
+## Alignment checklist — what "aligned with the other sports" means
+
+The surface a new sport has to cover for it to look and act like football / NBA across the whole codebase. ✅ items are done (UI scaffold from 2026-05-28 + cross-cutting helpers that need zero per-sport work). ⬜ items remain.
+
+### Already in place (no work required)
+
+These are **sport-agnostic helpers that auto-inherit from `SPORTS`** — adding the `euroleague` entry was enough, they need nothing further:
+
+- ✅ **Landing-page card** + **Portfolio Summary row** (`web_ui/templates/landing.html` iterates `SPORTS`; rows with no `bets_dir` are simply skipped from totals).
+- ✅ **Navbar Sport ▾ dropdown** (`layout.html` via `inject_sports` context processor).
+- ✅ **Betting tab on `/betting`** — placeholder pane shipped; cross-sport summary table already iterates `SPORTS`.
+- ✅ **`sports_config.py` API** — `get_sport_config('euroleague')` / `lane_bankrolls('euroleague')` / `update_bankroll('euroleague', …)` / `all_bankrolls()` / `total_bankroll()` already work the moment a `euroleague` block exists in `betting_config.json`. Do **not** read or mutate the JSON directly; everything goes through this module.
+- ✅ **`compute_sport_summary(bets_dir)`** — sport-agnostic, ingests any sport's `bets_<date>.json` directory and returns the same `{history, lane_stats, totals}` shape the football and NBA panels consume.
+- ✅ **Sport-agnostic routes** — `/status`, `/stop/<task>`, `/server/<action>` are registered on `app` (not on any blueprint); no per-sport work.
+
+### Per-sport surface still required
+
+Grouped by area, with parity references to the football and NBA paths so the shape is unambiguous.
+
+#### Web UI
+
+- ⬜ **Blueprint** `web_ui/euroleague/routes.py` + `web_ui/euroleague/__init__.py`. Register in `app.py` next to NBA: `from euroleague.routes import euroleague_bp` + `app.register_blueprint(euroleague_bp, url_prefix='/euroleague')`. Mirror `web_ui/nba/routes.py` — same route names (`/`, `/predict`, `/verify`, `/retrain`, `/auto_wager`, `/place_bets`, `/cashout/<bet_id>`, `/void_bet/<bet_id>`, `/view/<filename>`, `/delete_file/<filename>`) with `g.backend = EuroleagueBettingBackend(...)` injected on `before_request`.
+- ⬜ **Dashboard template** `web_ui/templates/euroleague/index.html` — mirror `web_ui/templates/nba/index.html`. Date inputs on Predict / Verify (parity item the NBA roadmap still has open — Euroleague should ship with them from day one, not inherit NBA's gap).
+- ⬜ **Rich betting panel partial** `web_ui/templates/_betting_euroleague_panel.html` + swap into `betting_tabbed.html`'s Euroleague tab. Mirrors `_betting_football_panel.html` shape. Lands with Phase 3 / Phase B; placeholder stays until then.
+- ⬜ **Sport entry's `bets_dir`** — flip `SPORTS` entry's `'active': False` → `True` and add `'bets_dir': 'output_euroleague'` once the bets-writing flow exists. (Until then the entry is dormant on purpose — `compute_sport_summary` is skipped, landing card greyscale.)
+
+#### Betting backend
+
+- ⬜ **`EuroleagueBettingBackend(VirtualBettingBackend)`** in `web_ui/betting_backend.py`, with `SPORT = 'euroleague'`. Mirror `NbaBettingBackend` (`web_ui/betting_backend.py:492-517`) — same subclass shape, one-line SPORT override; the parent class already routes bankroll updates to the right `sports.<slug>` block via `sports_config.py`.
+
+#### Config
+
+- ⬜ **`data_sets/betting_config.json` `sports.euroleague` block** — additive (zero edits to existing football / nba blocks). Required keys mirror NBA's block:
+  ```
+  bankrolls: {value, conviction, model} each with {current, initial}
+  min_confidence, stake_multiplier, min_stake_eur, max_stake_pct, ev_cap_value,
+  use_league_calibration (optional, default true),
+  conviction_min_confidence, conviction_min_odds, conviction_stake_pct,
+  model_base_pct, model_max_stake_pct, model_min_stake_eur,
+  model_ev_factor_min, model_ev_factor_max,
+  value_max_daily_exposure_pct, conviction_max_daily_exposure_pct, model_max_daily_exposure_pct
+  ```
+  Start with zero bankrolls + the same tunables as NBA; tune later.
+
+#### ML pipeline (`ml_project/euroleague/`)
+
+Mirror `ml_project/nba/` file-for-file:
+
+- ⬜ **`__init__.py`**, **`euroleague_utils.py`** (shared helpers, team-name canonicalisation).
+- ⬜ **Corpus builder** — `build_corpus.py` or `process_archive.py` (one-shot history pull via `euroleague-api`). Writes `data_sets/Euroleague/team_game_stats.csv` (one row per team per game) — same long-format the NBA feature engineering consumes. Merge-safe rebuild.
+- ⬜ **Daily fetcher** — `fetch_euroleague_daily.py` with `append-results` + `fixtures` modes. Idempotent dedup. `time.sleep(1)` between API calls.
+- ⬜ **Feature engineering** — `euroleague_feature_engineering.py` mirroring `nba_feature_engineering.py` (ELO_pre + L5/L10 rolling + venue-matched L5 + rest_days / b2b, all shift-leak-safe). Writes `data_sets/Euroleague/training_data.csv`.
+- ⬜ **Trainer** — `train_euroleague_models.py`. Two models: winner `XGBClassifier`, total `XGBRegressor`. 5-fold `TimeSeriesSplit`. Saves to `models/euroleague/{winner,total}.{json|pkl}` + feature manifests `models/euroleague/features_{winner,total}.json` (same predictor-reads-manifest pattern as NBA).
+- ⬜ **Calibration** — `euroleague_calibration.py` exposing `apply_home_win_platt` with the canonical **`(prob, applied, source)` 3-tuple** contract. Same as `ml_project/nba/nba_calibration.py:apply_home_win_platt` and `ml_project/calibration/apply.py:apply_platt_1x2` — UI / betting layer stays sport-agnostic. Output: `data_sets/Euroleague/euroleague_calibration.json`.
+- ⬜ **Predictor** — `predict_euroleague.py`. Mirrors `predict_nba.py`'s **serve-time-from-corpus** pattern (the train/serve-skew fix). Writes `output_euroleague/predictions_euroleague_<date>.csv` with the column shape that downstream `auto_wager` understands:
+  - Required: `gameId, Home Team, Away Team, Home Win Prob, Home Win Prob (raw), Cal Source, Predicted Winner, Predicted Total`.
+  - Plus odds + EV + Kelly once odds are joined in.
+- ⬜ **Evaluator** — `evaluate_euroleague_predictions.py` (can ship later; flag non-fatal in the bin script like NBA does).
+- ⬜ **Tuner** — `tune_euroleague_models.py` (deferred until the feature set has stabilised — same posture as NBA's deferred tuner).
+
+#### Data layout
+
+- ⬜ **`data_sets/Euroleague/`** — corpus CSV, ELO cache JSON, calibration JSON, training data CSV, optional raw API cache. Gitignored if any of it is large/regenerable (mirrors NBA's gitignored archive).
+- ⬜ **`output_euroleague/`** — sport's bets-and-artifacts directory. `predictions_<date>.csv`, `verification_<date>.csv`, `bets_<date>.json`, soft-delete subdir `output_euroleague/history/`. This is the path that becomes the `SPORTS` entry's `bets_dir`.
+- ⬜ **`models/euroleague/`** — trained artifacts (winner + total + features manifests).
+- ⬜ **`logs/euroleague_predict.log`**, **`logs/euroleague_verify.log`**, **`logs/euroleague_retrain.log`** — created on first run by the bin scripts.
+
+#### Scrapers
+
+- ⬜ **Flashscore Euroleague spider** — basketball variant of `flashscore_scraper/spiders/flashscore_spider.py` (or extension of `nba_spider.py`). Forward-only odds + live data per the free-only strategy in Data sources §B. Same Playwright infra, same lockfile / delay discipline.
+- ⬜ **`data_sets/team_mappings.json` Euroleague entries** — reconcile `euroleague-api` team names ↔ Flashscore display names ↔ any backup data source via `entity_resolver.py` / fuzzy match.
+
+#### Bin scripts
+
+Mirror NBA's wrappers in `bin/`:
+
+- ⬜ **`bin/run_euroleague_predictions.sh`** (takes optional `YYYY-MM-DD`; defaults to tomorrow).
+- ⬜ **`bin/run_euroleague_verification.sh`** (takes optional `YYYY-MM-DD`; defaults to yesterday).
+- ⬜ **`bin/retrain_euroleague_pipeline.sh`** — chains corpus refresh → feature build → train → fit calibrator → validate calibrator (last two non-fatal, same posture as football's pipeline).
+
+All three must:
+- `source venv/bin/activate`
+- `export PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/ml_project:$(pwd)/ml_project/euroleague`
+- Be `set -u` safe.
+- Use the MacOS `date -v` + Linux `date -d` portable-fallback pattern from NBA's wrappers.
+
+#### Contracts / schema (the parity that actually matters)
+
+Surface alignment isn't enough; the **shapes** other code consumes have to match:
+
+- ⬜ **Calibration return shape**: `(prob, applied, source)` 3-tuple (matches `apply_home_win_platt` / `apply_platt_1x2`). Non-negotiable — `MatchPredictor`-style consumers branch on it.
+- ⬜ **Predictions CSV columns**: at minimum the NBA shape (`gameId, Home Team, Away Team, Home Win Prob, Home Win Prob (raw), Cal Source, Predicted Winner, Predicted Total`) plus odds / EV / Kelly columns once odds join.
+- ⬜ **`bets_<date>.json` per-bet schema** — `bet_id, lane, status, stake, odds, pnl, ...` exactly as `VirtualBettingBackend` writes for football and NBA. `EuroleagueBettingBackend` inherits this for free if the subclass only overrides `SPORT`.
+- ⬜ **Status taxonomy** — `OPEN / WON / LOST / VOID / CASHED_OUT` (per CLAUDE.md). Use the inherited resolver; don't re-invent.
+
+#### Docs
+
+- ⬜ **`CLAUDE.md` Euroleague section** — slot after the NBA pipeline description with the same shape (data layer → model → predictor → reactivation notes). Reference this doc for the roadmap.
+- ✅ **This document (`EUROLEAGUE_NEXT_STEPS.md`)** — created 2026-05-28.
+
+### What's intentionally NOT on this list (out of scope for v1)
+
+To avoid scope creep, the following sport-level surfaces exist for football but are deliberately **not** part of v1 Euroleague parity:
+
+- **Auto-cashout scheduler** (football-only daemon; NBA doesn't have it either).
+- **Live in-play snapshots + live history JSONL + LiveAdjuster** (football's cashout-decision foundation; basketball cashout is its own multi-week project).
+- **Real-betting / Pamestoixima integration** (dormant for football, no plans for basketball).
+- **Bookmaker cashout offer integration** (football-only via Pamestoixima scrape).
+
+## Data sources
+
+Three concerns, three answers:
+
+### A. Historical results + box scores (training corpus)
+
+**Recommendation: `euroleague-api`** — official Euroleague Stats API wrapper. Free, sustainably maintained (recent PyPI release), covers Euroleague + EuroCup, includes box scores, game stats, player stats, team stats, shot data. Plain HTTP, no browser. Behaves the way NBA's local Kaggle archive does: deep history + structured schema + no rate-limit headaches.
+- PyPI: <https://pypi.org/project/euroleague-api/>
+- GitHub: <https://github.com/giasemidis/euroleague_api>
+- A Kaggle mirror exists (<https://www.kaggle.com/datasets/babissamothrakis/euroleague-datasets>) — could be the corpus seed, with `euroleague-api` doing the daily-refresh role (matching NBA's archive-seed + `fetch_nba_daily` pattern). **This is the suggested split.**
+
+Open: confirm history depth and per-game richness (advanced metrics? play-by-play?) once we install it. Probe script analogous to NBA's `process_archive.py` will tell us in 30 minutes.
+
+Also worth a look as a reference / cross-check: `sakisbl/euroleague-scraper` (raw Euroleague.net scrape) and `flavioleccese92/euroleaguer` (R wrapper, but useful for endpoint discovery). Not recommended as primary; `euroleague-api` is the cleaner Python entry point.
+
+### B. Odds (the bit you asked about)
+
+**Constraint (operator, 2026-05-28): paid services are off the table.** That rules out The Odds API's historical endpoint (~$25–$100/mo paid tier) and SportsDataIO / OpticOdds / OddsJam. Free-only from here on.
+
+**`euroleague_odds` (`giasemidis/euroleague_odds`) — probed 2026-05-28, verdict: usable as backfill-only, with caveats.** Source readout:
+- **Target site: OddsPortal** (`oddsportal.com/basketball/europe/euroleague/...`). Hardcoded in `settings.json`. ⇒ same ToS-hostile + behavioral-detection risk class as the other OddsPortal scrapers, with all the implications (we already ate an Akamai block on Pamestoixima — see `real_betting/PAMESTOIXIMA_NOTES.md`).
+- **Stack: Selenium + ChromeDriver + BeautifulSoup**, headless. Predates Playwright; would need modernisation to align with our `flashscore_scraper/` stack (Playwright everywhere else).
+- **Markets: moneyline ONLY** — output schema is exactly `home_team, away_team, home_team_points, away_team_points, home_team_odds, away_team_odds` per game. **No totals, no spread, no date column, no bookmaker column.** OddsPortal shows aggregate/average odds by default, so the values are blended across books, not from any one bookmaker.
+- **Stale**: `current_season: 2021` in `settings.json`; no commits beyond the 2020–21 season setup. URL pattern still works (OddsPortal's structure hasn't changed) but the package itself isn't maintained.
+- **No license file** in the repo — copy-paste / fork rather than dependency.
+- **Sibling-author with `euroleague_api`** (same maintainer, `giasemidis`) — context for why you found them together, not a quality signal for the odds package.
+
+**The realistic free-only matrix:**
+
+| Source | Markets | History | Risk | Verdict |
+| --- | --- | --- | --- | --- |
+| **`euroleague_odds` (OddsPortal scrape, ML only)** | Moneyline only | Variable depth (OddsPortal goes back ~15 yrs for ULEB Euroleague); needs modernisation (Selenium → Playwright) and reactivation of newer seasons | **HIGH** (OddsPortal anti-bot) | 🟡 **Optional historical backfill**, fork-and-modernise. Not a Phase-1 dependency. Build only if we want odds-aware training features after the odds-free baseline ships. |
+| **`OddsHarvester` / `gingeleski/odds-portal-scraper`** | h2h + totals + spreads across multiple sports | Same OddsPortal depth | **HIGH** (same anti-bot) | Same risk class as `euroleague_odds` but actively maintained and multi-market. If we do go down the OddsPortal path, prefer one of these forks over the stale `euroleague_odds` package. |
+| **Flashscore Euroleague spider** (variant of existing `flashscore_scraper/`) | Whatever Flashscore exposes for basketball (typically moneyline + total) | Forward only — accumulates from the day we turn it on | LOW (already in stack, Playwright-based) | ✅ **Use for current/live odds.** No history, but cheapest and lowest-risk. Parity with how football/NBA scrape their daily odds today. |
+| **The Odds API free tier** (`the-odds-api.com`) | h2h / spreads / totals; `basketball_euroleague` is a supported sport key | **Current only on free tier** (500 req/mo). Historical = paid (ruled out). | LOW (compliant API) | Secondary current-odds source if Flashscore's basketball odds turn out thin. Useful as a cross-check, not a primary. |
+| **API-Sports basketball** (`api-sports.io`) | Multiple books | 7-day rolling window only | LOW | ❌ Useless for training (no archive). Free tier is fine for current odds, but Flashscore covers that already. |
+
+**Suggested odds strategy (free-only):**
+
+1. **Forward / daily / live**: extend the Flashscore spider to a `euroleague` (basketball) variant — same shape, same Playwright infra. Free, in-stack. **This is the Phase-1 odds source.**
+2. **Training the v1 model: go odds-free.** NBA already proves this pattern — `predict_nba.py` doesn't depend on odds; odds are joined *at inference* (Phase 3) for EV/Kelly grading. Same pattern for Euroleague. Removes the entire historical-odds dependency from Phases 1–3.
+3. **Historical odds backfill = optional enrichment, deferred.** Only worth doing if a forward-only A/B (odds-free baseline vs. odds-aware variant) on accumulated forward data suggests odds-aware features would lift Brier — same OOF gate the football D2 features go through. Even then, weigh the scraping-maintenance burden against the lift; the football pipeline gets odds for free from `football-data.co.uk` CSVs, but no equivalent exists for Euroleague, so this would be a permanent maintenance line item.
+4. **If we do the backfill**: don't depend on `euroleague_odds` as-is — it's stale and Selenium-based. Two options, in preference order:
+   - **(a) Fork + modernise**: port the OddsPortal selectors to Playwright, generalise to totals/spreads, drive via our existing scraper infra. ~1 week of work; brittle to OddsPortal DOM changes.
+   - **(b) Use `OddsHarvester`**: actively maintained, Playwright-based, multi-market. Less custom code, same anti-bot risk. Probably the right call if we commit.
+   Either way: rate-limit aggressively, cache the full pull, treat the OddsPortal access as a one-time-per-season operation (not daily).
+
+### C. Daily live data (in-play snapshots, the cashout/live-adjuster path)
+
+Mirror the football live-history pattern: extend `flashscore_scraper/` with a Euroleague spider that emits the basketball equivalent of the football live JSONL (score, period/minute, basic per-team stats). Defer; not needed for Phases 1–3. Revisit when cashout / live-betting work gets prioritised for basketball — currently NBA hasn't built this either.
+
+## Active queue (ordered)
+
+### Phase 0 (current) — Source evaluation
+
+1. **`euroleague_odds` evaluated 2026-05-28** ✅ — verdict: stale OddsPortal scraper (Selenium, moneyline-only, last touched for the 2020–21 season, no license). Demoted to "optional historical backfill" (see Data Sources §B). Not a Phase-1 dependency.
+2. **`euroleague-api` probed 2026-05-28** ✅ — verdict: **GREEN, use as Phase-1 corpus source.** `pip install euroleague-api` (version 0.1.1 picked up); pulled 2023-24 season (`competition='E'`, `season=2024` — convention is ending year).
+    - **`GameStats.get_game_report_single_season(2024)` → 330 rows × 47 cols.** Per-game schedule + result: `Season`, `Gamecode`, `Round`, `Phase` (`RS`/`PO`/`FF`), `date`/`localDate`/`utcDate`, `local.club.name|code` / `road.club.name|code`, `local.score` / `road.score`, plus pre-computed `localLast5Form` / `roadLast5Form`. Clean date strings, no missing scores on played games (`played: True` flag).
+    - **`GameStats.get_game_stats_single_season(2024)` → 330 rows × 106 cols.** Per-game team box scores: `local.team.*` and `road.team.*` for points / FG2 / FG3 / FT made+attempted / rebounds (total / def / off) / assists / steals / turnovers / blocks (favour/against) / fouls (committed/received) / plus-minus / valuation / time played. `local.total.*` / `road.total.*` give the team+bench aggregate splits. **Caveat:** `local.players` / `road.players` columns carry serialized JSON player lists per game (~16 MB / season). Drop for the v1 long-format corpus; preserve in `raw/` for future D4-style availability work.
+    - **`BoxScoreData.get_teams_boxscore_quarter_scores_single_season(2024)`** running in the background — quarter-level scores are a nice-to-have (pace / blowout features) but not required for v1 (NBA corpus doesn't use them either; per-game totals come from `game_stats`).
+    - **Files promoted** to `data_sets/Euroleague/raw/` (gitignored via `data_sets/*`). Probe is re-runnable via `scripts/euroleague_probe/probe_euroleague_api.py [SEASON]`. Schema notes + layout documented in `data_sets/Euroleague/README.md`.
+    - **NBA-corpus shape compatibility**: every column needed to derive NBA's ~40-feature set (rest_days / b2b / ELO_pre / L5/L10 rolling / venue-matched L5) is present after a wide-format → long-format ETL (one row per team per game). That ETL is the first job of Phase 1.
+3. **Probe Flashscore Euroleague coverage** — visit one live Euroleague match page in the existing Playwright spider, dump the available markets and stats fields, confirm we get moneyline + total. Validates the Phase-1 odds source. **DEFERRED** — Euroleague is currently off-season (Final Four wrapped late May; 2026-27 starts ~October). Pick up at season start, or use an archived match URL sooner if Phase 1 is ready to move.
+4. **EuroCup inclusion — DECIDED 2026-05-28 ✅** Include EuroCup from day one. Same `euroleague-api`, swap `competition='E'` → `'U'`. Tagged with `competition` column in the canonical corpus.
+    - **Model architecture decided alongside**: **one combined model with `competition` as a categorical feature** (mirrors football's "one XGBoost across all leagues with `league_cat`" pattern, validated through C4 Platt). Only revisit if Phase 2's OOF Brier shows the combined model systematically under-performs on one competition vs. a separate-model baseline. The Phase-2 calibration note in the table above ("Single global Platt on `P(home_win)`") becomes **two-calibrator Platt (per competition)**, same shape as football's per-league fit.
+    - **ELO**: computed per `(team, competition)` pair, separate caches (`euroleague_elo_E.json` / `euroleague_elo_U.json`) — same pattern football uses to separate per-league ELO. A team's Euroleague ELO ≠ EuroCup ELO; the rating ladders are independent because the opponent pools are different competitive levels.
+
+### Multi-season historical fetch — ✅ DONE (2026-05-28, 53.4 min, zero failures)
+
+Builder: `scripts/euroleague_probe/fetch_seasons.py`. Fetched both competitions × 9 seasons (2017 = 2016-17 → 2025 = 2024-25) × 2 endpoints (`game_report` + `game_stats`). 36 CSVs in `data_sets/Euroleague/raw/` named `{COMP}_{SEASON}_{endpoint}.csv` (plus the legacy `E_2024_quarter_scores.csv` kept from the original Phase-0 probe). 204 MB total on disk; gitignored via `data_sets/*`.
+
+Seasonal coverage check (rows per `game_report` ≈ games per season):
+- Euroleague: 2016-17 = 260 games (pre-expansion); steady ~310–330 through 2024-25 (post-expansion + Final Four).
+- EuroCup: 2016-17 → 2024-25 = 195–200 games per season, consistent.
+
+Script is idempotent — re-runs skip files already on disk; safe to extend by adding a new season (e.g. `--start 2026 --end 2026` next May) once 2025-26 finishes. **Phase 1 (canonical long-format corpus from these raw CSVs + ETL into `team_game_stats.csv`) is now unblocked.**
+
+### Phase 1 — Data layer (post-eval)
+
+Mirror `ml_project/nba/process_archive.py` + `fetch_nba_daily.py`:
+- `ml_project/euroleague/build_corpus.py` — one-shot historical builder from `euroleague-api` (and/or Kaggle seed) → `data_sets/Euroleague/team_game_stats.csv`. Merge-safe rebuild.
+- `ml_project/euroleague/fetch_euroleague_daily.py` — `append-results` (yesterday) + `fixtures` (tomorrow) modes. Idempotent dedup. `time.sleep(1)` between API calls.
+- `bin/run_euroleague_predictions.sh` / `bin/run_euroleague_verification.sh` / `bin/retrain_euroleague_pipeline.sh` — mirror NBA scripts; `PYTHONPATH` includes `ml_project/euroleague`; portable date handling; `set -u` safe.
+- ETL adapter from `euroleague-api`'s schema to the canonical long-format CSV `nba_feature_engineering` already knows how to chew on (column rename + per-team row split + venue flag).
+
+### Phase 2 — Model + calibration
+
+Copy `ml_project/nba/` → `ml_project/euroleague/` and diverge:
+- Same ~40-feature set, same time-series CV, same Platt-on-P(home_win), same `(prob, applied, source)` 3-tuple contract.
+- **Euroleague-specific watch-outs**: shorter season → smaller sample (a couple of thousand games over 20 years vs. NBA's 30k); higher roster volatility between seasons; neutral-court playoff games (Final Four — handle like national-team finals in D7, predict orientation-averaged); 40-min games and trapezoid key vs. NBA's 48-min — won't affect the modelling but will affect any feature inherited from "minutes" or "possessions" assumptions.
+- Manifest models to `models/euroleague/{winner,total}.json` + `features_{winner,total}.json`.
+
+### Phase 3 — UI + betting integration
+
+Copy the NBA blueprint and rebrand. Same football-isolation rules. Add a `euroleague` entry to `SPORTS` in `web_ui/app.py`; new `EuroleagueBettingBackend(VirtualBettingBackend)`; new `euroleague` bankroll/config block in `betting_config.json`. Reuse `sports_config` / `compute_sport_summary(bets_dir)`. Bare moneyline-only panel in v1; total when P(Over) is plumbed.
+
+### Phase 3.5 — Betting dashboard fourth tab
+
+Placeholder card first (mirrors NBA Phase A), real panel once the moneyline flow stabilises (mirrors NBA Phase B).
+
+## Open / deferred
+
+- **Centralise basketball odds source?** Both NBA (ESPN, forward-only) and Euroleague (Flashscore, forward-only) are now forward-only by choice. If the odds-free baseline proves out for Euroleague, the same odds-free pattern is worth re-validating for NBA training too. Symmetry > shared API.
+- **Live / cashout for basketball.** Not in scope for v1. When prioritised, Euroleague + NBA can probably share a `BasketballLiveAdjuster` (Poisson goal model becomes a Poisson points model; xG → eFG% or pace-adjusted scoring; possession proxies via assists/turnovers).
+- **EuroCup as a second competition.** Cheap to fetch (same API), the model question is "one model with `competition` as a categorical feature" vs. "two models." Default to one model + categorical feature unless OOF Brier says otherwise.
+- **National-team competitions overlap.** Euroleague-Bs and the FIBA national-team calendars overlap; `target_leagues.json` and `is_international()` already handle the football side — basketball won't share that infra but should follow the same exact-match approach for competition filtering.
+- **Optional historical odds backfill** — if forward-only A/B testing shows odds-aware features would lift Brier (Phase 4-ish), do a one-time OddsPortal pull via a forked/modernised `euroleague_odds` or `OddsHarvester`, cache to `data_sets/Euroleague/odds/`, treat as static training data. Aggressive rate-limiting, single-shot per season, accept the brittleness (OddsPortal DOM changes break it). Defer until the lift is demonstrated, not before.
+
+## Bugs / fixes queue
+
+_(empty — pipeline doesn't exist yet)_
+
+## How to update this doc
+
+Same rules as `FOOTBALL_NEXT_STEPS.md` / `NBA_NEXT_STEPS.md`:
+1. Flip rows to ✅ with a one-line summary when phases complete.
+2. New work goes under "Open / deferred" unless it's actively queued.
+3. Don't grow into a changelog — git history is the changelog. This file is the *forward-looking* Euroleague roadmap.
+
+## Sources / references
+
+**Selected:**
+- [euroleague-api · PyPI](https://pypi.org/project/euroleague-api/) — Phase-1 history corpus
+- [giasemidis/euroleague_api · GitHub](https://github.com/giasemidis/euroleague_api)
+- [Kaggle: Euroleague & Eurocup Datasets](https://www.kaggle.com/datasets/babissamothrakis/euroleague-datasets) — optional corpus seed
+
+**Probed and demoted:**
+- [giasemidis/euroleague_odds · GitHub](https://github.com/giasemidis/euroleague_odds) — OddsPortal scraper, Selenium, ML-only, stale (2020–21). Optional backfill only, prefer `OddsHarvester` if pursued.
+
+**Optional / backfill (if odds-aware features prove out):**
+- [jordantete/OddsHarvester · GitHub](https://github.com/jordantete/OddsHarvester) — Playwright-based OddsPortal scraper, multi-market, maintained
+- [gingeleski/odds-portal-scraper · GitHub](https://github.com/gingeleski/odds-portal-scraper)
+
+**Reference / cross-check only:**
+- [sakisbl/euroleague-scraper · GitHub](https://github.com/sakisbl/euroleague-scraper)
+- [flavioleccese92/euroleaguer (R)](https://flavioleccese92.github.io/euroleaguer/) — endpoint discovery
+
+**Rejected (paid or unsuitable):**
+- [The Odds API — Historical](https://the-odds-api.com/historical-odds-data/) — paid tier; ruled out per operator constraint
+- [API-Sports — Basketball](https://api-sports.io/documentation/basketball/v1) — 7-day rolling window only; useless for training

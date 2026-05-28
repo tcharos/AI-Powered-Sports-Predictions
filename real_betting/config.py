@@ -26,7 +26,7 @@ ACTION_DELAY_MAX_MS = 2500
 PAGE_LOAD_TIMEOUT_MS = 45_000
 NAVIGATION_TIMEOUT_MS = 30_000
 
-# Headed mode is the default through step 7 of NEXT_STEPS.md. Step 8 flips
+# Headed mode is the default through step 7 of FOOTBALL_NEXT_STEPS.md. Step 8 flips
 # this to optional-headless. Override per-invocation via --headless flag.
 DEFAULT_HEADLESS = False
 

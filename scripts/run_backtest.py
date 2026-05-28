@@ -256,7 +256,7 @@ def main():
 
     # Prune older backtest outputs — keep latest 3 runs for short-term
     # Δ-trend comparison. The 2026-05-18 baseline values are recorded
-    # in NEXT_STEPS.md ('The data wait' section) so dropping older files
+    # in FOOTBALL_NEXT_STEPS.md ('The data wait' section) so dropping older files
     # doesn't lose the comparison anchor.
     _KEEP = 3
     for _patt in ('*.json', '*.txt'):

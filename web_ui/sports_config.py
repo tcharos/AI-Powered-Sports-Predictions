@@ -27,7 +27,7 @@ DEFAULT_SPORT_CONFIG = {
     # Clamp EV input to the value-lane sizing formula. Stops a single
     # high-EV pick (often from a low-data league where the model
     # overstates) from dominating the slip. Per-league recalibration is
-    # the upstream fix — see NEXT_STEPS.md.
+    # the upstream fix — see FOOTBALL_NEXT_STEPS.md.
     'ev_cap_value': 0.05,
     # Phase C4: apply per-league Platt calibrators from
     # data_sets/league_calibration.json before the heuristic adjuster

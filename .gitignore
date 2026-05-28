@@ -1,4 +1,5 @@
 .vscode/
+.claude/
 data_sets/*
 !data_sets/betting_config.json
 !data_sets/target_leagues.json

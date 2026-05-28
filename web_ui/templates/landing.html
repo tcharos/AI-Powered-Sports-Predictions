@@ -8,19 +8,29 @@
             <p class="lead text-muted">Pick a sport to view its dashboard, predictions, and betting strategy.</p>
         </div>
 
-        <div class="row g-4">
+        <div class="row g-3">
             {% for sport in sports %}
-            <div class="col-md-6">
+            <div class="col-md-4">
                 {% set br = bankrolls.get(sport.slug, 0.0) %}
                 {% if sport.active %}
                 <a href="/{{ sport.slug }}/" class="text-decoration-none text-reset">
                     <div class="card h-100 border-primary shadow-sm sport-card">
-                        <div class="card-body text-center p-5">
-                            <div class="display-1 mb-3">{{ sport.icon }}</div>
-                            <h3 class="card-title">{{ sport.label }}</h3>
-                            <p class="text-muted">{{ sport.tagline }}</p>
-                            <div class="my-3">
-                                <span class="text-warning fw-bold fs-5">💰 €{{ br|round(2) }}</span>
+                        <div class="card-body text-center p-3">
+                            <div class="mb-2 d-flex align-items-center justify-content-center" style="height: 64px;">
+                                {% if sport.icon_img %}
+                                    <img src="{{ url_for('static', filename=sport.icon_img) }}"
+                                         alt="{{ sport.label }} logo" class="sport-icon-lg">
+                                {% else %}
+                                    <span class="display-3">{{ sport.icon }}</span>
+                                {% endif %}
+                            </div>
+                            {# Skip the title when the logo already contains the league name. #}
+                            {% if not sport.icon_has_label %}
+                            <h4 class="card-title mb-1">{{ sport.label }}</h4>
+                            {% endif %}
+                            <p class="text-muted small mb-2">{{ sport.tagline }}</p>
+                            <div class="my-2">
+                                <span class="text-warning fw-bold">💰 €{{ br|round(2) }}</span>
                                 <div class="text-muted small">Current bankroll</div>
                             </div>
                             <span class="badge bg-success">Active</span>
@@ -29,12 +39,23 @@
                 </a>
                 {% else %}
                 <div class="card h-100 border-secondary opacity-75 sport-card-disabled">
-                    <div class="card-body text-center p-5">
-                        <div class="display-1 mb-3" style="filter: grayscale(0.5);">{{ sport.icon }}</div>
-                        <h3 class="card-title text-muted">{{ sport.label }}</h3>
-                        <p class="text-muted small">{{ sport.tagline }}</p>
-                        <div class="my-3">
-                            <span class="text-muted fw-bold fs-5">€{{ br|round(2) }}</span>
+                    <div class="card-body text-center p-3">
+                        <div class="mb-2 d-flex align-items-center justify-content-center"
+                             style="height: 64px; filter: grayscale(0.5);">
+                            {% if sport.icon_img %}
+                                <img src="{{ url_for('static', filename=sport.icon_img) }}"
+                                     alt="{{ sport.label }} logo" class="sport-icon-lg">
+                            {% else %}
+                                <span class="display-3">{{ sport.icon }}</span>
+                            {% endif %}
+                        </div>
+                        {# Skip the title when the logo already contains the league name. #}
+                        {% if not sport.icon_has_label %}
+                        <h4 class="card-title text-muted mb-1">{{ sport.label }}</h4>
+                        {% endif %}
+                        <p class="text-muted small mb-2">{{ sport.tagline }}</p>
+                        <div class="my-2">
+                            <span class="text-muted fw-bold">€{{ br|round(2) }}</span>
                             <div class="text-muted small">Reserved bankroll</div>
                         </div>
                         <span class="badge bg-secondary">Dormant</span>
@@ -78,7 +99,9 @@
                         {% set ns.total_bankroll = ns.total_bankroll + br %}
                         <tr class="{{ '' if sport.active else 'text-muted' }}">
                             <td class="text-start">
-                                {{ sport.icon }} <strong>{{ sport.label }}</strong>
+                                {% if sport.icon_img %}<img src="{{ url_for('static', filename=sport.icon_img) }}"
+                                     alt="{{ sport.label }}" class="sport-icon-sm{% if not sport.icon_has_label %} me-1{% endif %}">{% else %}{{ sport.icon }}{% endif %}
+                                {% if not sport.icon_has_label %}<strong>{{ sport.label }}</strong>{% endif %}
                                 {% if not sport.active %}<span class="badge bg-secondary ms-1">dormant</span>{% endif %}
                             </td>
                             <td>{{ s.bets }}</td>

@@ -10,7 +10,7 @@ shipping in production.
 
 Today we have **one** betting surface — virtual, internal bankroll,
 predictions feed our `output/bets_<date>.json`. When the real-betting
-integration matures (Pamestoixima Step 9 in `NEXT_STEPS.md`), we want
+integration matures (Pamestoixima Step 9 in `FOOTBALL_NEXT_STEPS.md`), we want
 **two** parallel surfaces:
 
 - `/football/` — virtual betting (today, unchanged)
@@ -365,12 +365,12 @@ for live mode).
   aggregation on landing page.
 - ✅ **`get_balance(lane)` for live mode** — ignore lane, return total.
 - ✅ **`live_betting_enabled` flag** — defaults `false`. Flipped only
-  by explicit policy decision, documented in NEXT_STEPS at flip time.
+  by explicit policy decision, documented in FOOTBALL_NEXT_STEPS at flip time.
 
 ## Migration order
 
 The work falls in phases. **Do not start until Pamestoixima Step 9
-re-evaluation per `NEXT_STEPS.md` is approved.**
+re-evaluation per `FOOTBALL_NEXT_STEPS.md` is approved.**
 
 1. **Implement `PamestoiximaBackend` methods** one by one, smoke-tested
    against the live site. Probably 2-4 weeks. Each method needs its own
@@ -404,7 +404,7 @@ re-evaluation per `NEXT_STEPS.md` is approved.**
 
 ## Cross-references
 
-- `NEXT_STEPS.md` "Real betting integration — Pamestoixima (DORMANT)"
+- `FOOTBALL_NEXT_STEPS.md` "Real betting integration — Pamestoixima (DORMANT)"
   section. Step 9 (bet placement) is the trigger for starting Phase 9.
 - `real_betting/PAMESTOIXIMA_NOTES.md` — DOM selectors, anti-patterns,
   end-to-end placement flow checklist from the 2026-05-20 validation run.

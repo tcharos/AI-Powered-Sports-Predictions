@@ -371,7 +371,7 @@ class MatchPredictor:
             # used to average in here, but it acted as an implicit
             # regularizer toward the base draw rate — exactly what the
             # downstream per-league Platt calibrator (Phase C4) handles
-            # in a statistically grounded way. See NEXT_STEPS D0 for
+            # in a statistically grounded way. See FOOTBALL_NEXT_STEPS D0 for
             # the diagnosis and reasoning behind dropping the 2-stage
             # combination.) ---
 

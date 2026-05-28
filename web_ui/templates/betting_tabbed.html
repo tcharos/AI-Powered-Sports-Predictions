@@ -4,12 +4,14 @@
 
    - "All sports" tab: cross-sport summary (per-sport row: bankroll, bets,
      settled, stake, P/L, ROI).
-   - Per-sport tabs: one per active sport. Football tab includes
-     `_betting_football_panel.html` verbatim — same content the /football/betting
-     route renders, with the same context vars (history, lane_stats,
-     lane_defaults, sport_label).
-   - NBA tab: placeholder for now — Phase-3 follow-up to mirror football's panel
-     with sport-appropriate columns (moneyline only in v1).
+   - Football tab: includes `_betting_football_panel.html` verbatim — same
+     content the /football/betting route renders, with the same context vars
+     (history, lane_stats, lane_defaults, sport_label).
+   - Euroleague tab: placeholder — onboarding underway, see EUROLEAGUE_NEXT_STEPS.md.
+   - NBA tab: placeholder — Phase-3 follow-up to mirror football's panel with
+     sport-appropriate columns (moneyline only in v1).
+
+   Tab order matches the landing page (football, euroleague, nba).
 
    Routes wiring this template: `/betting` (sport-agnostic, on `app`).
    `/football/betting` continues to render the football-only `betting.html`
@@ -49,10 +51,21 @@
       </button>
     </li>
     <li class="nav-item" role="presentation">
+      {# Euroleague logo already contains the league name; render logo-only. #}
+      <button class="nav-link {% if active_tab == 'euroleague' %}active{% endif %}"
+              id="tab-euroleague-btn" data-bs-toggle="tab" data-bs-target="#tab-euroleague"
+              type="button" role="tab" aria-controls="tab-euroleague" aria-selected="false"
+              aria-label="Euroleague">
+        <img src="{{ url_for('static', filename='img/euroleague.svg') }}"
+             alt="Euroleague" class="sport-icon-tab">
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
       <button class="nav-link {% if active_tab == 'nba' %}active{% endif %}"
               id="tab-nba-btn" data-bs-toggle="tab" data-bs-target="#tab-nba"
               type="button" role="tab" aria-controls="tab-nba" aria-selected="false">
-        🏀 NBA
+        <img src="{{ url_for('static', filename='img/nba.svg') }}"
+             alt="NBA logo" class="sport-icon-sm me-1"> NBA
       </button>
     </li>
   </ul>
@@ -84,7 +97,11 @@
             <tbody>
               {% for s in sport_rows %}
               <tr>
-                <td>{{ s.icon }} <strong>{{ s.label }}</strong></td>
+                <td>
+                  {% if s.icon_img %}<img src="{{ url_for('static', filename=s.icon_img) }}"
+                       alt="" class="sport-icon-sm me-1">{% else %}{{ s.icon }}{% endif %}
+                  <strong>{{ s.label }}</strong>
+                </td>
                 <td class="text-end">{{ '%.2f'|format(s.bankroll) }}</td>
                 <td class="text-end">{{ s.totals.bets }}</td>
                 <td class="text-end">{{ s.totals.settled }}</td>
@@ -129,6 +146,35 @@
       {% include "_betting_football_panel.html" %}
     </div>
 
+    {# ============================ EUROLEAGUE ============================ #}
+    <div class="tab-pane fade {% if active_tab == 'euroleague' %}show active{% endif %}"
+         id="tab-euroleague" role="tabpanel" aria-labelledby="tab-euroleague-btn">
+      <div class="row">
+        <div class="col-md-8 offset-md-2">
+          <div class="card border-secondary">
+            <div class="card-body text-center py-5">
+              <div class="mb-3 d-flex align-items-center justify-content-center"
+                   style="height: 64px; filter: grayscale(0.5);">
+                <img src="{{ url_for('static', filename='img/euroleague.svg') }}"
+                     alt="Euroleague logo" class="sport-icon-lg">
+              </div>
+              <h4 class="card-title">Euroleague betting panel — placeholder</h4>
+              <p class="text-muted">
+                Euroleague is in onboarding. No predictions, no betting flow, no bankroll yet.
+              </p>
+              <p class="text-muted small">
+                Roadmap lives in <code>EUROLEAGUE_NEXT_STEPS.md</code> — Phase 0 (source
+                evaluation) is the current step; Phases 1–3 mirror the NBA shape
+                (data layer → model + calibration → UI + betting integration).
+                This tab will be replaced with a real per-bet panel once Phase 3 ships.
+              </p>
+              <span class="badge bg-secondary">Dormant</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     {# =============================== NBA =============================== #}
     <div class="tab-pane fade {% if active_tab == 'nba' %}show active{% endif %}"
          id="tab-nba" role="tabpanel" aria-labelledby="tab-nba-btn">
@@ -136,7 +182,10 @@
         <div class="col-md-8 offset-md-2">
           <div class="card border-info">
             <div class="card-body text-center py-5">
-              <div class="display-3 mb-3">🏀</div>
+              <div class="mb-3 d-flex align-items-center justify-content-center" style="height: 64px;">
+                <img src="{{ url_for('static', filename='img/nba.svg') }}"
+                     alt="NBA logo" class="sport-icon-lg">
+              </div>
               <h4 class="card-title">NBA betting panel — placeholder</h4>
               <p class="text-muted">
                 NBA betting is wired and working: predictions, ESPN moneyline odds,

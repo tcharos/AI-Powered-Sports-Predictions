@@ -1,13 +1,14 @@
 # Sports Predictor
 
-A comprehensive Machine Learning pipeline to scrape soccer data, simulate betting strategies, and predict match outcomes using XGBoost and Heuristic Adjustments.
+A multi-sport Machine Learning pipeline to scrape match data, simulate betting strategies, and predict outcomes. Currently active: **Football** (1X2 + Over/Under 2.5) and **NBA** (moneyline + totals). **Euroleague** is in onboarding (Phase 0 — see [`EUROLEAGUE_NEXT_STEPS.md`](EUROLEAGUE_NEXT_STEPS.md)). National-team competitions (World Cup, Euros, qualifiers, Nations League) ride on the football pipeline via the D7 subsystem.
 
 ## Features
-*   **Data Scraping**: Automated scrapers for Flashscore (Results, Odds, Standings, Form).
-*   **Machine Learning**: XGBoost models (1X2 & Over/Under 2.5) trained on historical data.
-*   **Heuristic Adjustments**: Post-prediction logic (Form Momentum, Standings Differential) to refine standard ML probabilities.
-*   **Betting Dashboard**: Web UI to view predictions, manage bankroll, and track betting history.
-*   **Live Analysis**: Real-time stats processing for in-play insights.
+*   **Data Scraping**: Flashscore (results, 1X2 + O/U odds, standings, form, live stats); football-data.co.uk (historical CSV results); `euroleague-api` (Euroleague + EuroCup history); `nba_api` (NBA fixtures + results, against `data.nba.com`); eloratings.net (national-team ELO + match history).
+*   **Machine Learning**: XGBoost models for football (multi-class 1X2 + Poisson O/U 2.5) and NBA (winner classifier + total regressor). Per-league Platt calibration. Time-series 5-fold CV.
+*   **Heuristic Adjustments**: Post-prediction logic (form momentum, standings differential, live red cards, in-play xG pace) to refine raw model probabilities.
+*   **Multi-Sport Betting Dashboard**: Flask web UI with sport-tabbed `/betting` page, three-lane bankroll strategy (value / conviction / model), virtual money slip history, cashout flow (synthetic + bookmaker-linked).
+*   **Live Analysis**: Server-side in-play snapshot + LiveAdjuster (Poisson goal model from observed xG). Auto-cashout (functionality test) sweeps every 10 min while armed.
+*   **Real-Betting Skeleton**: `real_betting/` package with Pamestoixima.gr browser automation (DORMANT — read-only ops only until further notice).
 
 ## Installation
 
@@ -30,12 +31,23 @@ A comprehensive Machine Learning pipeline to scrape soccer data, simulate bettin
     ```
     > **Note**: `playwright install` is required to download the browser binaries (Chromium, Firefox, etc.) needed for scraping. This is executed separately from the python package installation.
 
-4.  **Setup Historical Data**:
-    Download match results for the current season (e.g., 2025/2026):
+4.  **Setup Historical Data** (sport-flagged, idempotent — safe to re-run):
     ```bash
-    ./setup_data.sh 2526
+    ./bin/setup_data.sh                       # all sports, defaults
+    ./bin/setup_data.sh 2526                  # football, season 2025/2026 (backwards-compat)
+    ./bin/setup_data.sh --sport football 2526 # explicit
+    ./bin/setup_data.sh --sport nba           # NBA only
+    ./bin/setup_data.sh --sport euroleague    # Euroleague + EuroCup only
+    ./bin/setup_data.sh --sport nt            # National teams (D7) only
+    ./bin/setup_data.sh --help                # full help
     ```
-    *This populates `data_sets/MatchHistory` with main and extra leagues.*
+    What each sport pulls:
+    * **Football** → football-data.co.uk season CSVs into `data_sets/MatchHistory/` (HTTP); then Flashscore standings/form into `data_sets/standings/`.
+    * **NBA** → **requires manual setup**: download a Kaggle NBA archive snapshot (must contain `Games.csv`, `TeamStatistics(Extended).csv`, `PlayByPlay.parquet`, …) and drop it into `data_sets/NBA/archive/`. The script then builds the canonical corpus + pulls fresh fixtures/results via `nba_api`.
+    * **Euroleague** → `euroleague-api` raw season CSVs for Euroleague + EuroCup, 2016-17 → 2024-25, into `data_sets/Euroleague/raw/`. ~30–40 min full sweep; fetcher is idempotent so re-runs skip what's already on disk.
+    * **National teams (D7)** → eloratings.net per-country TSVs into `data_sets/national_teams/`. Fast (plain HTTP, cached).
+
+    > Re-running `./bin/setup_data.sh` is safe: each sport's section detects existing data and only fetches what's missing.
 
 ## Usage
 
@@ -74,17 +86,33 @@ Start the UI to manage everything visually:
     ./bin/retrain_nba_pipeline.sh
     ```
 
+### CLI Commands (Euroleague)
+Euroleague is in onboarding — Phase 0 (data layer seeded). Predict / verify / retrain CLIs land with Phase 1 of [`EUROLEAGUE_NEXT_STEPS.md`](EUROLEAGUE_NEXT_STEPS.md). To re-pull / extend the historical corpus today:
+```bash
+./bin/setup_data.sh --sport euroleague
+# or for one season:
+python3 scripts/euroleague_probe/fetch_seasons.py --start 2017 --end 2025 --comps E,U
+```
+
 ### Live Analysis
-*   **Start Live Loop** (Monitors in-play games):
+*   **One-shot Live Snapshot** (also wired to the UI's "Refresh Live Snapshot" button):
     ```bash
-    python3 scripts/run_live_loop.py
+    python3 scripts/run_live_analysis.py
     ```
 
 ## Documentation
-See the `docs/` folder for detailed guides:
+Per-sport roadmaps live at the repo root (forward-looking — phase status, active queue, deferred items):
+*   [Football roadmap](FOOTBALL_NEXT_STEPS.md) — cashout phases, real-betting integration, C-series (per-league calibration), D-series (model improvements)
+*   [NBA roadmap](NBA_NEXT_STEPS.md)
+*   [Euroleague roadmap](EUROLEAGUE_NEXT_STEPS.md) — Phase 0 (data) done; Phases 1–3 mirror the NBA shape
+
+Detailed guides in `docs/`:
 *   [Training Process](docs/training_process.md)
 *   [UI Manual](docs/ui_manual.md)
 *   [Codebase Overview](docs/codebase_overview.md)
+
+Project conventions, architecture, and pipeline details for Claude Code and human contributors:
+*   [`CLAUDE.md`](CLAUDE.md) — environment, common commands, architecture, data layout, operational cadence
 
 ## Disclaimer
 This project was originally built with the assistance of **Antigravity** and **Gemini**, leveraging advanced AI for code generation and architectural planning.

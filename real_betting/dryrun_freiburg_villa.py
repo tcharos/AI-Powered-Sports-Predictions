@@ -57,7 +57,7 @@ MAX_STAKE = 10.0
 #   EXECUTE_PLACE_BET   — DANGER: when True, actually click Place Bet.
 #                         Real money moves. The MAX_STAKE=10 hard cap still
 #                         applies. Used once for end-to-end verification of
-#                         the Phase 9 pipeline. NEXT_STEPS.md's "read-only"
+#                         the Phase 9 pipeline. FOOTBALL_NEXT_STEPS.md's "read-only"
 #                         policy is unchanged at the doc level — this flag
 #                         is an explicit per-run override.
 STOP_AFTER_STEP5 = False
@@ -95,7 +95,7 @@ FORBIDDEN_CLICK_LABELS = (
 #     was last viewed; new sessions seem to default to basketball)
 #   - the time-filter dance (3h / 6h / 12h / All)
 #   - the coupon page's virtualised scroll
-# Fixture discovery from team names is a Step 6b problem in NEXT_STEPS.md;
+# Fixture discovery from team names is a Step 6b problem in FOOTBALL_NEXT_STEPS.md;
 # this dry-run tests the bet-placement plumbing once we already know which
 # match URL to drive.
 MATCH_URL = ('https://www.pamestoixima.gr/en/football/'
@@ -328,7 +328,7 @@ class FreiburgVillaDryRun:
         print("!" * 72)
         print("!!! EXECUTING REAL BET PLACEMENT — €%s ON %s vs %s !!!" % (STAKE, HOME, AWAY))
         print("!!! Selection: %s %s !!!" % (SELECTION, MARKET))
-        print("!!! NEXT_STEPS.md policy ('read-only only') is overridden    !!!")
+        print("!!! FOOTBALL_NEXT_STEPS.md policy ('read-only only') is overridden    !!!")
         print("!!! for this single click. Safety net bypassed by design.    !!!")
         print("!" * 72)
         print()

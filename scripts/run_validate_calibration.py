@@ -6,7 +6,7 @@ For each league:
   - Apply Platt to the last 20% (held-out, never seen during fit).
   - Compare Brier / log loss / ECE on the holdout, with and without calibration.
 
-Pass criteria (from NEXT_STEPS.md):
+Pass criteria (from FOOTBALL_NEXT_STEPS.md):
   - ≥60% of leagues show Brier improvement on the holdout.
   - No league regresses by > 5%.
 

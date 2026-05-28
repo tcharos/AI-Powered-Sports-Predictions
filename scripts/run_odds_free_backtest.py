@@ -1,5 +1,5 @@
 """Model-vs-market value backtest — the experiment that survived the
-D3 analysis (NEXT_STEPS.md D3 section).
+D3 analysis (FOOTBALL_NEXT_STEPS.md D3 section).
 
 Hypothesis: an odds-INDEPENDENT 1X2 estimate can find value the line
 misses. Tests it cheaply by reusing the existing pipeline rather than

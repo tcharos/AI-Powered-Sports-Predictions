@@ -41,13 +41,28 @@ NBA_TASKS = {}  # kept as empty stub so /status responses don't break
 # to True, uncomment the import + register_blueprint call further down, and
 # the landing page card automatically becomes a working link.
 SPORTS = [
-    {'slug': 'football', 'label': 'Football', 'icon': '⚽', 'active': True,
-     'bets_dir': 'output',
+    {'slug': 'football',   'label': 'Football',   'icon': '⚽', 'icon_img': None,
+     'active': True, 'bets_dir': 'output',
      'tagline': 'Daily 1X2 + Over/Under predictions, three-lane betting strategy.'},
-    {'slug': 'nba',      'label': 'NBA',      'icon': '🏀', 'active': True,
-     'bets_dir': 'output_basketball',
+    {'slug': 'euroleague', 'label': 'Euroleague', 'icon': '🏆', 'icon_img': 'img/euroleague.svg',
+     # The Euroleague mark already contains the word "Euroleague", so templates
+     # omit the redundant text label everywhere the logo is rendered next to
+     # the label (navbar dropdown, tab button, landing card title, portfolio
+     # row). `label` is still used for `alt` attributes (accessibility) and
+     # for the dashboard `<title>` / breadcrumb contexts where the logo
+     # isn't present.
+     'icon_has_label': True,
+     # No bets_dir yet — onboarding in progress (see EUROLEAGUE_NEXT_STEPS.md).
+     # Cross-sport summary / portfolio loops skip sports without `bets_dir`.
+     'active': False,
+     'tagline': 'Onboarding — see EUROLEAGUE_NEXT_STEPS.md.'},
+    {'slug': 'nba',        'label': 'NBA',        'icon': '🏀', 'icon_img': 'img/nba.svg',
+     'active': True, 'bets_dir': 'output_basketball',
      'tagline': 'Daily moneyline + totals predictions on an enhanced-feature XGBoost model with Platt calibration.'},
 ]
+# `icon_img` is an optional path relative to web_ui/static/ — when present,
+# templates render <img> instead of the unicode emoji. Football keeps emoji
+# because ⚽ is generic to the sport (no league mark applies).
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_flashscore'
@@ -196,7 +211,7 @@ def index():
     # Enrich each live match with any OPEN bets we have on it.
     # Lets the dashboard show stake / odds / fair-value cashout per bet
     # alongside the live stats. Read-only — actual cashout action is
-    # gated behind NEXT_STEPS phase 7.
+    # gated behind FOOTBALL_NEXT_STEPS phase 7.
     _attach_open_bets(live_matches)
 
     return render_template('dashboard.html',
@@ -841,7 +856,7 @@ def view_log(filename):
 # --- Docs renderer ---------------------------------------------------------
 # Whitelist of doc names → source paths. Restricting to a known set avoids
 # any path-traversal concerns and means we control which docs the UI
-# exposes (NEXT_STEPS, internal planning docs, etc. don't show up here).
+# exposes (FOOTBALL_NEXT_STEPS, internal planning docs, etc. don't show up here).
 _DOCS = {
     'betting_strategy': {
         'title': 'Betting Strategy',
@@ -1863,7 +1878,7 @@ def place_real_bets():
     """DORMANT real-betting hook. Receives the bets the user ticked
     'Live' in the slip preview and reports them back — but DOES NOT
     place any real bet. The real-betting backend (Pamestoixima
-    placement via real_betting/) is out of scope per NEXT_STEPS until
+    placement via real_betting/) is out of scope per FOOTBALL_NEXT_STEPS until
     a separate re-evaluation; this route exists so the UI affordance
     and the request path are in place now, ready to wire to the real
     flow later.
@@ -1890,7 +1905,7 @@ def place_real_bets():
                         f"{n} bet(s) but placed nothing. The marks are saved "
                         f"on the slip (mark_for_real=true). Wiring to the "
                         f"bookmaker is out of scope until re-evaluation "
-                        f"(see NEXT_STEPS.md)."),
+                        f"(see FOOTBALL_NEXT_STEPS.md)."),
             'count': n,
             'placed': 0,
             'dormant': True,
@@ -2300,7 +2315,7 @@ def auto_wager():
 
             The min(ev, ev_cap_value) clamp prevents a single high-EV pick (often
             from a low-data league) from dominating the slip. Real fix is
-            per-league probability recalibration upstream — see NEXT_STEPS.md.
+            per-league probability recalibration upstream — see FOOTBALL_NEXT_STEPS.md.
             """
             ev = _to_float(row.get(ev_col, 0))
             conf = _to_float(row.get(conf_col, 0))
@@ -2483,7 +2498,8 @@ def landing():
 def betting_tabbed():
     """Sport-tabbed consolidated betting dashboard.
 
-    Renders templates/betting_tabbed.html with three tabs:
+    Renders templates/betting_tabbed.html with four tabs (order matches
+    landing-page card order: football, euroleague, nba):
       - **All sports**: cross-sport summary row per active sport (bankroll, bets,
         settled, stake, P/L, ROI) + a TOTAL footer.
       - **Football**: includes `_betting_football_panel.html` verbatim — the
@@ -2491,18 +2507,20 @@ def betting_tabbed():
         (history, lane_stats, lane_defaults, sport_label). Football's full
         per-bet UI, lane-comparison table, and place-bets JS all work here
         unchanged.
+      - **Euroleague**: placeholder card — onboarding in progress, roadmap
+        in EUROLEAGUE_NEXT_STEPS.md.
       - **NBA**: placeholder card directing operators to /nba/ for the slim
         v1 NBA betting flow; full port into this tab is a Phase-3 follow-up
-        tracked in NEXT_STEPS.md.
+        tracked in FOOTBALL_NEXT_STEPS.md.
 
     The /football/betting route stays in place (renders the football-only
     shell) so deep-links keep working; the navbar's primary Betting Dashboard
     link points to this consolidated /betting page.
 
-    Initial tab via ?tab=all|football|nba (default 'all').
+    Initial tab via ?tab=all|football|euroleague|nba (default 'all').
     """
     active_tab = (request.args.get('tab') or 'all').strip().lower()
-    if active_tab not in ('all', 'football', 'nba'):
+    if active_tab not in ('all', 'football', 'nba', 'euroleague'):
         active_tab = 'all'
 
     # Per-sport summary + bankroll for the All tab + Football panel context.
@@ -2523,6 +2541,7 @@ def betting_tabbed():
             'slug':     sport['slug'],
             'label':    sport['label'],
             'icon':     sport['icon'],
+            'icon_img': sport.get('icon_img'),
             'active':   sport.get('active', False),
             'bankroll': s_bankroll,
             'totals':   s_totals,

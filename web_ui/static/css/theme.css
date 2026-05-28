@@ -173,6 +173,31 @@ body, .card, .table, .navbar, .badge, .btn,
     background-color: rgba(255, 255, 255, 0.08);
 }
 
+/* Sport-logo sizing. SPORTS entries may carry an `icon_img` path; templates
+ * render <img> with one of these classes instead of the unicode emoji.
+ *  - .sport-icon-lg: landing-page cards + betting-tab placeholder panes.
+ *  - .sport-icon-sm: inline contexts (navbar dropdown, table rows, tab buttons). */
+.sport-icon-lg {
+    height: 64px;
+    width: auto;
+    display: inline-block;
+}
+.sport-icon-sm {
+    height: 1.3em;
+    width: auto;
+    vertical-align: -0.3em;
+    display: inline-block;
+}
+/* Tab buttons whose logo carries the league name (icon_has_label) and so
+ * render logo-only — sized slightly bigger than sport-icon-sm so the
+ * standalone mark doesn't read as tiny next to text-labelled tabs. */
+.sport-icon-tab {
+    height: 1.6em;
+    width: auto;
+    vertical-align: -0.35em;
+    display: inline-block;
+}
+
 /* Cumulative League Performance % badges (.acc-badge): default Bootstrap
  * gives bg-success white text and bg-warning dark text. In dark mode the
  * white-on-darker-green can read low-contrast, so force dark text on both.

@@ -44,10 +44,15 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="sportDropdown">
                             {% for sport in sports %}
+                            {# Logos that already contain the league name (icon_has_label=True)
+                               render without the redundant text label. `alt` carries the name
+                               for screen readers. #}
+                            {% set _icon_html %}{% if sport.icon_img %}<img src="{{ url_for('static', filename=sport.icon_img) }}" alt="{{ sport.label }}" class="sport-icon-sm{% if not sport.icon_has_label %} me-1{% endif %}">{% else %}{{ sport.icon }} {% endif %}{% endset %}
+                            {% set _label_html %}{% if not sport.icon_has_label %}{{ sport.label }}{% endif %}{% endset %}
                             {% if sport.active %}
-                            <li><a class="dropdown-item" href="/{{ sport.slug }}/">{{ sport.icon }} {{ sport.label }}</a></li>
+                            <li><a class="dropdown-item" href="/{{ sport.slug }}/">{{ _icon_html|safe }}{{ _label_html }}</a></li>
                             {% else %}
-                            <li><span class="dropdown-item disabled text-muted">{{ sport.icon }} {{ sport.label }} <span class="badge bg-secondary ms-1">dormant</span></span></li>
+                            <li><span class="dropdown-item disabled text-muted">{{ _icon_html|safe }}{{ _label_html }} <span class="badge bg-secondary ms-1">dormant</span></span></li>
                             {% endif %}
                             <li><hr class="dropdown-divider"></li>
                             {% endfor %}

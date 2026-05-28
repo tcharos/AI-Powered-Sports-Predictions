@@ -16,7 +16,7 @@ This step does NOT touch the model, betting flow, or UI. It only writes the
 availability JSON that a future importance join (N2, SoFIFA) and adjuster (N3)
 will consume. Headless Chromium — Flashscore allows it (unlike Pamestoixima).
 
-GOTCHAS baked in (learned 2026-05-27, see NEXT_STEPS D4):
+GOTCHAS baked in (learned 2026-05-27, see FOOTBALL_NEXT_STEPS D4):
   * Home/away come from the page ``<title>`` ("HOME v AWAY"), NOT the URL slug
     order. The slug ``nice/st-etienne`` was actually *St-Etienne home* — slug
     order is unreliable. We cross-check the title against matches_<date>.json.

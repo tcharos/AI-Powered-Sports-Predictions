@@ -1,6 +1,6 @@
 # D2 — Feature Engineering Brainstorm
 
-Living scratchpad for the D2 feature-engineering pass referenced in `NEXT_STEPS.md`.
+Living scratchpad for the D2 feature-engineering pass referenced in `FOOTBALL_NEXT_STEPS.md`.
 Goal: get a candidate list down on paper, then pick 2–3 to implement and measure against the current model's OOF Brier per league.
 
 Status: brainstorm. Nothing here is committed work.
@@ -177,11 +177,41 @@ Keep existing unweighted features unchanged, add A + B + C as *new* columns. Let
 
 Each is 2–5 days because we have to add a data column to the historical pipeline first.
 
-### 2.1 Matchday number / season progress
-**What**: `matchday` (1..38 or whatever the league uses) and `season_progress` (matchday / total_matches_in_season). Optionally `is_endgame` flag for the last ~5 matches.
-**Why**: late-season dynamics differ — relegation battles play differently than mid-table dead rubbers. Currently invisible.
-**Cost**: medium. Derive from standings spider output or match ordering within season. The standings spider already has matchday info.
-**Expected lift**: 1–2% Brier on end-of-season matches; modest globally.
+### 2.1 Matchday number / season progress + stakes-awareness — 🟢 NEXT UP (2026-05-28)
+
+**Why this is next**: §1.2 / §1.3 / §1.5 all tested flat — the consistent finding was *cheap features the market already prices don't move Brier*. §2.1 is a different category. **Motivational state** (relegation fight, European-qualification battle, dead-rubber coasting) is the kind of signal the market is known to price by *mean effect* but probably under-prices by *per-team variance*, especially in lower-tier leagues where bet volume is thinner. This is the "signals priced inefficiently" headroom the D2 verdict explicitly called out as the real lever (along with D4 player availability). Crucially, it does NOT overlap the B365 implied-prob features that defeated §1.2 / §1.5 — stakes are about future match urgency, not past form.
+
+**Features — two layers:**
+
+1. **Temporal context** (the original 2.1):
+   - `matchday` (integer, 1..N for the league's season length).
+   - `season_progress` = `matchday / total_matches_in_season` (0..1).
+   - `is_endgame` (boolean — `season_progress > 0.80`). Start at a fraction, not a fixed number of games (Premier League last 5 of 38 ≈ 13%; Belgian Jupiler last 5 of 30 ≈ 17% — fraction normalises this).
+
+2. **Stakes-awareness** (the new layer):
+   - `H_relegation_threatened` / `A_relegation_threatened` — team currently in or within ≤K points of the relegation zone, gated by `is_endgame`. K starts at ~6 (≈2 wins).
+   - `H_european_chasing` / `A_european_chasing` — team currently in or within ≤K points of the league's "European-spot cluster" (Champions League / Europa League / Conference League spots combined). Single flag in v1; could split into per-competition flags (`H_cl_chasing` / `H_el_chasing` / `H_ecl_chasing`) once we have league-by-season metadata for which positions earn which competition.
+   - `H_dead_rubber` / `A_dead_rubber` — team mathematically out of relegation, out of European reach, AND no title hope. "Mid-table coasting" signal. Late-season only.
+   - Optional quantitative companions: `H_pts_from_safety`, `H_pts_from_european_cluster` — let the model decide whether the boolean or the continuous form is sharper.
+
+**Why stakes-awareness specifically (the directional argument)**: Relegation teams play with desperation in the last 5–8 matchdays — empirically more chances, more cards, more *variance*; not always more wins, but predictable *direction* of effort. Same for Champions-League-chasing teams in April/May. The market knows this and prices it on average, but the magnitudes are noisy (one team fights, another collapses) and *that noise is probably mispriced in lower leagues*. Lower leagues are also where the model lane currently has its best ROI — alignment of opportunity and edge.
+
+**Cost — ~3–4 days, plumbing-heavy:**
+
+1. **Historical standings reconstruction**. football-data.co.uk CSVs are per-match results only. Need a one-off script that derives `standings_at(team, league, date)` by cumulating prior results within each season — points, goal diff, position. Doable but careful with promoted/relegated rosters changing per season.
+   - **This is the same plumbing §2.2 needs** — build it once, fold both features in at the same training cycle. Treat §2.1 and §2.2 as one D2 sub-pass, not two.
+2. **League metadata table**: for each league × season, `top_N_european_spots` (how many positions earn European football) and `bottom_N_relegated` (how many drop). Small JSON. Some leagues' rules evolved (Conference League didn't exist before 2021); v1 can hardcode the current rules and bear the small training-time error on pre-2021 seasons.
+3. **Feature derivation** in `feature_engineering.py`: combine reconstructed standings + matchday + league metadata into the boolean / quantitative flags.
+4. **Train/serve parity check**: training-time standings come from the reconstruction; serving-time standings come from the live `standings_spider`. Must verify they produce the same features for the same `(team, league, matchday)` — same posture as the NBA Phase-2 serve-time-from-corpus parity check that killed the train/serve skew there.
+5. **OOF Brier evaluation**: standard D2 gate. Two metrics matter: global Brier delta (probably small) AND `is_endgame`-conditional Brier delta (where the real lift should land). If the conditional delta is positive but the global is flat, ship it — the feature is doing its job exactly where stakes apply.
+
+**Expected lift**: 1–3% Brier on `is_endgame` matches (~last 20% of each season per league). Modest globally because most matches are mid-season. Heavily concentrated in lower/mid-tier leagues where the market underprices the magnitude.
+
+**Risk / watch-outs**:
+- **Historical standings reconstruction has edge cases**: mid-season point deductions (rare but happens — Juventus 2006, Everton 2023), team withdrawals (Bury 2019), expansion seasons. Pre-validate the reconstruction against current standings JSON for the most recent season — if last-matchday reconstructed standings match the live standings, the cumulative logic is sound.
+- **Train/serve skew is the single biggest risk**. Standings reconstruction and live `standings_spider` use different code paths; even with identical inputs they can disagree on edge cases. Add a one-shot diff check at deploy time.
+- **League-spot rules drift**: top-4 CL became top-5 CL for England 2024-25 (because of coefficient rank); Conference League didn't exist before 2021. Either parameterise by season-range or live with a small training-time error on pre-2021 European-spot flags — both acceptable.
+- **`is_endgame` threshold sensitivity**: 0.80 vs 0.85 vs 0.90 all defensible. Add it as a tunable, default 0.80, sweep on the OOF backtest before deploying.
 
 ### 2.2 Standings-derived features (table position, points gap)
 **What**: `H_position`, `A_position`, `position_diff`, `points_gap_to_top`, `points_gap_to_safety`.

@@ -5,7 +5,7 @@ blocker. SoFIFA (via the ``soccerdata`` package) is the candidate source for
 player *importance* (how much losing an absentee hurts), joined to the
 Flashscore "Will not play" list from N1 (``extract_availability.py``).
 
-FINDINGS (2026-05-27) — see NEXT_STEPS "D4 scoping":
+FINDINGS (2026-05-27) — see FOOTBALL_NEXT_STEPS "D4 scoping":
   * COVERAGE: SoFIFA's real catalog is ~52 leagues / 44 nations (read from the
     /api/league response, NOT ``available_leagues()`` which only reflects the
     soccerdata config). Most of our targets are FULL-DEPTH: England L1/L2 (24),
