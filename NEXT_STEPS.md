@@ -339,6 +339,22 @@ Operator decisions (2026-05-27): **scope = bettable** (WC/Euro **qualifiers + UE
 
 **Open items:** confirm non-European qualifier codes (CONMEBOL etc. — Spain only shows European; check a South-American nation); whether `home_elo`/`away_elo` are pre- or post-match (shift by one per team if post); eloratings country-code ↔ Flashscore name mapping table; ToS sanity check on eloratings scraping (light, infrequent, cache the per-country files).
 
+## NBA reactivation
+
+NBA was a detached subsystem (UI off, models from Dec-2024, pbpstats geo-blocked for advanced data) re-enabled in three phases per the plan at `~/.claude/plans/fizzy-wishing-anchor.md`. Status:
+
+| # | Phase | Status | Notes |
+| --- | --- | --- | --- |
+| 1 | Data layer (local archive + nba_api) | ✅ DONE (2026-05-28) | `process_archive.py` → `data_sets/NBA/team_game_stats.csv` (32,359 games / 27 seasons / merge-safe rebuild); `fetch_nba_daily.py` (`ScoreboardV3` for fixtures + `LeagueGameLog` for append-results, idempotent dedup that preserves the archive's richer rows, `time.sleep(1)`). pbpstats dropped (its rich endpoints need stats.nba.com — unreachable from here via raw requests; nba_api's headers work). 3 retired fetchers → `ml_project/nba/legacy/`. Branch `feat/nba-reactivation-data-model`. |
+| 2 | Model rework + calibration | ✅ DONE (2026-05-28) | New ~40-feature set (rest_days / b2b / ELO_pre + L5 [pts/allowed/win + FG/3P/FT% + reb/ast/tov/plus_minus] + L10 [subset] + venue-matched L5). Winner 66.21% acc / Brier 0.2127 on 5-fold TimeSeriesSplit CV; total MAE 14.85. `predict_nba.py` rewritten to compute serve-time features from the **same corpus** the trainer used — **train/serve skew killed**: Δ=0.0000 on every rolling/rest/venue feature for a verified backtest game. Single global Platt calibration (`apply_home_win_platt` returns the same `(prob, applied, source)` 3-tuple as football's `apply_platt_1x2` so Phase 3 can be sport-agnostic). Same branch as Phase 1. |
+| 3 | UI + full betting integration | **NEXT** | Separate branch off `main`. **Football-isolation guarantee** (operator's "very important" requirement): no edits to `football_bp` routes, templates, or shared betting code — NBA gets its own routes via an `NbaBettingBackend(VirtualBettingBackend)` subclass (SPORT='nba' override) + an `nba` entry in `betting_config.json` (purely additive) + the already-sport-agnostic `sports_config` / `compute_sport_summary(bets_dir)` helpers. Reactivates the `nba_bp` blueprint per the documented "Adding a new sport" steps in `CLAUDE.md`. Full design + isolation guarantee at `~/.claude/plans/fizzy-wishing-anchor.md`. |
+
+**Deferred follow-ups** (after Phase 3, or as small standalones):
+- **Retune** `tune_nba_models.py` for the new 40-feature set — current `best_params_*.json` were tuned on the old 12-feature era and load gracefully (training ran), but optimal hyperparameters likely shifted.
+- **Update** `evaluate_nba_predictions.py` to the new prediction-CSV columns (`Home Win Prob` + `Home Win Prob (raw)` + `Cal Source` + `Predicted Winner`/`Predicted Total`, gameId join). Currently flagged non-fatal in `run_nba_verification.sh`.
+- **Repair / replace** `fetch_espn_odds.py` — Dec-2024 DOM selectors are fragile. Needed by Phase 3 for EV/Kelly; the predictor itself works without odds.
+- **Advanced stats** (pace / four-factors / per-possession) would help the model, but stats.nba.com (the only practical source from this machine) is blocked; revisit if a Cloudflare-friendly alternative surfaces.
+
 ## Future analysis ideas (not yet scoped)
 
 - **"Place bet now?" shortcut on live rows** — when a live match has no open bet, show a one-click action that takes you to `/football/auto_wager` (or a future bet-placement modal) pre-filtered to that match. Useful for value-discovery on in-progress games where the score state has shifted the EV. Caveat: couples live analytical view with virtual betting action; needs design before building. Revisit when /auto_wager UI is generalised enough to accept a per-match filter.
