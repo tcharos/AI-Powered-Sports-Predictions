@@ -2479,6 +2479,86 @@ def landing():
     return render_template('landing.html', sport_summaries=sport_summaries)
 
 
+@app.route('/betting')
+def betting_tabbed():
+    """Sport-tabbed consolidated betting dashboard.
+
+    Renders templates/betting_tabbed.html with three tabs:
+      - **All sports**: cross-sport summary row per active sport (bankroll, bets,
+        settled, stake, P/L, ROI) + a TOTAL footer.
+      - **Football**: includes `_betting_football_panel.html` verbatim — the
+        same partial /football/betting renders, with the same context vars
+        (history, lane_stats, lane_defaults, sport_label). Football's full
+        per-bet UI, lane-comparison table, and place-bets JS all work here
+        unchanged.
+      - **NBA**: placeholder card directing operators to /nba/ for the slim
+        v1 NBA betting flow; full port into this tab is a Phase-3 follow-up
+        tracked in NEXT_STEPS.md.
+
+    The /football/betting route stays in place (renders the football-only
+    shell) so deep-links keep working; the navbar's primary Betting Dashboard
+    link points to this consolidated /betting page.
+
+    Initial tab via ?tab=all|football|nba (default 'all').
+    """
+    active_tab = (request.args.get('tab') or 'all').strip().lower()
+    if active_tab not in ('all', 'football', 'nba'):
+        active_tab = 'all'
+
+    # Per-sport summary + bankroll for the All tab + Football panel context.
+    sport_rows = []
+    totals_all = {'bets': 0, 'settled': 0, 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
+    bank_by_sport = all_lane_bankrolls()
+    total_bankroll = 0.0
+    for sport in SPORTS:
+        if not sport.get('bets_dir'):
+            continue
+        s_lane_br = bank_by_sport.get(sport['slug'], {})
+        s_bankroll = round(sum(s_lane_br.values()), 2) if s_lane_br else 0.0
+        total_bankroll += s_bankroll
+        s_totals = compute_sport_summary(sport['bets_dir'])['totals']
+        for k in ('bets', 'settled', 'stake', 'returned', 'pnl'):
+            totals_all[k] += s_totals.get(k, 0)
+        sport_rows.append({
+            'slug':     sport['slug'],
+            'label':    sport['label'],
+            'icon':     sport['icon'],
+            'active':   sport.get('active', False),
+            'bankroll': s_bankroll,
+            'totals':   s_totals,
+        })
+    totals_all['roi'] = (totals_all['pnl'] / totals_all['stake']) if totals_all['stake'] > 0 else 0.0
+
+    # Football panel context — must match /football/betting exactly so the
+    # included partial renders identically.
+    summary = compute_sport_summary(OUTPUT_DIR)
+    cfg = get_sport_config('football')
+    lane_br = lane_bankrolls('football')
+    lane_defaults = {
+        'value':      {'bankroll': lane_br['value'],
+                       'cap_pct':  cfg['value_max_daily_exposure_pct'] * 100},
+        'conviction': {'bankroll': lane_br['conviction'],
+                       'cap_pct':  cfg['conviction_max_daily_exposure_pct'] * 100},
+        'model':      {'bankroll': lane_br['model'],
+                       'cap_pct':  cfg['model_max_daily_exposure_pct'] * 100},
+    }
+
+    return render_template(
+        'betting_tabbed.html',
+        active_tab=active_tab,
+        sport_rows=sport_rows,
+        totals_all=totals_all,
+        total_bankroll=round(total_bankroll, 2),
+        # Football tab (passed to the included partial)
+        history=summary['history'],
+        lane_stats=summary['lane_stats'],
+        lane_defaults=lane_defaults,
+        sport_label='Football',
+        # NBA tab placeholder
+        nba_bankrolls=bank_by_sport.get('nba', {}),
+    )
+
+
 # Register sport blueprints after their routes have been defined.
 app.register_blueprint(football_bp, url_prefix='/football')
 

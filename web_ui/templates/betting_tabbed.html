@@ -1,0 +1,169 @@
+{% extends "layout.html" %}
+
+{# Sport-tabbed consolidated betting dashboard.
+
+   - "All sports" tab: cross-sport summary (per-sport row: bankroll, bets,
+     settled, stake, P/L, ROI).
+   - Per-sport tabs: one per active sport. Football tab includes
+     `_betting_football_panel.html` verbatim — same content the /football/betting
+     route renders, with the same context vars (history, lane_stats,
+     lane_defaults, sport_label).
+   - NBA tab: placeholder for now — Phase-3 follow-up to mirror football's panel
+     with sport-appropriate columns (moneyline only in v1).
+
+   Routes wiring this template: `/betting` (sport-agnostic, on `app`).
+   `/football/betting` continues to render the football-only `betting.html`
+   shell unchanged so deep-links keep working.
+#}
+{% block content %}
+<div class="container-fluid mt-3">
+
+  {# ---- Header ---- #}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="mb-0">📊 Betting Dashboard</h2>
+      <div class="text-muted small">Consolidated view across sports — tabs switch between per-sport detail and the cross-sport summary.</div>
+    </div>
+    <div class="card">
+      <div class="card-body py-2 px-3">
+        <div class="small text-muted text-uppercase">total bankroll · all sports</div>
+        <div class="fs-5 fw-semibold">€ {{ '%.2f'|format(total_bankroll) }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ---- Tabs ---- #}
+  <ul class="nav nav-tabs" id="bettingTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link {% if active_tab == 'all' %}active{% endif %}"
+              id="tab-all-btn" data-bs-toggle="tab" data-bs-target="#tab-all"
+              type="button" role="tab" aria-controls="tab-all" aria-selected="true">
+        🌐 All sports
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link {% if active_tab == 'football' %}active{% endif %}"
+              id="tab-football-btn" data-bs-toggle="tab" data-bs-target="#tab-football"
+              type="button" role="tab" aria-controls="tab-football" aria-selected="false">
+        ⚽ Football
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link {% if active_tab == 'nba' %}active{% endif %}"
+              id="tab-nba-btn" data-bs-toggle="tab" data-bs-target="#tab-nba"
+              type="button" role="tab" aria-controls="tab-nba" aria-selected="false">
+        🏀 NBA
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content py-3" id="bettingTabsContent">
+
+    {# ============================== ALL SPORTS ============================== #}
+    <div class="tab-pane fade {% if active_tab == 'all' %}show active{% endif %}"
+         id="tab-all" role="tabpanel" aria-labelledby="tab-all-btn">
+
+      <div class="card border-dark mb-3">
+        <div class="card-header bg-dark text-white">
+          <strong>📈 Cross-Sport Summary</strong>
+          <small class="text-white-50">Cumulative across active + archived slips, per sport</small>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-striped mb-0">
+            <thead>
+              <tr>
+                <th>Sport</th>
+                <th class="text-end">Bankroll €</th>
+                <th class="text-end">Bets</th>
+                <th class="text-end">Settled</th>
+                <th class="text-end">Stake €</th>
+                <th class="text-end">P/L €</th>
+                <th class="text-end">ROI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in sport_rows %}
+              <tr>
+                <td>{{ s.icon }} <strong>{{ s.label }}</strong></td>
+                <td class="text-end">{{ '%.2f'|format(s.bankroll) }}</td>
+                <td class="text-end">{{ s.totals.bets }}</td>
+                <td class="text-end">{{ s.totals.settled }}</td>
+                <td class="text-end">{{ '%.2f'|format(s.totals.stake) }}</td>
+                <td class="text-end fw-semibold {% if s.totals.pnl > 0 %}text-success{% elif s.totals.pnl < 0 %}text-danger{% endif %}">
+                  {{ '%+.2f'|format(s.totals.pnl) }}
+                </td>
+                <td class="text-end {% if s.totals.roi > 0 %}text-success{% elif s.totals.roi < 0 %}text-danger{% endif %}">
+                  {% if s.totals.stake > 0 %}{{ '%+.1f'|format(s.totals.roi * 100) }}%{% else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary">
+              <tr>
+                <td><strong>TOTAL</strong></td>
+                <td class="text-end"><strong>{{ '%.2f'|format(total_bankroll) }}</strong></td>
+                <td class="text-end"><strong>{{ totals_all.bets }}</strong></td>
+                <td class="text-end"><strong>{{ totals_all.settled }}</strong></td>
+                <td class="text-end"><strong>{{ '%.2f'|format(totals_all.stake) }}</strong></td>
+                <td class="text-end fw-bold {% if totals_all.pnl > 0 %}text-success{% elif totals_all.pnl < 0 %}text-danger{% endif %}">
+                  {{ '%+.2f'|format(totals_all.pnl) }}
+                </td>
+                <td class="text-end {% if totals_all.roi > 0 %}text-success{% elif totals_all.roi < 0 %}text-danger{% endif %}">
+                  {% if totals_all.stake > 0 %}{{ '%+.1f'|format(totals_all.roi * 100) }}%{% else %}—{% endif %}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="alert alert-light border small text-muted">
+        For per-sport detail (slip history, lane comparison, place-bets controls), use the tabs above.
+        The unified per-bet "All slips today" view is a Phase-3 follow-up.
+      </div>
+    </div>
+
+    {# ============================== FOOTBALL ============================== #}
+    <div class="tab-pane fade {% if active_tab == 'football' %}show active{% endif %}"
+         id="tab-football" role="tabpanel" aria-labelledby="tab-football-btn">
+      {% include "_betting_football_panel.html" %}
+    </div>
+
+    {# =============================== NBA =============================== #}
+    <div class="tab-pane fade {% if active_tab == 'nba' %}show active{% endif %}"
+         id="tab-nba" role="tabpanel" aria-labelledby="tab-nba-btn">
+      <div class="row">
+        <div class="col-md-8 offset-md-2">
+          <div class="card border-info">
+            <div class="card-body text-center py-5">
+              <div class="display-3 mb-3">🏀</div>
+              <h4 class="card-title">NBA betting panel — placeholder</h4>
+              <p class="text-muted">
+                NBA betting is wired and working: predictions, ESPN moneyline odds,
+                <code>/nba/auto_wager</code> + <code>/nba/place_bets</code> JSON endpoints,
+                three-lane bankrolls, and an inline slip preview on the NBA dashboard.
+              </p>
+              <p class="text-muted small">
+                The rich slip-history panel (per-bet rows, lane comparison, void controls)
+                hasn't been ported into this tab yet — it's the Phase-3 follow-up tracked in
+                <code>NEXT_STEPS.md</code> under "Tab-ify the existing betting dashboard".
+                For now, manage NBA slips on the NBA dashboard.
+              </p>
+              <a class="btn btn-primary mt-2" href="/nba/">🏀 Go to NBA dashboard</a>
+              {% if nba_bankrolls %}
+              <div class="mt-4 small">
+                NBA bankroll:
+                <span class="badge bg-primary me-1">value €{{ '%.2f'|format(nba_bankrolls.value) }}</span>
+                <span class="badge bg-warning text-dark me-1">conviction €{{ '%.2f'|format(nba_bankrolls.conviction) }}</span>
+                <span class="badge bg-info text-dark">model €{{ '%.2f'|format(nba_bankrolls.model) }}</span>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
