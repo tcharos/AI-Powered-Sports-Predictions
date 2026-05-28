@@ -489,6 +489,31 @@ class VirtualBettingBackend(BettingBackend):
         return {'note': 'see resolve_daily_bets logs for details'}
 
 
+class NbaBettingBackend(VirtualBettingBackend):
+    """NBA-flavoured ``VirtualBettingBackend`` — same machinery, ``SPORT='nba'``.
+
+    Subclass (vs constructor parameter) by design: keeps the football class
+    literally unchanged byte-for-byte, so reading or grepping for
+    ``VirtualBettingBackend(output_dir=OUTPUT_DIR)`` still finds only football
+    callers. The shared infrastructure (`make_bet_id`, `place_bet`, `execute_cashout`,
+    `void_bet`, `settle_bets`, bankroll updates via `sports_config`) is reused
+    verbatim — only the ``SPORT`` slug differs, which is what routes the
+    bankroll mutations / slip storage to ``sports.nba`` in `betting_config.json`
+    and to whichever ``output_dir`` the caller passes (``output_basketball`` for
+    NBA, vs ``output`` for football). Storage is therefore fully slug-separated:
+    an NBA bet can never touch a football bankroll or slip.
+
+    Use as::
+
+        backend = NbaBettingBackend(output_dir='output_basketball')
+
+    in NBA blueprint routes; football continues to call
+    ``VirtualBettingBackend(output_dir=OUTPUT_DIR)`` exactly as before.
+    """
+
+    SPORT = 'nba'
+
+
 # ---- Pamestoixima stub (Phase 9) ------------------------------------------
 
 class PamestoiximaBackend(BettingBackend):
