@@ -1,180 +1,192 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <h1 class="mb-3">🏀 NBA Expansion Center</h1>
-        <div class="alert alert-info">
-            <strong>Status:</strong> Validated Pipeline. Hybrid Data (Flashscore Stats + ESPN Odds).
-        </div>
+<div class="container-fluid mt-3">
+
+  {# ---- Header + bankroll summary ---- #}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="mb-0">🏀 NBA</h2>
+      <div class="text-muted small">
+        {% if pred_file %}latest predictions: <code>{{ pred_file }}</code>{% else %}no predictions yet{% endif %}
+      </div>
     </div>
+    <div class="card">
+      <div class="card-body py-2 px-3">
+        <div class="small text-muted text-uppercase">bankroll · NBA</div>
+        <div class="fs-5 fw-semibold">€ {{ '%.2f'|format(total_bankroll) }}</div>
+        <div class="small">
+          <span class="badge bg-primary me-1">value €{{ '%.2f'|format(bankrolls.value) }}</span>
+          <span class="badge bg-warning text-dark me-1">conviction €{{ '%.2f'|format(bankrolls.conviction) }}</span>
+          <span class="badge bg-info text-dark">model €{{ '%.2f'|format(bankrolls.model) }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---- Action row ---- #}
+  <div class="row g-2 mb-3">
+    <div class="col-auto">
+      <form action="/nba/predict" method="post" class="d-inline">
+        <button class="btn btn-primary" type="submit"
+                onclick="return confirm('Run NBA prediction pipeline for tomorrow?');">🔮 Predict (tomorrow)</button>
+      </form>
+    </div>
+    <div class="col-auto">
+      <form action="/nba/verify" method="post" class="d-inline">
+        <button class="btn btn-outline-primary" type="submit"
+                onclick="return confirm('Run NBA verification for yesterday?');">✅ Verify (yesterday)</button>
+      </form>
+    </div>
+    <div class="col-auto">
+      <form action="/nba/retrain" method="post" class="d-inline">
+        <button class="btn btn-outline-secondary" type="submit"
+                onclick="return confirm('Run full NBA retrain pipeline? Several minutes.');">🔄 Retrain</button>
+      </form>
+    </div>
+    <div class="col-auto ms-auto">
+      {% if total_bankroll > 0 %}
+        <button class="btn btn-success" onclick="generateSlip()">💸 Generate Slip (Moneyline · v1)</button>
+      {% else %}
+        <button class="btn btn-success" disabled title="Fund sports.nba.bankrolls in betting_config.json">💸 Generate Slip (bankrolls € 0)</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- Predictions table ---- #}
+  {% if predictions %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between">
+      <strong>Predictions · {{ predictions|length }} games</strong>
+      <span class="text-muted small">corpus-derived features · Platt-calibrated P(home_win)</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Matchup</th>
+            <th class="text-end">Home ELO</th>
+            <th class="text-end">Away ELO</th>
+            <th class="text-end">P(home)</th>
+            <th class="text-end small text-muted">P(raw)</th>
+            <th>Pick</th>
+            <th class="text-end">Pred Total</th>
+            <th class="text-end small">Rest H/A</th>
+            <th class="small text-muted">Cal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in predictions %}
+          <tr>
+            <td class="small text-muted">{{ p['Date'] }}</td>
+            <td><strong>{{ p['Home Team'] }}</strong> <span class="text-muted">vs</span> {{ p['Away Team'] }}</td>
+            <td class="text-end">{{ p['Home ELO'] }}</td>
+            <td class="text-end">{{ p['Away ELO'] }}</td>
+            <td class="text-end fw-semibold">{{ '%.3f'|format(p['Home Win Prob']|float) }}</td>
+            <td class="text-end small text-muted">{{ '%.3f'|format(p.get('Home Win Prob (raw)', 0)|float) }}</td>
+            <td>
+              {% if p['Predicted Winner'] == 'HOME' %}
+                <span class="badge bg-primary">HOME</span>
+              {% else %}
+                <span class="badge bg-secondary">AWAY</span>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ '%.1f'|format(p['Predicted Total']|float) }}</td>
+            <td class="text-end small">{{ p.get('Home Rest', '?') }} / {{ p.get('Away Rest', '?') }}</td>
+            <td class="small text-muted">{{ p.get('Cal Source', '') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-info">No predictions yet. Click <strong>Predict</strong> above or run <code>./bin/run_nba_predictions.sh</code>.</div>
+  {% endif %}
+
+  {# ---- Recent slips ---- #}
+  <div class="card">
+    <div class="card-header"><strong>Recent slips</strong> <span class="text-muted small">(output_basketball/bets_*.json)</span></div>
+    <div class="card-body">
+      {% if recent_slips %}
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Date</th><th>File</th><th class="text-end">Bets</th><th class="text-end">Stake €</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for s in recent_slips %}
+            <tr>
+              <td>{{ s.date }}</td>
+              <td><code class="small">{{ s.file }}</code></td>
+              <td class="text-end">{{ s.count }}</td>
+              <td class="text-end">{{ '%.2f'|format(s.total_stake|float) }}</td>
+              <td><span class="badge {% if s.status == 'OPEN' %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ s.status }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="text-muted mb-0">No slips placed yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- Slip preview (lightweight UI on /auto_wager JSON) ---- #}
+  <div id="slip-preview" class="card mt-3 d-none">
+    <div class="card-header d-flex justify-content-between">
+      <strong>Slip preview</strong>
+      <button type="button" class="btn-close" onclick="document.getElementById('slip-preview').classList.add('d-none')"></button>
+    </div>
+    <div class="card-body">
+      <div id="slip-lanes" class="mb-2"></div>
+      <table class="table table-sm">
+        <thead><tr><th>Lane</th><th>Match</th><th>Pick</th><th class="text-end">Odds</th><th class="text-end">Conf</th><th class="text-end">EV</th><th class="text-end">Stake €</th></tr></thead>
+        <tbody id="slip-rows"></tbody>
+      </table>
+      <div class="d-flex justify-content-between">
+        <div>Total stake: <strong>€<span id="slip-total">0</span></strong></div>
+        <button class="btn btn-success" onclick="placeSlip()">📥 Place Bets</button>
+      </div>
+    </div>
+  </div>
 </div>
 
-<div class="row">
-    <!-- Metrics Cards -->
-    <!-- Actions & Stats -->
-    <div class="col-md-3">
-        <div class="card p-3 mb-4 border-primary">
-            <h6 class="text-primary">Historical Games</h6>
-            <div class="fs-2 fw-bold">{{ game_count }}</div>
-            <small class="text-muted">Since 2019</small>
-        </div>
-    </div>
-
-    <!-- All-Time Performance -->
-    <div class="col-md-3">
-        <div class="card p-3 mb-4 border-info">
-            <h6 class="text-info">All-Time Accuracy</h6>
-            {% if analytics %}
-            <div class="d-flex justify-content-between mb-1">
-                <span>Winner:</span>
-                <span class="fw-bold">{{ analytics.get('winner_accuracy', 0) }}%</span>
-            </div>
-            <div class="d-flex justify-content-between">
-                <span>Totals:</span>
-                <span class="fw-bold">{{ analytics.get('total_accuracy', 0) }}%</span>
-            </div>
-            <small class="text-muted mt-2 d-block">Based on {{ analytics.get('total_matches', 0) }} verified
-                games</small>
-            {% else %}
-            <div class="text-muted">No data yet</div>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- Actions -->
-    <div class="col-md-3">
-        <div class="card p-3 mb-4 border-warning">
-            <h6 class="text-warning">Actions</h6>
-            <form action="/nba/verify" method="post">
-                <button type="submit" class="btn btn-sm btn-outline-warning w-100">
-                    ✅ Run Validation (Yesterday)
-                </button>
-            </form>
-            <div class="mt-2 text-center text-muted small">
-                Checks ESPN Results vs Predictions
-            </div>
-
-            <hr>
-
-            <form action="/nba/retrain" method="post"
-                onsubmit="return confirm('Ensure no other training is running. This will take a few minutes.');">
-                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
-                    🔄 Retrain Model (Full Pipeline)
-                </button>
-            </form>
-            <div class="mt-2 text-center text-muted small">
-                Update Data + Features + Train
-            </div>
-
-            <hr>
-
-            <form action="/nba/predict" method="post"
-                onsubmit="return confirm('This will scrape fresh data for tomorrow. Continue?');">
-                <button type="submit" class="btn btn-sm btn-outline-success w-100">
-                    🔮 Run Prediction (Tomorrow)
-                </button>
-            </form>
-            <div class="mt-2 text-center text-muted small">
-                Scrape + Predict
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-3">
-        <div class="card p-3 mb-4 border-success">
-            <h6 class="text-success">Latest Predictions</h6>
-            <div class="fs-2 fw-bold">
-                {% if predictions %}{{ predictions|length }}{% else %}0{% endif %}
-            </div>
-            <small class="text-muted">{{ pred_file if pred_file else "None" }}</small>
-        </div>
-    </div>
-</div>
-
-<div class="card shadow-sm">
-    <div class="card-header bg-white">
-        <h5 class="mb-0">Upcoming Match Predictions</h5>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover table-striped mb-0 align-middle">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Date</th>
-                        <th>Matchup</th>
-                        <th class="text-center">Home Win %</th>
-                        <th class="text-center">Spread (Home)</th>
-                        <th class="text-center">Totals (Mkt vs Mdl)</th>
-                        <th class="text-center">O/U Pick</th>
-                        <th class="text-center">Conf.</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% if predictions %}
-                    {% for row in predictions %}
-                    <tr>
-                        <td>{{ row['Date'] }}</td>
-                        <td>
-                            <div class="fw-bold">{{ row['Home Team'] }}</div>
-                            <small class="text-muted">vs {{ row['Away Team'] }}</small>
-                            {% if row['Score'] %}
-                            <div class="badge bg-dark mt-1">{{ row['Score'] }}</div>
-                            {% endif %}
-                        </td>
-                        <td class="text-center">
-                            {% set win_prob = row['Home Win %']|float %}
-                            <span
-                                class="badge {% if win_prob > 60 %}bg-success{% elif win_prob < 40 %}bg-danger{% else %}bg-secondary{% endif %}">
-                                {{ win_prob }}%
-                            </span>
-
-                            <!-- Validation Indicator -->
-                            {% if row['Correct Winner'] == True %}
-                            <span class="ms-1 text-success fw-bold" title="Correct Winner">✅</span>
-                            {% elif row['Correct Winner'] == False %}
-                            <span class="ms-1 text-danger fw-bold" title="Wrong Winner">❌</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-center">
-                            {{ row['Spread (Home)'] if row['Spread (Home)'] else '-' }}
-                        </td>
-                        <td class="text-center">
-                            <div>Mkt: {{ row['Total (Market)'] }}</div>
-                            <small class="text-primary">Est: {{ row['Total (Model)'] }}</small>
-                        </td>
-                        <td class="text-center">
-                            {% set pick = row['O/U Pick'] %}
-                            {% if pick == 'OVER' %}
-                            <span class="badge bg-success">OVER</span>
-                            {% elif pick == 'UNDER' %}
-                            <span class="badge bg-warning text-dark">UNDER</span>
-                            {% else %}
-                            <span class="badge bg-light text-dark border">Pass</span>
-                            {% endif %}
-
-                            <!-- Validation Indicator -->
-                            {% if row['Correct Total'] == True %}
-                            <span class="ms-1 text-success fw-bold" title="Correct Pick">✅</span>
-                            {% elif row['Correct Total'] == False %}
-                            <span class="ms-1 text-danger fw-bold" title="Wrong Pick">❌</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-center">
-                            {{ row['Confidence'] }}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    <tr>
-                        <td colspan="7" class="text-center py-4">
-                            No predictions found. Run the prediction pipeline first.
-                        </td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
+<script>
+let __SLIP__ = null;
+async function generateSlip() {
+  const r = await fetch('/nba/auto_wager');
+  const data = await r.json();
+  if (data.error) { alert('Auto-wager: ' + data.error); return; }
+  __SLIP__ = data;
+  const lanesDiv = document.getElementById('slip-lanes');
+  lanesDiv.innerHTML = '';
+  for (const [name, info] of Object.entries(data.lanes)) {
+    const badge = name === 'value' ? 'bg-primary' : name === 'conviction' ? 'bg-warning text-dark' : 'bg-info text-dark';
+    lanesDiv.insertAdjacentHTML('beforeend',
+      `<span class="badge ${badge} me-2">${name}: ${info.count} bets · €${info.total_stake} ${info.scaled ? '(cap-scaled)' : ''}</span>`);
+  }
+  const rows = document.getElementById('slip-rows');
+  rows.innerHTML = '';
+  for (const b of data.bets) {
+    rows.insertAdjacentHTML('beforeend',
+      `<tr><td><span class="badge bg-secondary">${b.lane}</span></td><td>${b.match}</td><td>${b.selection}</td>` +
+      `<td class="text-end">${b.odds}</td><td class="text-end">${b.conf}</td><td class="text-end">${b.ev}</td>` +
+      `<td class="text-end">${b.stake_units.toFixed(2)}</td></tr>`);
+  }
+  document.getElementById('slip-total').textContent = data.total_stake.toFixed(2);
+  document.getElementById('slip-preview').classList.remove('d-none');
+  document.getElementById('slip-preview').scrollIntoView({behavior: 'smooth'});
+}
+async function placeSlip() {
+  if (!__SLIP__ || !__SLIP__.bets.length) { alert('Generate a slip first.'); return; }
+  if (!confirm(`Place ${__SLIP__.bets.length} NBA virtual bets for €${__SLIP__.total_stake.toFixed(2)}?`)) return;
+  const r = await fetch('/nba/place_bets', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({bets: __SLIP__.bets, date: __SLIP__.date}),
+  });
+  const data = await r.json();
+  if (data.error) { alert('Place failed: ' + data.error); return; }
+  alert(data.message + '\nNew NBA bankroll: €' + data.new_balance);
+  location.reload();
+}
+</script>
 {% endblock %}

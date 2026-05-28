@@ -44,9 +44,9 @@ SPORTS = [
     {'slug': 'football', 'label': 'Football', 'icon': '⚽', 'active': True,
      'bets_dir': 'output',
      'tagline': 'Daily 1X2 + Over/Under predictions, three-lane betting strategy.'},
-    {'slug': 'nba',      'label': 'NBA',      'icon': '🏀', 'active': False,
+    {'slug': 'nba',      'label': 'NBA',      'icon': '🏀', 'active': True,
      'bets_dir': 'output_basketball',
-     'tagline': 'Dormant — code preserved at web_ui/nba/. Reactivation planned for next NBA season.'},
+     'tagline': 'Daily moneyline + totals predictions on an enhanced-feature XGBoost model with Platt calibration.'},
 ]
 
 app = Flask(__name__)
@@ -56,8 +56,8 @@ football_bp = Blueprint('football', __name__)
 
 
 # Register Blueprints
-# from nba.routes import nba_bp, NBA_TASKS  # uncomment to reactivate NBA
-# app.register_blueprint(nba_bp, url_prefix='/nba')
+from nba.routes import nba_bp, NBA_TASKS  # NBA reactivated 2026-05-28 (Phase 3)
+app.register_blueprint(nba_bp, url_prefix='/nba')
 
 # Football blueprint registration happens at the bottom of this file,
 # after all @football_bp.route handlers have been defined.
