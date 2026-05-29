@@ -514,6 +514,23 @@ class NbaBettingBackend(VirtualBettingBackend):
     SPORT = 'nba'
 
 
+class EuroleagueBettingBackend(VirtualBettingBackend):
+    """Euroleague/EuroCup-flavoured ``VirtualBettingBackend`` — ``SPORT='euroleague'``.
+
+    Same one-line-subclass pattern as ``NbaBettingBackend``: the football class
+    is untouched, all machinery is reused verbatim, and only the ``SPORT`` slug
+    differs — which routes bankroll mutations / slip storage to
+    ``sports.euroleague`` in ``betting_config.json`` and to the ``output_dir``
+    the caller passes (``output_euroleague``). Storage is fully slug-separated:
+    a Euroleague bet can never touch a football or NBA bankroll/slip.
+
+    Use as ``EuroleagueBettingBackend(output_dir='output_euroleague')`` in the
+    euroleague blueprint routes.
+    """
+
+    SPORT = 'euroleague'
+
+
 # ---- Pamestoixima stub (Phase 9) ------------------------------------------
 
 class PamestoiximaBackend(BettingBackend):

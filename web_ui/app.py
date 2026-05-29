@@ -52,10 +52,8 @@ SPORTS = [
      # for the dashboard `<title>` / breadcrumb contexts where the logo
      # isn't present.
      'icon_has_label': True,
-     # No bets_dir yet — onboarding in progress (see EUROLEAGUE_NEXT_STEPS.md).
-     # Cross-sport summary / portfolio loops skip sports without `bets_dir`.
-     'active': False,
-     'tagline': 'Onboarding — see EUROLEAGUE_NEXT_STEPS.md.'},
+     'active': True, 'bets_dir': 'output_euroleague',
+     'tagline': 'Daily moneyline predictions (Euroleague + EuroCup) on a combined XGBoost model with per-competition Platt calibration.'},
     {'slug': 'nba',        'label': 'NBA',        'icon': '🏀', 'icon_img': 'img/nba.svg',
      'active': True, 'bets_dir': 'output_basketball',
      'tagline': 'Daily moneyline + totals predictions on an enhanced-feature XGBoost model with Platt calibration.'},
@@ -73,6 +71,8 @@ football_bp = Blueprint('football', __name__)
 # Register Blueprints
 from nba.routes import nba_bp, NBA_TASKS  # NBA reactivated 2026-05-28 (Phase 3)
 app.register_blueprint(nba_bp, url_prefix='/nba')
+from euroleague.routes import euroleague_bp, EUROLEAGUE_TASKS  # Euroleague Phase 3 (2026-05-29)
+app.register_blueprint(euroleague_bp, url_prefix='/euroleague')
 
 # Football blueprint registration happens at the bottom of this file,
 # after all @football_bp.route handlers have been defined.
@@ -719,19 +719,20 @@ def get_status():
         else:
             status[task_name] = {'state': 'idle'}
             
-    # Check NBA Tasks
-    for nba_task, proc in NBA_TASKS.items():
-        key = f"nba_{nba_task}"
-        if proc:
-            poll = proc.poll()
-            if poll is None:
-                status[key] = {'state': 'running'}
-            elif poll == 0:
-                status[key] = {'state': 'completed'}
+    # Check NBA + Euroleague Tasks (same Popen-dict shape, slug-prefixed keys).
+    for prefix, task_dict in (("nba", NBA_TASKS), ("euroleague", EUROLEAGUE_TASKS)):
+        for task_name, proc in task_dict.items():
+            key = f"{prefix}_{task_name}"
+            if proc:
+                poll = proc.poll()
+                if poll is None:
+                    status[key] = {'state': 'running'}
+                elif poll == 0:
+                    status[key] = {'state': 'completed'}
+                else:
+                    status[key] = {'state': 'error'}
             else:
-                status[key] = {'state': 'error'}
-        else:
-             status[key] = {'state': 'idle'}
+                status[key] = {'state': 'idle'}
              
     return status
 
