@@ -44,14 +44,11 @@ SPORTS = [
     {'slug': 'football',   'label': 'Football',   'icon': '⚽', 'icon_img': None,
      'active': True, 'bets_dir': 'output',
      'tagline': 'Daily 1X2 + Over/Under predictions, three-lane betting strategy.'},
-    {'slug': 'euroleague', 'label': 'Euroleague', 'icon': '🏆', 'icon_img': 'img/euroleague.svg',
-     # The Euroleague mark already contains the word "Euroleague", so templates
-     # omit the redundant text label everywhere the logo is rendered next to
-     # the label (navbar dropdown, tab button, landing card title, portfolio
-     # row). `label` is still used for `alt` attributes (accessibility) and
-     # for the dashboard `<title>` / breadcrumb contexts where the logo
-     # isn't present.
-     'icon_has_label': True,
+    {'slug': 'euroleague', 'label': 'EuroLeague', 'icon': '🏆', 'icon_img': 'img/euroleague_logo_only.png',
+     # Logo-only glyph + "EuroLeague" text label (renders like NBA: icon + name).
+     # The full-wordmark svg squished badly next to a label, so the compact
+     # contexts (navbar, cards, portfolio + cross-sport summary rows) use this
+     # icon-only PNG; the betting-tab pane hero keeps the wordmark svg.
      'active': True, 'bets_dir': 'output_euroleague',
      'tagline': 'Daily moneyline predictions (Euroleague + EuroCup) on a combined XGBoost model with per-competition Platt calibration.'},
     {'slug': 'nba',        'label': 'NBA',        'icon': '🏀', 'icon_img': 'img/nba.svg',

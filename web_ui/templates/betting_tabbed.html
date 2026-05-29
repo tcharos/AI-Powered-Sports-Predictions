@@ -51,15 +51,12 @@
       </button>
     </li>
     <li class="nav-item" role="presentation">
-      {# Euroleague logo already contains the league name; render logo-only. #}
       <button class="nav-link {% if active_tab == 'euroleague' %}active{% endif %}"
               id="tab-euroleague-btn" data-bs-toggle="tab" data-bs-target="#tab-euroleague"
-              type="button" role="tab" aria-controls="tab-euroleague" aria-selected="false"
-              aria-label="Euroleague">
-        {# Logo-only glyph (the .svg is the full wordmark incl. the "Euroleague"
-           text, which squishes in a tab — use the icon-only PNG here). #}
+              type="button" role="tab" aria-controls="tab-euroleague" aria-selected="false">
+        {# Logo-only glyph (the .svg is the full wordmark) + the "EuroLeague" label. #}
         <img src="{{ url_for('static', filename='img/euroleague_logo_only.png') }}"
-             alt="Euroleague" class="sport-icon-tab">
+             alt="EuroLeague logo" class="sport-icon-sm me-1"> EuroLeague
       </button>
     </li>
     <li class="nav-item" role="presentation">
