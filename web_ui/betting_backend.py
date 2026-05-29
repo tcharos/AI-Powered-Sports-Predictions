@@ -82,6 +82,39 @@ _SELECTION_TO_PROB_KEY = {
 _CASHOUT_HOUSE_HAIRCUT = 0.95
 
 
+def _parse_total_goals(score):
+    """Total goals from a 'H-A' score string, or None if unparseable."""
+    try:
+        h, a = str(score).replace(" ", "").split("-")
+        return int(h) + int(a)
+    except Exception:
+        return None
+
+
+def _ou_line_decided(selection, total_goals):
+    """Is an Over/Under bet already SETTLED by the current goal count?
+
+    Goals only increase, so once the count crosses the line an Over is
+    permanently won and an Under permanently lost — no haircut/adj_prob should
+    apply to a decided outcome. Returns 'won' / 'lost' / None (still live).
+    Under below the line is NOT decided (more goals may still come).
+    """
+    if total_goals is None or not selection:
+        return None
+    import re
+    m = re.search(r"(\d+(?:\.\d+)?)", str(selection))
+    if not m:
+        return None
+    line = float(m.group(1))
+    if total_goals > line:           # e.g. 3 goals > 2.5 → line cleared
+        s = str(selection).lower()
+        if "over" in s:
+            return "won"
+        if "under" in s:
+            return "lost"
+    return None
+
+
 # ---- ABC ------------------------------------------------------------------
 
 class BettingBackend(ABC):
@@ -238,6 +271,16 @@ class VirtualBettingBackend(BettingBackend):
             adj = live_match.get('adj_ou_probs', {}) or {}
         else:
             return None
+
+        # An Over/Under bet already settled by the live score is risk-free:
+        # a cleared Over pays the FULL win (no haircut, no adj_prob scaling),
+        # a breached Under is worthless. Goals can't be un-scored.
+        if bet_type == 'O/U':
+            decided = _ou_line_decided(selection, _parse_total_goals(live_match.get('score')))
+            if decided == 'won':
+                return round(stake * odds, 2)
+            if decided == 'lost':
+                return 0.0
 
         adj_prob = float(adj.get(prob_key, 0) or 0)
         if adj_prob <= 0:
