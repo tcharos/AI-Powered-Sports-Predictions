@@ -112,8 +112,9 @@ Two columns side-by-side, each showing the **last 3 entries**:
 
 A table showing, per league: **prediction accuracy** (1X2 and O/U) over every
 predicted+verified match (`Count`), plus **realized betting performance** —
-`Bets (model)` (settled **model-lane** bets in that league), `Stake`, `P/L`,
-and `ROI %`. The betting columns use the **model lane only** — it bets ~every
+`Bets (model)` (settled **model-lane** bets in that league), `Stake`, `Return`
+(gross money back — payouts + cashout amounts + void refunds, so `P/L = Return −
+Stake`), `P/L`, and `ROI %`. The betting columns use the **model lane only** — it bets ~every
 prediction, so its coverage matches the accuracy denominator, whereas the
 value/conviction lanes are filtered subsets that wouldn't line up. Accuracy is
 sourced from `data_sets/league_analytics.json` (updated each verification run);

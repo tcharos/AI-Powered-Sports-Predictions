@@ -208,11 +208,12 @@ def index():
             if b and b.get('settled'):
                 row['Bet_Settled'] = b['settled']
                 row['Bet_Stake'] = b['stake']
+                row['Bet_Returned'] = b['returned']
                 row['Bet_PnL'] = b['pnl']
                 row['Bet_ROI'] = b['roi']
             else:
                 row['Bet_Settled'] = 0
-                row['Bet_Stake'] = row['Bet_PnL'] = row['Bet_ROI'] = None
+                row['Bet_Stake'] = row['Bet_Returned'] = row['Bet_PnL'] = row['Bet_ROI'] = None
     except Exception:
         pass
 

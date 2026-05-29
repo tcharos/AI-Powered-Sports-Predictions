@@ -426,6 +426,7 @@
                         <th>Accuracy O/U (%)</th>
                         <th title="Settled MODEL-LANE bets in this league (the model lane bets ~every prediction, so it tracks the accuracy coverage). Cashout-aware.">Bets (model)</th>
                         <th>Stake €</th>
+                        <th title="Gross money returned: payouts on wins + cashout amounts + void refunds (P/L = Return − Stake)">Return €</th>
                         <th title="Realized model-lane betting P/L for this league (money, not accuracy)">P/L €</th>
                         <th title="Realized model-lane betting ROI for this league = P/L / Stake">ROI %</th>
                     </tr>
@@ -448,6 +449,7 @@
                         {% if stat.get('Bet_PnL') is not none %}
                         <td>{{ stat['Bet_Settled'] }}</td>
                         <td>{{ stat['Bet_Stake'] }}</td>
+                        <td>{{ stat['Bet_Returned'] }}</td>
                         <td class="fw-bold {{ 'text-success' if stat['Bet_PnL'] > 0 else ('text-danger' if stat['Bet_PnL'] < 0 else 'text-muted') }}">
                             {{ '+' if stat['Bet_PnL'] > 0 else '' }}{{ stat['Bet_PnL'] }}
                         </td>
@@ -455,6 +457,7 @@
                             {{ '+' if stat['Bet_ROI'] > 0 else '' }}{{ stat['Bet_ROI'] }}%
                         </td>
                         {% else %}
+                        <td class="text-muted">—</td>
                         <td class="text-muted">—</td>
                         <td class="text-muted">—</td>
                         <td class="text-muted">—</td>
