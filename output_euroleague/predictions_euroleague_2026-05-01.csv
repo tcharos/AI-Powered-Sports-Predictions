@@ -1,0 +1,3 @@
+Date,competition,Home Team,Away Team,Home ELO,Away ELO,Home Win Prob,Home Win Prob (raw),Cal Source,Predicted Winner,Predicted Total,Home Rest,Away Rest,gameId
+2026-05-01,E,FC Barcelona,Olympiacos,1568,1718,0.6079,0.5848,platt-E,HOME,164.12,7,1,TESTE_1
+2026-05-01,U,Anadolu (U),Paris (U),1521,1559,0.5637,0.5504,platt-U,HOME,157.03,14,14,TESTU_1
