@@ -421,9 +421,13 @@
                 <thead>
                     <tr>
                         <th>League</th>
-                        <th>Count</th>
+                        <th title="Predicted + verified matches (the accuracy denominator)">Count</th>
                         <th>Accuracy 1X2 (%)</th>
                         <th>Accuracy O/U (%)</th>
+                        <th title="Settled BETS in this league — usually fewer than Count (you don't bet every prediction). Cashout-aware.">Bets</th>
+                        <th>Stake €</th>
+                        <th title="Realized betting P/L for this league (money, not accuracy)">P/L €</th>
+                        <th title="Realized betting ROI for this league = P/L / Stake">ROI %</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -441,6 +445,21 @@
                                 {{ stat['Acc_OU'] }}%
                             </span>
                         </td>
+                        {% if stat.get('Bet_PnL') is not none %}
+                        <td>{{ stat['Bet_Settled'] }}</td>
+                        <td>{{ stat['Bet_Stake'] }}</td>
+                        <td class="fw-bold {{ 'text-success' if stat['Bet_PnL'] > 0 else ('text-danger' if stat['Bet_PnL'] < 0 else 'text-muted') }}">
+                            {{ '+' if stat['Bet_PnL'] > 0 else '' }}{{ stat['Bet_PnL'] }}
+                        </td>
+                        <td class="fw-bold {{ 'text-success' if stat['Bet_ROI'] > 0 else ('text-danger' if stat['Bet_ROI'] < 0 else 'text-muted') }}">
+                            {{ '+' if stat['Bet_ROI'] > 0 else '' }}{{ stat['Bet_ROI'] }}%
+                        </td>
+                        {% else %}
+                        <td class="text-muted">—</td>
+                        <td class="text-muted">—</td>
+                        <td class="text-muted">—</td>
+                        <td class="text-muted">—</td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>

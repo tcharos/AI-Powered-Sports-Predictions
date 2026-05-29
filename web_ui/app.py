@@ -194,7 +194,26 @@ def index():
             league_stats.sort(key=lambda x: x['Count'], reverse=True)
         except:
             pass
-            
+
+    # Join realized betting P/L per league as EXTRA columns. Accuracy above is
+    # over ALL predicted+verified matches; the betting columns are over the
+    # (usually smaller) bet subset — cashout-aware — and blank where we didn't
+    # bet that league. Two different denominators, side by side on purpose.
+    try:
+        _bet_by_league = {r['league']: r for r in compute_league_betting_summary(OUTPUT_DIR)}
+        for row in league_stats:
+            b = _bet_by_league.get(row['League'])
+            if b and b.get('settled'):
+                row['Bet_Settled'] = b['settled']
+                row['Bet_Stake'] = b['stake']
+                row['Bet_PnL'] = b['pnl']
+                row['Bet_ROI'] = b['roi']
+            else:
+                row['Bet_Settled'] = 0
+                row['Bet_Stake'] = row['Bet_PnL'] = row['Bet_ROI'] = None
+    except Exception:
+        pass
+
     # Load Live Live Data
     live_file = os.path.join(OUTPUT_DIR, "live_data.json")
     live_matches = []
@@ -2103,7 +2122,6 @@ def betting_page():
                            history=summary['history'],
                            lane_stats=summary['lane_stats'],
                            lane_defaults=lane_defaults,
-                           league_betting=compute_league_betting_summary(OUTPUT_DIR),
                            sport_label='Football')
 
 @football_bp.route('/update_data', methods=['POST'])
@@ -2633,7 +2651,6 @@ def betting_tabbed():
         history=summary['history'],
         lane_stats=summary['lane_stats'],
         lane_defaults=lane_defaults,
-        league_betting=compute_league_betting_summary(OUTPUT_DIR),
         sport_label='Football',
         # NBA + Euroleague tab placeholders (link-to-dashboard cards)
         nba_bankrolls=bank_by_sport.get('nba', {}),

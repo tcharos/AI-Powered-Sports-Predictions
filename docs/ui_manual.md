@@ -110,9 +110,16 @@ Two columns side-by-side, each showing the **last 3 entries**:
 
 ### Row 4 — Cumulative League Performance (collapsible)
 
-A table showing prediction accuracy per league (1X2 and O/U) across
-every verification run. Sourced from `data_sets/league_analytics.json`,
-updated each time verification runs.
+A table showing, per league: **prediction accuracy** (1X2 and O/U) over every
+predicted+verified match (`Count`), plus **realized betting performance** —
+`Bets` (settled bets in that league, usually fewer than `Count`), `Stake`,
+`P/L`, and `ROI %`. Accuracy is sourced from `data_sets/league_analytics.json`
+(updated each verification run); the betting columns are aggregated from the
+bet slips (cashout-aware) and joined by league. The two have **different
+denominators on purpose** — accuracy is over *all* predictions, ROI over the
+*bet* subset — so they sit side by side rather than blended (a league with no
+bets shows `—`). Accuracy answers "is the model good here?"; ROI answers "did
+betting it make money?".
 
 ### Row 5 — Available Scraped Data (collapsible)
 
