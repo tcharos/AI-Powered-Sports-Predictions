@@ -119,9 +119,20 @@ def predict(date_str: str | None = None) -> int:
     win_features = json.load(open(WINNER_FEATURES))
     tot_features = json.load(open(TOTAL_FEATURES))
 
-    from euroleague_calibration import load_calibration_data, apply_home_win_platt
+    from euroleague_calibration import load_calibration_data, apply_home_win_platt, prob_over, total_sigma
     cal = load_calibration_data(CALIBRATION_PATH)
     print(f"[predict] calibration: {'loaded (per-competition)' if cal else 'none — raw probs served'}")
+
+    # Odds (optional, season-gated): join euroleague_odds_<date>.json for the
+    # total LINE so we can emit P(Over). No odds file yet → P(Over) blank.
+    odds_path = os.path.join(OUT_DIR, f"euroleague_odds_{date_str}.json")
+    odds_by_pair = {}
+    if os.path.exists(odds_path):
+        try:
+            odds_by_pair = {(r.get("home_team"), r.get("away_team")): r
+                            for r in (json.load(open(odds_path)) or [])}
+        except Exception:
+            pass
 
     game_date = pd.Timestamp(date_str)
     rows: list[dict] = []
@@ -137,6 +148,10 @@ def predict(date_str: str | None = None) -> int:
         raw_p = float(winner.predict_proba(x_win)[0, 1])
         cal_p, _, cal_src = apply_home_win_platt(raw_p, cal, competition=comp, enabled=bool(cal))
         pred_total = float(total.predict(x_tot)[0])
+        sigma = total_sigma(cal, competition=comp)   # per-competition σ, pooled fallback
+        odds_row = odds_by_pair.get((fx.get("home_team"), fx.get("away_team"))) or {}
+        over_line = odds_row.get("total")
+        p_over = prob_over(pred_total, over_line, sigma) if (over_line is not None and sigma) else None
         rows.append({
             "Date": date_str,
             "competition": comp,
@@ -149,6 +164,10 @@ def predict(date_str: str | None = None) -> int:
             "Cal Source": cal_src or "",
             "Predicted Winner": "HOME" if cal_p >= 0.5 else "AWAY",
             "Predicted Total": round(pred_total, 2),
+            "Total Sigma": round(sigma, 2) if sigma else "",
+            "Over Line": over_line if over_line is not None else "",
+            "P(Over)": round(p_over, 4) if p_over is not None else "",
+            "P(Under)": round(1.0 - p_over, 4) if p_over is not None else "",
             "Home Rest": feats.get("home_rest_days"),
             "Away Rest": feats.get("away_rest_days"),
             "gameId": fx.get("gameId"),

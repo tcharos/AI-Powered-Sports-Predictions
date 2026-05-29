@@ -12,8 +12,13 @@ bankrolls and tunables. What differs is the market each sport bets:
 | Sport | Markets (v1) | Odds source | Notes |
 |---|---|---|---|
 | **Football** | 1X2 **and** Over/Under 2.5 | football-data.co.uk / Flashscore | Full feature set: per-league Platt calibration, live in-play cashout + auto-cashout, void. |
-| **NBA** | Moneyline | ESPN (live) | Predictions + paper betting on the NBA dashboard; totals (Over/Under) is a follow-up. |
-| **Euroleague + EuroCup** | Moneyline | Flashscore (**season-gated** — arrives ~Oct) | Combined model with per-competition calibration. Slips stay empty until the odds probe lands; predictions show regardless. |
+| **NBA** | Moneyline **and** Over/Under (totals) | ESPN (live) | Totals use P(Over) from a normal-approx around the predicted total (σ validated Gaussian). |
+| **Euroleague + EuroCup** | Moneyline **and** Over/Under (totals) | Flashscore (**season-gated** — arrives ~Oct) | Combined model, per-competition calibration + per-competition totals σ. Slips populate once the odds probe lands; predictions show regardless. |
+
+> **Totals (Over/Under) for basketball** uses a normal approximation: the total
+> ~ `Normal(predicted_total, σ)`, so `P(Over line) = Φ((predicted_total − line)/σ)`.
+> σ is the regressor's residual std (estimated + validated as Gaussian during
+> calibration). The O/U bet is then sized by the same three lanes as moneyline.
 
 Each sport's lanes, bankrolls, statuses, and the Strategy Comparison table work
 identically — only the market column and odds source change. All three are

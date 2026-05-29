@@ -284,6 +284,35 @@ def auto_wager():
                 '_conf':       conf, '_odds': odds_dec, '_ev': ev,    # raw for sizing
             }
 
+        # --- O/U (totals) candidate: predicted total + posted line + P(Over) ---
+        def _total_candidate(row) -> Optional[dict]:
+            home, away = row.get('Home Team'), row.get('Away Team')
+            odds_row = odds_by_pair.get((home, away))
+            if not odds_row:
+                return None
+            pov = row.get('P(Over)')
+            line = odds_row.get('total')
+            if pov in (None, '') or line is None:
+                return None
+            p_over = _to_float(pov)
+            if p_over >= 0.5:
+                conf, odds_dec, selection = p_over, odds_row.get('over_ml_decimal'), f"Over {line}"
+            else:
+                conf, odds_dec, selection = 1.0 - p_over, odds_row.get('under_ml_decimal'), f"Under {line}"
+            if odds_dec in (None, 0):
+                return None
+            odds_dec = float(odds_dec)
+            ev = conf * odds_dec - 1.0
+            return {
+                'date': target_date, 'match': f"{home} vs {away}",
+                'home': home, 'away': away, 'match_id': row.get('gameId') or '',
+                'type': 'O/U', 'selection': selection,
+                'odds': round(odds_dec, 3), 'odd': round(odds_dec, 3),
+                'conf': f"{conf:.3f}", 'ev': f"{ev:+.3f}", 'kelly': f"{_kelly(odds_dec, conf):.2%}",
+                'status': 'OPEN',
+                '_conf': conf, '_odds': odds_dec, '_ev': ev,
+            }
+
         # --- 3 lane builders (mirror football's value/conviction/model logic) ---
         def _build_value(c: dict) -> Optional[dict]:
             if c['_ev'] <= 0 or c['_conf'] < min_confidence:
@@ -322,17 +351,18 @@ def auto_wager():
         value_bets, conviction_bets, model_bets = [], [], []
         no_odds = 0
         for _, row in df.iterrows():
-            c = _ml_candidate(row)
-            if not c:
+            cands = [c for c in (_ml_candidate(row), _total_candidate(row)) if c]
+            if not cands:
                 if odds_by_pair.get((row.get('Home Team'), row.get('Away Team'))) is None:
                     no_odds += 1
                 continue
-            vb = _build_value(c)
-            if vb: value_bets.append(vb)
-            cb = _build_conviction(c)
-            if cb: conviction_bets.append(cb)
-            mb = _build_model(c)
-            if mb: model_bets.append(mb)
+            for c in cands:
+                vb = _build_value(c)
+                if vb: value_bets.append(vb)
+                cb = _build_conviction(c)
+                if cb: conviction_bets.append(cb)
+                mb = _build_model(c)
+                if mb: model_bets.append(mb)
 
         # --- per-lane daily cap (scale down + drop sub-floor) ---
         def _cap(bets, br, cap_pct, floor):

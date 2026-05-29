@@ -144,13 +144,25 @@ def predict(date_str: str | None = None) -> int:
 
     # Platt calibration is applied if the file exists; otherwise raw passes through.
     # (Phase 3 will gate this behind a use_nba_calibration flag in betting_config.)
-    from nba_calibration import load_calibration_data, apply_home_win_platt
+    from nba_calibration import load_calibration_data, apply_home_win_platt, prob_over, total_sigma
     cal = load_calibration_data(CALIBRATION_PATH)
     if cal:
         print(f"[predict] calibration loaded (Brier improvement "
               f"{cal.get('brier_before',0) - cal.get('brier_after',0):+.4f}); will apply.")
     else:
         print("[predict] no calibration file — raw probabilities will be served.")
+    sigma = total_sigma(cal)   # totals normal-approx σ (None if uncalibrated)
+
+    # Odds (optional): join the per-date ESPN odds for the total LINE so we can
+    # emit P(Over) per game. The predictor works fine without it (P(Over) blank).
+    odds_path = os.path.join(OUT_DIR, f"espn_odds_{date_str}.json")
+    odds_by_pair = {}
+    if os.path.exists(odds_path):
+        try:
+            odds_by_pair = {(r.get("home_team"), r.get("away_team")): r
+                            for r in (json.load(open(odds_path)) or [])}
+        except Exception:
+            pass
 
     game_date = pd.Timestamp(date_str)
     rows: list[dict] = []
@@ -165,6 +177,10 @@ def predict(date_str: str | None = None) -> int:
         raw_p = float(winner.predict_proba(x_win)[0, 1])
         cal_p, cal_applied, cal_src = apply_home_win_platt(raw_p, cal, enabled=bool(cal))
         pred_total = float(total.predict(x_tot)[0])
+        # P(Over) at the posted line (normal-approx around pred_total, σ from calibration).
+        odds_row = odds_by_pair.get((fx.get("home_team"), fx.get("away_team"))) or {}
+        over_line = odds_row.get("total")
+        p_over = prob_over(pred_total, over_line, sigma) if (over_line is not None and sigma) else None
         rows.append({
             "Date":               date_str,
             "Home Team":          fx.get("home_team"),
@@ -176,6 +192,10 @@ def predict(date_str: str | None = None) -> int:
             "Cal Source":         cal_src or "",
             "Predicted Winner":   "HOME" if cal_p >= 0.5 else "AWAY",
             "Predicted Total":    round(pred_total, 2),
+            "Total Sigma":        round(sigma, 2) if sigma else "",
+            "Over Line":          over_line if over_line is not None else "",
+            "P(Over)":            round(p_over, 4) if p_over is not None else "",
+            "P(Under)":           round(1.0 - p_over, 4) if p_over is not None else "",
             "Home Rest":          feats.get("home_rest_days"),
             "Away Rest":          feats.get("away_rest_days"),
             "Home B2B":           feats.get("home_b2b"),

@@ -44,7 +44,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss
 from sklearn.model_selection import TimeSeriesSplit
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,12 +64,68 @@ def _sigmoid(x):
 
 
 # ---------------------------------------------------------------------------
+# Totals (Over/Under) — normal-approximation P(Over)
+# ---------------------------------------------------------------------------
+
+def _norm_cdf(x):
+    import math
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def prob_over(predicted_total, line, sigma):
+    """P(total > line) under total ~ Normal(predicted_total, sigma).
+
+    = Φ((mu − line) / sigma). Returns None on bad inputs; a hard 0/1/0.5 when
+    sigma ≤ 0 (degenerate).
+    """
+    try:
+        mu, L, s = float(predicted_total), float(line), float(sigma)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0:
+        return 1.0 if mu > L else (0.0 if mu < L else 0.5)
+    return _norm_cdf((mu - L) / s)
+
+
+def total_sigma(calibration_data, default=None):
+    """Residual sigma for the totals normal-approx (or `default` if absent)."""
+    tou = (calibration_data or {}).get("total_over_under") or {}
+    s = tou.get("sigma")
+    return float(s) if s else default
+
+
+def _total_overunder_stats(actual, oof_pred):
+    """Validate the normal-approx for totals from OOF residuals.
+
+    Returns sigma + diagnostics that confirm total ~ Normal(mu, sigma):
+    z-score mean≈0 / std≈1, over-rate at mu≈0.5 (mu is unbiased/median), and
+    ±1σ / ±2σ empirical coverage (≈0.68 / 0.95 if Gaussian).
+    """
+    actual = np.asarray(actual, float)
+    pred = np.asarray(oof_pred, float)
+    resid = actual - pred
+    sigma = float(np.std(resid, ddof=1))
+    z = resid / sigma if sigma > 0 else resid * 0.0
+    return {
+        "sigma": round(sigma, 3),
+        "n_oof": int(len(resid)),
+        "mae": round(float(np.mean(np.abs(resid))), 3),
+        "resid_mean": round(float(np.mean(resid)), 3),
+        "z_mean": round(float(np.mean(z)), 4),
+        "z_std": round(float(np.std(z, ddof=1)), 4),
+        "over_rate_at_mu": round(float(np.mean(actual > pred)), 4),
+        "within_1sigma": round(float(np.mean(np.abs(z) < 1)), 4),
+        "within_2sigma": round(float(np.mean(np.abs(z) < 2)), 4),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Fit (CLI / retrain pipeline use)
 # ---------------------------------------------------------------------------
 
 def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dict:
     # Import lazily so the apply path stays import-cheap.
-    from train_nba_models import feature_list, load_params, WINNER_PARAMS
+    from train_nba_models import feature_list, load_params, WINNER_PARAMS, TOTAL_PARAMS
 
     if not os.path.exists(data_path):
         raise FileNotFoundError(data_path)
@@ -81,21 +137,29 @@ def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dic
     features = feature_list()
     df = df.dropna(subset=features)
     X, y = df[features], df["home_win"].values
+    y_total = df["total_points"].values
     print(f"  {len(df):,} games × {len(features)} features")
 
     params = load_params(WINNER_PARAMS, {
         "n_estimators": 200, "max_depth": 5, "learning_rate": 0.05,
         "eval_metric": "logloss", "random_state": 42,
     })
+    params_t = load_params(TOTAL_PARAMS, {
+        "n_estimators": 200, "max_depth": 5, "learning_rate": 0.05, "random_state": 42,
+    })
 
-    # 1. Collect OOF probabilities across 5 chronological folds.
-    print("  collecting OOF P(home_win) via TimeSeriesSplit ...")
+    # 1. Collect OOF probabilities (winner) + OOF total predictions across folds.
+    print("  collecting OOF P(home_win) + total via TimeSeriesSplit ...")
     oof_p = np.full(len(df), np.nan)
+    oof_total = np.full(len(df), np.nan)
     tscv = TimeSeriesSplit(n_splits=5)
     for fold, (tr, te) in enumerate(tscv.split(X), 1):
         clf = XGBClassifier(**params)
         clf.fit(X.iloc[tr], y[tr], verbose=False)
         oof_p[te] = clf.predict_proba(X.iloc[te])[:, 1]
+        reg = XGBRegressor(**params_t)
+        reg.fit(X.iloc[tr], y_total[tr], verbose=False)
+        oof_total[te] = reg.predict(X.iloc[te])
         print(f"    fold {fold}: n_test={len(te)}")
     mask = ~np.isnan(oof_p)
     p_oof, y_oof = oof_p[mask], y[mask]
@@ -139,12 +203,20 @@ def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dic
               f"mean_actual={total_diag['mean_actual']}  "
               f"bias={total_diag['bias_pred_minus_actual']:+.3f}")
 
+    # 5. Totals normal-approx: sigma + validation from OOF residuals (the P(Over)
+    #    backbone — prob_over(mu, line, sigma) uses this sigma at serve time).
+    tmask = ~np.isnan(oof_total)
+    tou = _total_overunder_stats(y_total[tmask], oof_total[tmask])
+    print(f"  totals O/U: sigma={tou['sigma']}  z_mean={tou['z_mean']} z_std={tou['z_std']}  "
+          f"over@mu={tou['over_rate_at_mu']}  ±1σ={tou['within_1sigma']} ±2σ={tou['within_2sigma']}")
+
     out = {
         "home_win_platt": {"a": a, "b": b},
         "n_oof": int(mask.sum()),
         "brier_before": float(brier_before),
         "brier_after":  float(brier_after),
         "total_diagnostic": total_diag,
+        "total_over_under": tou,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     with open(out_path, "w") as f:

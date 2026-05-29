@@ -225,7 +225,7 @@ Script is idempotent — re-runs skip files already on disk; safe to extend by a
 - **Flashscore Euroleague odds probe** → `output_euroleague/euroleague_odds_<date>.json` (`{home_team, away_team, home_ml_decimal, away_ml_decimal}`). This is the one thing that turns the betting flow from empty → live (EV/Kelly). The `auto_wager` join is already coded for it.
 - **Live fixtures/results validation** against a real slate (confirm `fetch_euroleague_daily` fixtures/append on in-season data; team-name join on live names).
 - **Predictions-vs-results evaluator** (Brier/acc on settled games) — wire into `run_euroleague_verification.sh` (currently append-results only).
-- **Totals (Over/Under) market** — derive P(Over) from the total regressor (same follow-up as NBA), then a second betting market.
+- **Totals (Over/Under) market — ✅ model side DONE (2026-05-29; betting still odds-gated).** `euroleague_calibration.py` estimates per-competition residual **σ** (E 17.5 / U 18.2 / pooled 17.8) and validates the normal-approx (over-rate@μ=0.501, ±1σ=0.693 / ±2σ=0.954 — Gaussian). `prob_over` + per-competition `total_sigma` helpers added; `predict_euroleague.py` emits `Total Sigma` / `Over Line` / `P(Over)` / `P(Under)`; `/euroleague/auto_wager` builds an **O/U market** alongside moneyline. Like moneyline, it only populates once the Flashscore odds file supplies a total line — so it's built + tested (synthetic) now, live at season start.
 - **Betting tab Phase B** — replace the `/betting` Euroleague placeholder pane with a real per-bet panel (mirrors NBA Phase B; both still pending).
 - Optional: retune `tune_euroleague_models.py`, historical odds backfill.
 

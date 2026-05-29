@@ -25,7 +25,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss
 from sklearn.model_selection import TimeSeriesSplit
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_PATH = os.path.join(_REPO, "data_sets", "Euroleague", "training_data.csv")
@@ -53,8 +53,59 @@ def _fit_platt(p, y):
     return float(lr.coef_[0, 0]), float(lr.intercept_[0])
 
 
+# --- Totals (Over/Under) normal-approximation P(Over) ---------------------
+
+def _norm_cdf(x):
+    import math
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def prob_over(predicted_total, line, sigma):
+    """P(total > line) under total ~ Normal(predicted_total, sigma) = Φ((mu−line)/sigma)."""
+    try:
+        mu, L, s = float(predicted_total), float(line), float(sigma)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0:
+        return 1.0 if mu > L else (0.0 if mu < L else 0.5)
+    return _norm_cdf((mu - L) / s)
+
+
+def total_sigma(calibration_data, competition=None, default=None):
+    """Residual sigma for the totals normal-approx — per competition (E/U),
+    falling back to the pooled 'all' sigma, then `default`."""
+    tou = (calibration_data or {}).get("total_over_under") or {}
+    for key in (competition, "all"):
+        node = tou.get(key) if key else None
+        if node and node.get("sigma"):
+            return float(node["sigma"])
+    return default
+
+
+def _total_overunder_stats(actual, oof_pred):
+    """Validate the normal-approx for totals from OOF residuals."""
+    actual = np.asarray(actual, float)
+    pred = np.asarray(oof_pred, float)
+    resid = actual - pred
+    if len(resid) < 2:
+        return None
+    sigma = float(np.std(resid, ddof=1))
+    z = resid / sigma if sigma > 0 else resid * 0.0
+    return {
+        "sigma": round(sigma, 3),
+        "n_oof": int(len(resid)),
+        "mae": round(float(np.mean(np.abs(resid))), 3),
+        "resid_mean": round(float(np.mean(resid)), 3),
+        "z_mean": round(float(np.mean(z)), 4),
+        "z_std": round(float(np.std(z, ddof=1)), 4),
+        "over_rate_at_mu": round(float(np.mean(actual > pred)), 4),
+        "within_1sigma": round(float(np.mean(np.abs(z) < 1)), 4),
+        "within_2sigma": round(float(np.mean(np.abs(z) < 2)), 4),
+    }
+
+
 def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dict:
-    from train_euroleague_models import feature_list, load_params, WINNER_PARAMS
+    from train_euroleague_models import feature_list, load_params, WINNER_PARAMS, TOTAL_PARAMS
 
     if not os.path.exists(data_path):
         raise FileNotFoundError(data_path)
@@ -67,6 +118,7 @@ def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dic
     features = feature_list()
     df = df.dropna(subset=features).reset_index(drop=True)
     X, y = df[features], df["home_win"].values
+    y_total = df["total_points"].values
     comp = df["competition"].values
     print(f"  {len(df):,} games × {len(features)} features  "
           f"({(comp=='E').sum()} E / {(comp=='U').sum()} U)")
@@ -74,13 +126,19 @@ def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dic
     params = load_params(WINNER_PARAMS, {
         "n_estimators": 200, "max_depth": 5, "learning_rate": 0.05,
         "eval_metric": "logloss", "random_state": 42})
+    params_t = load_params(TOTAL_PARAMS, {
+        "n_estimators": 200, "max_depth": 5, "learning_rate": 0.05, "random_state": 42})
 
-    print("  collecting OOF P(home_win) via TimeSeriesSplit ...")
+    print("  collecting OOF P(home_win) + total via TimeSeriesSplit ...")
     oof_p = np.full(len(df), np.nan)
+    oof_total = np.full(len(df), np.nan)
     for fold, (tr, te) in enumerate(TimeSeriesSplit(n_splits=5).split(X), 1):
         clf = XGBClassifier(**params)
         clf.fit(X.iloc[tr], y[tr], verbose=False)
         oof_p[te] = clf.predict_proba(X.iloc[te])[:, 1]
+        reg = XGBRegressor(**params_t)
+        reg.fit(X.iloc[tr], y_total[tr], verbose=False)
+        oof_total[te] = reg.predict(X.iloc[te])
         print(f"    fold {fold}: n_test={len(te)}")
     mask = ~np.isnan(oof_p)
 
@@ -120,10 +178,26 @@ def fit_calibration(data_path: str = DATA_PATH, out_path: str = OUT_PATH) -> dic
             "mean_abs_err": round(float(np.mean(np.abs(pred - actual))), 3),
             "bias_pred_minus_actual": round(float(np.mean(pred - actual)), 3)}
 
+    # Totals normal-approx: per-competition sigma + a pooled 'all' fallback.
+    tmask = ~np.isnan(oof_total)
+    tou = {}
+    for c in ("E", "U"):
+        m = tmask & (comp == c)
+        s = _total_overunder_stats(y_total[m], oof_total[m]) if m.sum() else None
+        if s:
+            tou[c] = s
+    pooled = _total_overunder_stats(y_total[tmask], oof_total[tmask])
+    if pooled:
+        tou["all"] = pooled
+        print(f"  totals O/U: all sigma={pooled['sigma']} over@mu={pooled['over_rate_at_mu']} "
+              f"±1σ={pooled['within_1sigma']} ±2σ={pooled['within_2sigma']}"
+              + "".join(f" | {c} sigma={tou[c]['sigma']}" for c in ('E', 'U') if c in tou))
+
     out = {
         "home_win_platt": platt,
         "per_competition": per_comp,
         "total_diagnostic": total_diag,
+        "total_over_under": tou,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     with open(out_path, "w") as f:
         json.dump(out, f, indent=2)
