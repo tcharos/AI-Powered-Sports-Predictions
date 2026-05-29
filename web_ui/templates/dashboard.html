@@ -621,6 +621,18 @@
                         }
                     }
                 }
+
+                // Auto-cashout: the server-side sweep cashes a bet AFTER its
+                // scrape completes, so the scrape-completion reload above fires
+                // too early to show it. Reload again when the cashout epoch bumps.
+                if (typeof data.auto_cashout_epoch === 'number') {
+                    if (window.__cashoutEpoch === undefined) {
+                        window.__cashoutEpoch = data.auto_cashout_epoch;
+                    } else if (data.auto_cashout_epoch > window.__cashoutEpoch) {
+                        window.__cashoutEpoch = data.auto_cashout_epoch;
+                        location.reload();
+                    }
+                }
             });
     }
 

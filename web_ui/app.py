@@ -257,6 +257,12 @@ _AUTO_CASHOUT_LOCK_IN_RATIO = 1.5
 _AUTO_CASHOUT_STOP_LOSS_PROB = 0.20
 _AUTO_CASHOUT_MIN_MINUTE = 30
 
+# Bumped every time the server-side sweep actually cashes a bet. Exposed via
+# /status so a live page can reload itself when an auto-cashout fires (the
+# server can't push, and the daemon's scrape completes BEFORE the sweep, so the
+# scrape-completion reload alone would miss the cashout).
+_AUTO_CASHOUT_EPOCH = 0
+
 
 def _parse_minute(live_match):
     """Best-effort current minute (int) from a live_data match dict.
@@ -730,7 +736,10 @@ def get_status():
                     status[key] = {'state': 'error'}
             else:
                 status[key] = {'state': 'idle'}
-             
+
+    # Auto-cashout epoch — bumps when the server-side sweep cashes a bet, so a
+    # live page can reload itself (the cashout is server-side, no push).
+    status['auto_cashout_epoch'] = _AUTO_CASHOUT_EPOCH
     return status
 
 @app.route('/stop/<task_name>', methods=['POST'])
@@ -1342,6 +1351,10 @@ def _run_auto_cashout_sweep(backend):
                     f.write(json.dumps(e) + '\n')
         except OSError:
             pass
+
+    if cashed:
+        global _AUTO_CASHOUT_EPOCH
+        _AUTO_CASHOUT_EPOCH += 1   # signal live pages to reload (see /status)
 
     return {'evaluated': evaluated, 'cashed_count': len(cashed), 'cashed': cashed}
 

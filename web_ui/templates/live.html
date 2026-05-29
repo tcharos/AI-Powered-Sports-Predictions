@@ -134,4 +134,25 @@
         <button type="submit" class="btn btn-outline-primary btn-lg w-100">Refresh Data (Run Scraper)</button>
     </form>
 </div>
+
+<script>
+  // This page has no server push, so server-side auto-cashout and background
+  // live scrapes wouldn't show until a manual reload. Poll /status and reload
+  // when (a) the auto-cashout epoch bumps (a bet was just cashed), or (b) a
+  // live scrape completes (fresh stats / snapshot).
+  (function () {
+    let liveRunning = false, epoch;
+    setInterval(function () {
+      fetch('/status').then(r => r.json()).then(d => {
+        if (typeof d.auto_cashout_epoch === 'number') {
+          if (epoch === undefined) { epoch = d.auto_cashout_epoch; }
+          else if (d.auto_cashout_epoch > epoch) { location.reload(); return; }
+        }
+        const ls = d.live && d.live.state;
+        if (ls === 'running') { liveRunning = true; }
+        else if (ls === 'completed' && liveRunning) { location.reload(); }
+      }).catch(function () {});
+    }, 5000);
+  })();
+</script>
 {% endblock %}
