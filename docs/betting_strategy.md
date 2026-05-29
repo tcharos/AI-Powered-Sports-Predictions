@@ -4,6 +4,26 @@ How the system turns predictions into wagers, tracks them, and settles them.
 This is the user-facing reference — for the developer-level architecture
 notes (function names, file paths, refactor history), see `CLAUDE.md`.
 
+## Sports & markets
+
+The same three-lane paper-trading engine runs **per sport**, with isolated
+bankrolls and tunables. What differs is the market each sport bets:
+
+| Sport | Markets (v1) | Odds source | Notes |
+|---|---|---|---|
+| **Football** | 1X2 **and** Over/Under 2.5 | football-data.co.uk / Flashscore | Full feature set: per-league Platt calibration, live in-play cashout + auto-cashout, void. |
+| **NBA** | Moneyline | ESPN (live) | Predictions + paper betting on the NBA dashboard; totals (Over/Under) is a follow-up. |
+| **Euroleague + EuroCup** | Moneyline | Flashscore (**season-gated** — arrives ~Oct) | Combined model with per-competition calibration. Slips stay empty until the odds probe lands; predictions show regardless. |
+
+Each sport's lanes, bankrolls, statuses, and the Strategy Comparison table work
+identically — only the market column and odds source change. All three are
+viewable together on the consolidated **`/betting`** tabbed dashboard, or per
+sport on `/football/`, `/nba/`, `/euroleague/`.
+
+> Live in-play **cashout / auto-cashout / void** are **football-only** today
+> (basketball has no live in-play feed yet). The rest of this doc's cashout
+> sections describe the football flow.
+
 ## The three lanes
 
 Each prediction can drive **three parallel paper-trading strategies** at
@@ -165,14 +185,30 @@ fair_cashout = stake × odds × adj_prob × 0.95
 - The `× 0.95` is a haircut accounting for bookmaker margin (an estimate
   — real-bookmaker cashout offers may differ).
 
-The state badge next to the amount tells you the model's read:
+The state badge next to the amount tells you the model's read. The decision is
+driven by `adj_prob` (the live-adjusted win probability) and is suppressed
+before **minute 30** (in-play stats aren't reliable earlier):
 
-- 🟢 **Lock-in** — fair_cashout / stake ≥ 1.5 (you're well ahead, lock in profit)
-- 🔴 **Stop-loss** — adj_prob < 0.20 (model thinks the bet's likely lost)
-- 🟡 **Hold** — neither — let the match play out
+- 🟢 **Lock-in** — bet is in profit AND (`adj_prob ≥ 0.85` near-certain — odds-
+  independent — **OR** `fair_cashout / stake ≥ 1.5` big unrealized profit).
+- 🔴 **Stop-loss** — `adj_prob < 0.20` (model thinks the bet's likely lost).
+- 🟡 **Hold** — neither — let the match play out.
 
-These are advisory only — no auto-action is wired. You decide when to
-click Cash Out.
+> The probability branch (`adj_prob ≥ 0.85`) exists because `fair/stake` is
+> capped by the odds — a ≥1.5× rule alone could never lock in a low-odds bet
+> even at near-certain win (e.g. €2 @1.40 maxes at 1.33×).
+
+### Manual vs auto-cashout
+
+- **Manual:** the 💰 **Cash Out** button on a live row — you decide when to click.
+- **Auto-cashout** (the dashboard **Auto-cashout** checkbox): arms a
+  **server-side, autonomous** loop that fires the *same* decision rule above
+  automatically every 10 minutes — locking in or stopping out OPEN bets without
+  you watching. It runs even with **no browser tab open** (the arming state is
+  persisted server-side), and is **Flashscore-only / virtual money only — no
+  real bet is placed**. It prices at the estimated fair value above (not a real
+  bookmaker offer), so it's testing cashout *timing*, not real economics. Every
+  evaluation (fired or held) is logged for later threshold tuning.
 
 ## Soft delete and archived slips
 

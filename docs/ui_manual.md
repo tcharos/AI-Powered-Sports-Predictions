@@ -15,12 +15,16 @@ The UI is sport-aware. Each sport mounts under its own URL prefix:
 | URL | What lives there |
 |---|---|
 | `/` | **Sport-picker landing page.** Shows a card per sport (active or dormant) with current bankroll, plus a **Portfolio Summary table** at the bottom aggregating bets, stake, P/L, ROI, and bankroll across every sport. |
-| `/football/*` | All football routes — dashboard, betting, predict, verify, retrain, view files, cashout, void, archive, etc. |
-| `/nba/*` | NBA routes (currently DETACHED — returns 404 until reactivated by re-registering the blueprint). |
+| `/football/*` | All football routes — dashboard, betting, predict, verify, retrain, data updates, view files, cashout, void, archive, etc. Full 1X2 + Over/Under markets. |
+| `/nba/*` | **NBA** routes (active) — predictions dashboard + moneyline paper-betting flow. |
+| `/euroleague/*` | **Euroleague + EuroCup** routes (active) — predictions dashboard + moneyline paper-betting flow. |
+| `/betting` | **Consolidated betting dashboard** — one page with tabs (All sports · Football · 🏆 Euroleague · 🏀 NBA). The navbar's "Betting Dashboard" points here; `/football/betting` still works as a football-only deep link. |
 | `/status`, `/stop/*`, `/server/*` | Sport-agnostic infrastructure. |
 
-The navbar has a **🏟️ Sport ▾** dropdown to switch between sports and a
-brand link (🏆 Sports Predictor) that returns to the landing page.
+The navbar has a **🏟️ Sport ▾** dropdown (Football · Euroleague · NBA, all
+active) to switch between sports and a brand link (🏆 Sports Predictor) that
+returns to the landing page. The menu is sport-generic — sport-specific data /
+retrain actions live on each sport's own dashboard, not in the top menu.
 
 **Bankroll display is sport-aware.** On a football page it shows the
 sum across football's three lane bankrolls; on the landing/agnostic
@@ -35,15 +39,25 @@ losing week on NBA never drains football's funds. Tunables live in
 
 The main landing for the football sport. Top-to-bottom:
 
-### Row 1 — Header / quick actions
+### Row 1 — Actions card
 
-- **🚀 Run Prediction** (`/football/predict`) — runs the prediction
-  pipeline for the date in the date-picker (defaults to tomorrow).
-  Optional "Force scrape (overwrite data)" toggle.
-- **✅ Run Verification** (`/football/verify`) — runs the verification
-  pipeline for the date in the date-picker (defaults to yesterday).
-  Scrapes results, settles bets. Works even when the predictions CSV
-  is missing (falls back to bet-derived match IDs).
+A two-row Actions card (the data/retrain controls moved here off the old
+top-menu "Data ▾" dropdown so the navbar stays sport-generic):
+
+- **Row 1 left — 🚀 Prediction** (`/football/predict`) — runs the prediction
+  pipeline for the date in the date-picker (defaults to tomorrow). Optional
+  "Force scrape (overwrite data)" toggle.
+- **Row 1 right — 💸 Generate Bet Slip** — a link that jumps to the betting
+  page's slip generator (`/football/betting#generate-slip`).
+- **Row 2 left — ✅ Verification** (`/football/verify`) — runs the verification
+  pipeline for the date in the date-picker (defaults to yesterday). Scrapes
+  results, settles bets. Works even when the predictions CSV is missing
+  (falls back to bet-derived match IDs).
+- **Row 2 right — 💾 Data** — three buttons: **Update Results**
+  (`/football/update_data`, latest match results from football-data.co.uk),
+  **Update Standings & Form** (`/football/update_leagues`, Flashscore tables/
+  form), and **🔄 Retrain Model (Full Pipeline)** (`/football/retrain_model`:
+  data → standings → train → fit + validate per-league Platt calibrators).
 
 ### Row 2 — Live Matches (when present)
 
@@ -72,8 +86,14 @@ triggers a fresh scrape of all currently-live matches (predictions +
 open bets union). Writes `output/live_data.json` and appends to
 `output/live_history_<date>.jsonl`.
 
-**Auto 5m** checkbox auto-triggers the refresh every 5 minutes while
-the tab is visible. State persists via localStorage.
+**Auto 10m** checkbox auto-triggers a browser-side refresh every 10 minutes
+while the tab is visible (UI convenience only; state persists via localStorage).
+
+**Auto-cashout** checkbox arms **server-side autonomous auto-cashout** — it does
+NOT depend on a browser tab. While armed, a server daemon refreshes Flashscore
+and automatically cashes out (at the estimated fair value) any OPEN bet whose
+live decision is 🟢 lock-in or 🔴 stop-loss, every 10 minutes. Virtual money
+only — no real bet is placed. The decision rule is in §`betting_strategy.md`.
 
 ### Row 3 — Recent Reports (collapsible)
 
@@ -110,30 +130,46 @@ Strategy Comparison totals.
 To restore an archived file: move it back manually
 (`mv output/history/<file> output/`).
 
+## 1b. NBA & Euroleague dashboards (`/nba/`, `/euroleague/`)
+
+Both basketball sports share the same shape — simpler than football (moneyline
+v1, no live/cashout feed yet):
+
+- **Header** — sport title + current 3-lane bankroll badges (value / conviction
+  / model).
+- **Actions** — 🔮 **Predict**, ✅ **Verify** (both with a date input —
+  Euroleague has these from day one; NBA's date inputs are a tracked follow-up),
+  🔄 **Retrain**, and 💸 **Generate Slip (Moneyline · v1)**.
+- **Predictions table** — one row per game: matchup, pre-game ELO, calibrated
+  `P(home)` + raw `P(home)`, pick, predicted total, calibration source.
+  Euroleague adds a **Comp** badge (EuroLg / EuroCup).
+- **Recent slips** + an inline **slip preview** (generate → review lanes →
+  Place Bets), writing to `output_basketball/` (NBA) / `output_euroleague/`.
+
+**Odds dependency:** the basketball slip generators join an odds file
+(`espn_odds_<date>.json` for NBA; `euroleague_odds_<date>.json` for Euroleague).
+NBA has live ESPN odds; **Euroleague odds arrive with the season-start Flashscore
+probe** — until then Euroleague slips come back empty (predictions still show).
+
+Storage is fully sport-separated: an NBA/Euroleague bet can never touch
+football's bankroll or slips.
+
 ## 2. Navigation Bar (top menu)
 
 ### 🏆 Sports Predictor (brand link)
 Returns to the landing page.
 
 ### 🏟️ Sport ▾
-Switch between active sports (currently football; NBA dormant).
+Switch between active sports: Football, 🏆 Euroleague, 🏀 NBA.
 
-### 💾 Data ▾
-Administrative tasks:
+> The old **💾 Data ▾** menu was **removed** — those football data/retrain
+> actions now live on the football dashboard's Actions card (§1, Row 2), so the
+> top menu is sport-generic. Each sport owns its own data/retrain controls.
 
-- **Update Current Season (Results)** — downloads latest match
-  results from football-data.co.uk (main 22 + extra leagues). Run
-  daily.
-- **Update Standings & Form** — scrapes Flashscore for the latest
-  league tables and form. Updates the JSON files used by the
-  *Heuristic Adjuster*.
-- **🔄 Retrain Model** — full pipeline: data update → standings
-  → train XGBoost → fit per-league Platt calibrators → validate
-  + auto-filter calibrators. Run weekly (see operational cadence
-  in `CLAUDE.md`).
-
-### 💸 Betting Strategy & Simulator
-Opens the betting page at `/football/betting`. See section 4 below.
+### 📊 Betting Dashboard ▾
+Opens the **consolidated** betting dashboard at `/betting` (tabbed across all
+sports — see §4b). A "Football-only view" item links to the legacy
+`/football/betting`. Also holds **⚙️ Strategy Tunables**.
 
 ### ⚙️ Server ▾
 - **Restart Server** — restarts Flask (useful after `.md` doc edits
@@ -210,16 +246,23 @@ deducted from its own bankroll**.
 
 ### Bet History (below the Strategy Comparison)
 
-Every placed slip, most-recent first. Each slip:
+Every placed slip, ordered **chronologically (earliest slip first)**. Each slip
+card is **collapsible** — click the header to expand/collapse; all slips start
+collapsed so the view stays clean. The header alone gives you the date, status,
+played stake, and outcome at a glance.
 
 - **Header** — date + slip status badge (OPEN / CLOSED) + total stake
-  + cumulative P/L.
+  + cumulative P/L + a ▾/▸ caret showing collapse state. Clicking the
+  header toggles the bets table; the action buttons (Cancel / Archive)
+  stay clickable without toggling.
 - **Archive button** — 📁 visible only on CLOSED slips. Soft-deletes
   to `output/history/`. OPEN slips don't get the button (archiving
   before settlement orphans the slip).
-- **Bet rows** — one row per bet in the slip:
+- **Bet rows** — ordered **by lane (value → conviction → model), then by
+  match start time**. One row per bet:
   - Lane badge (value / conviction / model — color-coded).
-  - Match + type + selection + odds + stake.
+  - **Time** (match kickoff, local) + Match + type + selection + odds + stake.
+    (Time shows `—` for legacy bets placed before kickoff time was recorded.)
   - **Result** column:
     - 🟢 **WON** (green stripe)
     - 🔴 **LOST** (red stripe)
@@ -256,6 +299,24 @@ The Strategy Comparison table on `/football/betting` shows three rows
 **Portfolio Summary** table on the landing page (`/`) aggregates the
 same columns per sport, plus a Total row. Same aggregator under the
 hood (`compute_sport_summary()` in `web_ui/app.py`).
+
+## 4b. Consolidated betting dashboard (`/betting`)
+
+The navbar's **📊 Betting Dashboard** opens a single tabbed page:
+
+- **🌐 All sports** — the cross-sport summary table (per-sport bankroll, bets,
+  settled, stake, P/L, ROI + a Total row).
+- **⚽ Football** — the full football betting panel (the same Strategy
+  Comparison + Generate-Slip + slip-history described in §4, embedded verbatim).
+- **🏆 Euroleague** / **🏀 NBA** — a card with the sport's bankroll badges and a
+  **"Go to … dashboard"** link button (the rich per-bet panel for these is a
+  tracked Phase-B follow-up; manage their slips on the sport's own dashboard).
+  The Euroleague tab shows just the league logo (the mark already reads
+  "Euroleague").
+
+**The open tab survives a refresh:** switching tabs updates the URL's `?tab=`
+param (and remembers your last tab), so reloading keeps you where you were
+rather than snapping back to "All sports".
 
 ## 5. Verification View (`/football/view/verification_<date>.csv`)
 

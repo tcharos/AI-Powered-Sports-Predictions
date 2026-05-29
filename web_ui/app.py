@@ -2587,8 +2587,9 @@ def betting_tabbed():
         lane_stats=summary['lane_stats'],
         lane_defaults=lane_defaults,
         sport_label='Football',
-        # NBA tab placeholder
+        # NBA + Euroleague tab placeholders (link-to-dashboard cards)
         nba_bankrolls=bank_by_sport.get('nba', {}),
+        euroleague_bankrolls=bank_by_sport.get('euroleague', {}),
     )
 
 

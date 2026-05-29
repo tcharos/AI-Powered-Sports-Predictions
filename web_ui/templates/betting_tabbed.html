@@ -151,24 +151,34 @@
          id="tab-euroleague" role="tabpanel" aria-labelledby="tab-euroleague-btn">
       <div class="row">
         <div class="col-md-8 offset-md-2">
-          <div class="card border-secondary">
+          <div class="card border-warning">
             <div class="card-body text-center py-5">
-              <div class="mb-3 d-flex align-items-center justify-content-center"
-                   style="height: 64px; filter: grayscale(0.5);">
+              <div class="mb-3 d-flex align-items-center justify-content-center" style="height: 64px;">
                 <img src="{{ url_for('static', filename='img/euroleague.svg') }}"
                      alt="Euroleague logo" class="sport-icon-lg">
               </div>
               <h4 class="card-title">Euroleague betting panel — placeholder</h4>
               <p class="text-muted">
-                Euroleague is in onboarding. No predictions, no betting flow, no bankroll yet.
+                Euroleague + EuroCup betting is wired and working: predictions, the
+                <code>/euroleague/auto_wager</code> + <code>/euroleague/place_bets</code> JSON
+                endpoints, three-lane bankrolls, and an inline slip preview on the Euroleague
+                dashboard. (Odds-based EV/Kelly arrive with the season-start Flashscore odds probe.)
               </p>
               <p class="text-muted small">
-                Roadmap lives in <code>EUROLEAGUE_NEXT_STEPS.md</code> — Phase 0 (source
-                evaluation) is the current step; Phases 1–3 mirror the NBA shape
-                (data layer → model + calibration → UI + betting integration).
-                This tab will be replaced with a real per-bet panel once Phase 3 ships.
+                The rich slip-history panel (per-bet rows, lane comparison) hasn't been ported
+                into this tab yet — it's the Phase-B follow-up tracked in
+                <code>EUROLEAGUE_NEXT_STEPS.md</code>. For now, manage Euroleague slips on the
+                Euroleague dashboard.
               </p>
-              <span class="badge bg-secondary">Dormant</span>
+              <a class="btn btn-primary mt-2" href="/euroleague/">🏆 Go to Euroleague dashboard</a>
+              {% if euroleague_bankrolls %}
+              <div class="mt-4 small">
+                Euroleague bankroll:
+                <span class="badge bg-primary me-1">value €{{ '%.2f'|format(euroleague_bankrolls.value) }}</span>
+                <span class="badge bg-warning text-dark me-1">conviction €{{ '%.2f'|format(euroleague_bankrolls.conviction) }}</span>
+                <span class="badge bg-info text-dark">model €{{ '%.2f'|format(euroleague_bankrolls.model) }}</span>
+              </div>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -215,4 +225,34 @@
 
   </div>
 </div>
+
+<script>
+  // Keep the open tab across a page refresh: when a tab is shown, write its
+  // slug into the URL's ?tab= param (replaceState — no history spam), so a
+  // reload re-renders the same tab server-side. Also restored from localStorage
+  // as a fallback when the URL carries no ?tab (e.g. arriving from the navbar).
+  (function () {
+    const tabEls = document.querySelectorAll('#bettingTabs button[data-bs-toggle="tab"]');
+    function slugOf(btn) {
+      return (btn.getAttribute('data-bs-target') || '').replace('#tab-', '');
+    }
+    tabEls.forEach(function (btn) {
+      btn.addEventListener('shown.bs.tab', function () {
+        const slug = slugOf(btn);
+        const url = new URL(window.location);
+        url.searchParams.set('tab', slug);
+        window.history.replaceState({}, '', url);
+        try { localStorage.setItem('bettingTab', slug); } catch (e) {}
+      });
+    });
+    // Fallback: no ?tab in the URL but a remembered tab → activate it.
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('tab')) {
+      let saved = null;
+      try { saved = localStorage.getItem('bettingTab'); } catch (e) {}
+      const btn = saved && document.getElementById('tab-' + saved + '-btn');
+      if (btn && window.bootstrap) { new bootstrap.Tab(btn).show(); }
+    }
+  })();
+</script>
 {% endblock %}
