@@ -112,10 +112,13 @@ Two columns side-by-side, each showing the **last 3 entries**:
 
 A table showing, per league: **prediction accuracy** (1X2 and O/U) over every
 predicted+verified match (`Count`), plus **realized betting performance** —
-`Bets` (settled bets in that league, usually fewer than `Count`), `Stake`,
-`P/L`, and `ROI %`. Accuracy is sourced from `data_sets/league_analytics.json`
-(updated each verification run); the betting columns are aggregated from the
-bet slips (cashout-aware) and joined by league. The two have **different
+`Bets (model)` (settled **model-lane** bets in that league), `Stake`, `P/L`,
+and `ROI %`. The betting columns use the **model lane only** — it bets ~every
+prediction, so its coverage matches the accuracy denominator, whereas the
+value/conviction lanes are filtered subsets that wouldn't line up. Accuracy is
+sourced from `data_sets/league_analytics.json` (updated each verification run);
+the betting columns are aggregated from the bet slips (cashout-aware) and joined
+by league. The two have **different
 denominators on purpose** — accuracy is over *all* predictions, ROI over the
 *bet* subset — so they sit side by side rather than blended (a league with no
 bets shows `—`). Accuracy answers "is the model good here?"; ROI answers "did

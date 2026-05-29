@@ -200,7 +200,9 @@ def index():
     # (usually smaller) bet subset — cashout-aware — and blank where we didn't
     # bet that league. Two different denominators, side by side on purpose.
     try:
-        _bet_by_league = {r['league']: r for r in compute_league_betting_summary(OUTPUT_DIR)}
+        # Model lane only — it bets ~every prediction, so its per-league ROI
+        # lines up with the (all-predictions) accuracy denominator above.
+        _bet_by_league = {r['league']: r for r in compute_league_betting_summary(OUTPUT_DIR, lane='model')}
         for row in league_stats:
             b = _bet_by_league.get(row['League'])
             if b and b.get('settled'):
@@ -2071,14 +2073,19 @@ def compute_sport_summary(bets_dir):
     return {'history': history, 'lane_stats': lane_stats, 'totals': totals}
 
 
-def compute_league_betting_summary(bets_dir):
+def compute_league_betting_summary(bets_dir, lane=None):
     """Per-LEAGUE realized betting performance (money, cashout-aware).
 
     Distinct from the dashboard's "Cumulative League Performance" (which is pure
     model prediction-accuracy vs the final result). This answers "which leagues
-    am I making/losing money on?" — aggregating every settled bet (active +
-    archived, all lanes) by its `league`, with cashed-out bets realized by their
-    cashout P/L. Returns a list of rows sorted by P/L desc, plus a totals row.
+    am I making/losing money on?" — aggregating settled bets (active + archived)
+    by `league`, with cashed-out bets realized by their cashout P/L. Returns a
+    list of rows sorted by P/L desc.
+
+    ``lane`` restricts to one lane (e.g. 'model'). The dashboard joins the
+    **model** lane only: it bets ~every prediction, so its per-league ROI is the
+    apples-to-apples companion to the prediction accuracy (same broad coverage),
+    whereas value/conviction are filtered subsets. ``None`` = all lanes.
     """
     abs_dir = bets_dir if os.path.isabs(bets_dir) else os.path.join(PROJECT_ROOT, bets_dir)
     slips = []
@@ -2091,6 +2098,8 @@ def compute_league_betting_summary(bets_dir):
     by_league = {}
     for slip in slips:
         for bet in slip.get('bets', []):
+            if lane is not None and bet.get('lane', 'value') != lane:
+                continue
             league = bet.get('league') or '(unknown)'
             _accumulate_bet(by_league.setdefault(league, _empty_bet_stats()), bet)
 
