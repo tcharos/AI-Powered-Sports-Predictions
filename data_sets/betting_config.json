@@ -3,15 +3,15 @@
         "football": {
             "bankrolls": {
                 "value": {
-                    "current": 778.34,
+                    "current": 786.96,
                     "initial": 1000.0
                 },
                 "conviction": {
-                    "current": 912.69,
+                    "current": 928.1,
                     "initial": 1000.0
                 },
                 "model": {
-                    "current": 835.06,
+                    "current": 846.7,
                     "initial": 1000.0
                 }
             },
