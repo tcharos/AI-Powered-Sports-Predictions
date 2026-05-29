@@ -1943,6 +1943,58 @@ def _load_slip(filepath):
     return data
 
 
+def _empty_bet_stats():
+    return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
+            'cashed_out': 0, 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
+
+
+def _accumulate_bet(s, bet):
+    """Fold one bet into a stats dict `s` (the canonical status taxonomy +
+    realized money). Shared by the per-lane (compute_sport_summary) and
+    per-league (compute_league_betting_summary) aggregations so cashout / void /
+    won / lost are counted identically. Cashed-out bets are realized by their
+    stored cashout_amount / pnl (a cashout > stake is a win, < stake a loss)."""
+    stake = float(bet.get('stake_units', 0) or 0)
+    status = bet.get('status', 'OPEN')
+    result = bet.get('result', '')
+    s['bets'] += 1
+    s['stake'] += stake
+    if status == 'OPEN':
+        return
+    s['settled'] += 1
+    if status == 'CASHED_OUT' or result == 'CASHED_OUT':
+        s['cashed_out'] += 1
+        cashout_amount = float(bet.get('cashout_amount', stake))
+        pnl_v = float(bet.get('pnl', cashout_amount - stake))
+        s['returned'] += cashout_amount
+        s['pnl'] += pnl_v
+        if pnl_v > 0:
+            s['won'] += 1
+        elif pnl_v < 0:
+            s['lost'] += 1
+    elif result == 'WON' or status == 'WON':
+        s['won'] += 1
+        s['returned'] += stake + float(bet.get('pnl', 0))
+        s['pnl'] += float(bet.get('pnl', 0))
+    elif result == 'LOST' or status == 'LOST':
+        s['lost'] += 1
+        s['pnl'] += float(bet.get('pnl', -stake))
+    else:  # VOID (or unrecognised terminal status)
+        s['void'] += 1
+        s['returned'] += stake
+
+
+def _finalize_bet_stats(s):
+    """Add win_rate + roi and round the money fields. Mutates + returns `s`."""
+    decided = s['won'] + s['lost']
+    s['win_rate'] = round((s['won'] / decided * 100) if decided > 0 else 0.0, 1)
+    s['roi'] = round((s['pnl'] / s['stake'] * 100) if s['stake'] > 0 else 0.0, 1)
+    s['stake'] = round(s['stake'], 2)
+    s['returned'] = round(s['returned'], 2)
+    s['pnl'] = round(s['pnl'], 2)
+    return s
+
+
 def compute_sport_summary(bets_dir):
     """
     Aggregate stats for one sport from its bets directory.
@@ -1978,63 +2030,15 @@ def compute_sport_summary(bets_dir):
         s = _load_slip(f)
         if s: archived_slips.append(s)
 
-    def _empty():
-        return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
-                'cashed_out': 0,
-                'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
-    lane_stats = {lane: _empty() for lane in LANES}
+    lane_stats = {lane: _empty_bet_stats() for lane in LANES}
 
     for slip in (history + archived_slips):
         for bet in slip.get('bets', []):
             lane = bet.get('lane', 'value')
-            s = lane_stats.setdefault(lane, _empty())
-            stake = float(bet.get('stake_units', 0))
-            status = bet.get('status', 'OPEN')
-            result = bet.get('result', '')
+            _accumulate_bet(lane_stats.setdefault(lane, _empty_bet_stats()), bet)
 
-            s['bets'] += 1
-            s['stake'] += stake
-
-            if status == 'OPEN':
-                continue
-
-            s['settled'] += 1
-            # CASHED_OUT is checked first so it doesn't fall through to the
-            # VOID else-branch. Cashout amount + pnl are stored at cashout
-            # time; we trust those over recomputing.
-            if status == 'CASHED_OUT' or result == 'CASHED_OUT':
-                s['cashed_out'] += 1  # memo subset; also folded into won/lost below
-                cashout_amount = float(bet.get('cashout_amount', stake))
-                pnl_v = float(bet.get('pnl', cashout_amount - stake))
-                s['returned'] += cashout_amount
-                s['pnl'] += pnl_v
-                # Win% counts the FULL flow including the cashout decision:
-                # once cashed out the position is closed, so the REALIZED
-                # money is the outcome — cashout > stake is a win, < stake a
-                # loss. The final match result is moot here (it's shown only
-                # in the slip's Final column for reference). Break-even = push.
-                if pnl_v > 0:
-                    s['won'] += 1
-                elif pnl_v < 0:
-                    s['lost'] += 1
-            elif result == 'WON' or status == 'WON':
-                s['won'] += 1
-                s['returned'] += stake + float(bet.get('pnl', 0))
-                s['pnl'] += float(bet.get('pnl', 0))
-            elif result == 'LOST' or status == 'LOST':
-                s['lost'] += 1
-                s['pnl'] += float(bet.get('pnl', -stake))
-            else:  # VOID (or unrecognised terminal status)
-                s['void'] += 1
-                s['returned'] += stake
-
-    for lane, s in lane_stats.items():
-        decided = s['won'] + s['lost']
-        s['win_rate'] = round((s['won'] / decided * 100) if decided > 0 else 0.0, 1)
-        s['roi'] = round((s['pnl'] / s['stake'] * 100) if s['stake'] > 0 else 0.0, 1)
-        s['stake'] = round(s['stake'], 2)
-        s['returned'] = round(s['returned'], 2)
-        s['pnl'] = round(s['pnl'], 2)
+    for s in lane_stats.values():
+        _finalize_bet_stats(s)
 
     totals = {
         'bets': sum(s['bets'] for s in lane_stats.values()),
@@ -2046,6 +2050,38 @@ def compute_sport_summary(bets_dir):
     totals['roi'] = round((totals['pnl'] / totals['stake'] * 100) if totals['stake'] > 0 else 0.0, 1)
 
     return {'history': history, 'lane_stats': lane_stats, 'totals': totals}
+
+
+def compute_league_betting_summary(bets_dir):
+    """Per-LEAGUE realized betting performance (money, cashout-aware).
+
+    Distinct from the dashboard's "Cumulative League Performance" (which is pure
+    model prediction-accuracy vs the final result). This answers "which leagues
+    am I making/losing money on?" — aggregating every settled bet (active +
+    archived, all lanes) by its `league`, with cashed-out bets realized by their
+    cashout P/L. Returns a list of rows sorted by P/L desc, plus a totals row.
+    """
+    abs_dir = bets_dir if os.path.isabs(bets_dir) else os.path.join(PROJECT_ROOT, bets_dir)
+    slips = []
+    for d in (abs_dir, os.path.join(abs_dir, 'history')):
+        for f in glob.glob(os.path.join(d, "bets_*.json")):
+            s = _load_slip(f)
+            if s:
+                slips.append(s)
+
+    by_league = {}
+    for slip in slips:
+        for bet in slip.get('bets', []):
+            league = bet.get('league') or '(unknown)'
+            _accumulate_bet(by_league.setdefault(league, _empty_bet_stats()), bet)
+
+    rows = []
+    for league, s in by_league.items():
+        _finalize_bet_stats(s)
+        rows.append({'league': league, **s})
+    # Most-staked / most-impactful first; settled leagues before untouched ones.
+    rows.sort(key=lambda r: (r['settled'] > 0, r['pnl']), reverse=True)
+    return rows
 
 
 @football_bp.route('/betting')
@@ -2067,6 +2103,7 @@ def betting_page():
                            history=summary['history'],
                            lane_stats=summary['lane_stats'],
                            lane_defaults=lane_defaults,
+                           league_betting=compute_league_betting_summary(OUTPUT_DIR),
                            sport_label='Football')
 
 @football_bp.route('/update_data', methods=['POST'])
@@ -2596,6 +2633,7 @@ def betting_tabbed():
         history=summary['history'],
         lane_stats=summary['lane_stats'],
         lane_defaults=lane_defaults,
+        league_betting=compute_league_betting_summary(OUTPUT_DIR),
         sport_label='Football',
         # NBA + Euroleague tab placeholders (link-to-dashboard cards)
         nba_bankrolls=bank_by_sport.get('nba', {}),
