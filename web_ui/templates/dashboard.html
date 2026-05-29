@@ -75,6 +75,28 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Data (right) — football-specific data/retrain actions (moved off the generic top menu) -->
+            <div class="col-md-6">
+                <label class="form-label fw-bold small mb-1">💾 Data</label>
+                <div class="d-flex flex-wrap gap-2">
+                    <form action="/football/update_data" method="post" class="m-0"
+                        onsubmit="return confirm('Update historical data? This will download the latest match results.');">
+                        <button class="btn btn-outline-secondary btn-sm" type="submit"
+                            title="Download the latest finished-match results for the current season.">Update Results</button>
+                    </form>
+                    <form action="/football/update_leagues" method="post" class="m-0"
+                        onsubmit="return confirm('Update League Standings & Form? This might take a few minutes.');">
+                        <button class="btn btn-outline-secondary btn-sm" type="submit"
+                            title="Re-scrape current standings + form tables (inputs to inference features).">Update Standings &amp; Form</button>
+                    </form>
+                    <form action="/football/retrain_model" method="post" class="m-0"
+                        onsubmit="return confirm('Full Pipeline: Update Data + Form + Retrain Model. This will take several minutes.');">
+                        <button class="btn btn-outline-primary btn-sm fw-bold" type="submit"
+                            title="Full pipeline: update data + standings, retrain models, refit calibrators.">🔄 Retrain Model (Full Pipeline)</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </div>

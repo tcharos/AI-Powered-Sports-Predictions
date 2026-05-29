@@ -72,39 +72,6 @@
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="dataDropdown" role="button"
-                            data-bs-toggle="dropdown" aria-expanded="false">
-                            💾 Data
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dataDropdown">
-                            <li>
-                                <form action="/football/update_data" method="post"
-                                    onsubmit="return confirm('Update historical data? This will download the latest match results.');">
-                                    <button class="dropdown-item" type="submit">Update Current Season (Results)</button>
-                                </form>
-                            </li>
-                            <li>
-                                <hr class="dropdown-divider">
-                            </li>
-                            <li>
-                                <form action="/football/update_leagues" method="post"
-                                    onsubmit="return confirm('Update League Standings & Form? This might take a few minutes.');">
-                                    <button class="dropdown-item" type="submit">Update Standings & Form</button>
-                                </form>
-                            </li>
-                            <li>
-                                <hr class="dropdown-divider">
-                            </li>
-                            <li>
-                                <form action="/football/retrain_model" method="post"
-                                    onsubmit="return confirm('Full Pipeline: Update Data + Form + Retrain Model. This will take several minutes.');">
-                                    <button class="dropdown-item fw-bold text-primary" type="submit">🔄 Retrain Model
-                                        (Full Pipeline)</button>
-                                </form>
-                            </li>
-                        </ul>
-                    </li>
-                    <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="docsDropdown" role="button"
                             data-bs-toggle="dropdown" aria-expanded="false">
                             📚 Docs
