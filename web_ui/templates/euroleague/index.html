@@ -6,7 +6,11 @@
   {# ---- Header + bankroll summary ---- #}
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-      <h2 class="mb-0">🏆 Euroleague <span class="text-muted fs-6">+ EuroCup</span></h2>
+      <h2 class="mb-0">
+        <img src="{{ url_for('static', filename='img/euroleague_logo_only.png') }}"
+             alt="EuroLeague logo" class="sport-icon-lg me-2" style="vertical-align: -6px;">
+        EuroLeague <span class="text-muted fs-6">+ EuroCup</span>
+      </h2>
       <div class="text-muted small">
         {% if pred_file %}latest predictions: <code>{{ pred_file }}</code>{% else %}no predictions yet{% endif %}
       </div>
