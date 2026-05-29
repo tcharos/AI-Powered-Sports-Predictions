@@ -1952,7 +1952,15 @@ def compute_sport_summary(bets_dir):
     for f in glob.glob(os.path.join(abs_dir, "bets_*.json")):
         s = _load_slip(f)
         if s: history.append(s)
-    history.sort(key=lambda x: x.get('date', ''), reverse=True)
+    history.sort(key=lambda x: x.get('date', ''))  # chronological: earliest slip first
+
+    # Order the bets inside each slip for display: first by lane (canonical
+    # value → conviction → model order), then by kickoff start time.
+    _lane_rank = {lane: i for i, lane in enumerate(LANES)}
+    for s in history:
+        s.get('bets', []).sort(
+            key=lambda b: (_lane_rank.get(b.get('lane', 'value'), len(LANES)),
+                           str(b.get('date', ''))))
 
     archived_slips = []
     for f in glob.glob(os.path.join(history_dir, "bets_*.json")):

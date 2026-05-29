@@ -230,10 +230,10 @@
         {% for slip in history %}
         <div class="card mb-3 border-{{ 'success' if slip.status == 'CLOSED' and slip.pnl > 0 else ('danger' if slip.status == 'CLOSED' and slip.pnl < 0 else 'secondary') }}">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <div class="slip-toggle d-flex align-items-center gap-2 {{ '' if slip.status == 'OPEN' else 'collapsed' }}"
+                <div class="slip-toggle d-flex align-items-center gap-2 collapsed"
                      role="button" style="cursor: pointer;"
                      data-bs-toggle="collapse" data-bs-target="#slip-body-{{ loop.index }}"
-                     aria-expanded="{{ 'true' if slip.status == 'OPEN' else 'false' }}"
+                     aria-expanded="false"
                      aria-controls="slip-body-{{ loop.index }}"
                      title="Click to expand / collapse this slip">
                     <span class="slip-caret">▾</span>
@@ -298,14 +298,14 @@
                     {% endif %}
                 </div>
             </div>
-            <div class="card-body p-0 collapse {{ 'show' if slip.status == 'OPEN' else '' }}" id="slip-body-{{ loop.index }}">
+            <div class="card-body p-0 collapse" id="slip-body-{{ loop.index }}">
                 <div class="table-responsive">
                     <table class="table table-sm table-striped mb-0">
                         <thead class="table-light">
                             <tr>
                                 <th>Lane</th>
-                                <th>Match</th>
                                 <th title="Match kickoff time (local, from the fixture). '—' for legacy bets placed before kickoff time was recorded.">Time</th>
+                                <th>Match</th>
                                 <th title="Actual match result in the bet's market (1/X/2 or Over/Under 2.5). Green = matches your selection, red = doesn't. For cashed-out bets, compare against the Result column.">Final</th>
                                 <th title="Actual final score of the match">Score</th>
                                 <th>Selection</th>
@@ -326,13 +326,6 @@
                                         {{ _lane|capitalize }}
                                     </span>
                                 </td>
-                                <td>
-                                    {{ bet.match }}
-                                    {% if bet.mark_for_real %}
-                                    <span class="badge bg-warning text-dark ms-1"
-                                          title="Flagged for live (real-money) betting when this slip was placed. Real placement is dormant — this is a recorded intent only.">⚡ live</span>
-                                    {% endif %}
-                                </td>
                                 {# Kickoff time: prefer the explicit `time` field, else derive
                                    from the `date` field (skip a zeroed 00:00 from legacy rows). #}
                                 {% set _bt = bet.get('time', '') %}
@@ -340,6 +333,13 @@
                                     {% set _bt = bet.date.split(' ')[1] %}
                                 {% endif %}
                                 <td class="small text-nowrap text-muted">{{ _bt or '—' }}</td>
+                                <td>
+                                    {{ bet.match }}
+                                    {% if bet.mark_for_real %}
+                                    <span class="badge bg-warning text-dark ms-1"
+                                          title="Flagged for live (real-money) betting when this slip was placed. Real placement is dormant — this is a recorded intent only.">⚡ live</span>
+                                    {% endif %}
+                                </td>
                                 {# Final = the actual match result in the bet's market: 1/X/2 for
                                    1X2, Over/Under 2.5 for O/U, derived from the final score. Colored
                                    green when it matches the bet's selection (would-win at full time),
