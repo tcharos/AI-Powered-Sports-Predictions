@@ -287,8 +287,9 @@ class MatchPredictor:
             
             if match_date_str != 'Unknown':
                  try:
-                     d_str = match_date_str.split(' ')[0]
-                     match_date_obj = pd.to_datetime(d_str, dayfirst=True)
+                     # Parse the FULL kickoff datetime (e.g. '30.05.2026 19:00'),
+                     # keeping the time — it's surfaced in the bet slip downstream.
+                     match_date_obj = pd.to_datetime(match_date_str, dayfirst=True)
                      # Standardize to ISO format for output consistency
                      match_date_str = match_date_obj.strftime("%Y-%m-%d %H:%M")
                      match_dates.add(match_date_obj.strftime("%Y-%m-%d"))

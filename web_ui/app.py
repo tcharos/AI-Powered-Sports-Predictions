@@ -2293,8 +2293,13 @@ def auto_wager():
         conv_flat_stake   = conv_br * conv_stake_pct
 
         def _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
+            _date = str(row.get('Date', '') or '')
+            # Kickoff time (HH:MM) split out for display; '' when the source
+            # only carried a date (legacy predictions / unknown start_time).
+            _time = _date.split(' ', 1)[1] if ' ' in _date and not _date.endswith('00:00') else ''
             return {
-                'date': row.get('Date', ''),
+                'date': _date,
+                'time': _time,
                 'match': f"{row['Home Team']} vs {row['Away Team']}",
                 'home': row['Home Team'],
                 'away': row['Away Team'],

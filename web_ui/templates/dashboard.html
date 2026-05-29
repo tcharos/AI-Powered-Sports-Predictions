@@ -13,7 +13,8 @@
 <div class="card mb-4">
     <div class="card-header bg-primary text-white py-2">Actions</div>
     <div class="card-body py-3">
-        <div class="row g-4">
+        <!-- Row 1: Prediction controls + Generate Slip -->
+        <div class="row g-4 align-items-start">
             <!-- Prediction (left) -->
             <div class="col-md-6">
                 <form action="/football/predict" method="post" id="predictForm">
@@ -40,7 +41,20 @@
                 </div>
             </div>
 
-            <!-- Verification (right) -->
+            <!-- Generate Slip (right) -->
+            <div class="col-md-6">
+                <label class="form-label fw-bold small mb-1">💸 Betting</label>
+                <div>
+                    <a href="/football/betting#generate-slip" class="btn btn-outline-success btn-sm">
+                        💸 Generate Bet Slip
+                    </a>
+                </div>
+                <div class="form-text small mb-0">Opens the betting page's three-lane slip generator.</div>
+            </div>
+        </div>
+
+        <!-- Row 2: Verification controls -->
+        <div class="row g-4 mt-1">
             <div class="col-md-6">
                 <form action="/football/verify" method="post" id="verifyForm">
                     <label class="form-label fw-bold small mb-1">✅ Verification</label>

@@ -96,7 +96,8 @@ def _row(m, r, neutral):
 
     ms = m.get('start_time', 'Unknown')
     try:
-        date_str = pd.to_datetime(ms.split(' ')[0], dayfirst=True).strftime("%Y-%m-%d %H:%M")
+        # Parse the FULL kickoff datetime (keep the time — surfaced in the bet slip).
+        date_str = pd.to_datetime(ms, dayfirst=True).strftime("%Y-%m-%d %H:%M")
     except Exception:
         date_str = ms
     return {

@@ -1,3 +1,8 @@
+<style>
+  /* Collapsible slip-history headers (caret rotates with collapse state). */
+  .slip-toggle .slip-caret { transition: transform .15s ease; display: inline-block; }
+  .slip-toggle.collapsed .slip-caret { transform: rotate(-90deg); }
+</style>
 <div class="row">
     <div class="col-md-10 offset-md-1">
 
@@ -12,6 +17,7 @@
                     <thead class="table-light">
                         <tr>
                             <th class="text-start">Lane</th>
+                            <th title="Current bankroll for this lane (independent bucket).">Bankroll</th>
                             <th>Bets</th>
                             <th>Settled</th>
                             <th>Won / Lost / Void</th>
@@ -31,6 +37,7 @@
                                     {{ lane_name|capitalize }}
                                 </span>
                             </td>
+                            <td class="fw-bold">€{{ (lane_defaults.get(lane_name, {}).get('bankroll', 0))|round(2) }}</td>
                             <td>{{ s.bets }}</td>
                             <td>{{ s.settled }}</td>
                             <td>
@@ -55,7 +62,7 @@
         </div>
 
         <!-- WAGER GENERATOR -->
-        <div class="card border-warning mb-4">
+        <div class="card border-warning mb-4" id="generate-slip">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
                 <h3 class="mb-0">💰 Generate Bet Slip</h3>
                 <span class="badge bg-dark">Virtual Mode</span>
@@ -128,6 +135,7 @@
                                         <thead class="table-light">
                                             <tr>
                                                 <th>Match</th>
+                                                <th title="Match kickoff time (local, from the fixture).">Time</th>
                                                 <th>Type</th>
                                                 <th>Sel</th>
                                                 <th>Odd</th>
@@ -156,6 +164,7 @@
                                         <thead class="table-light">
                                             <tr>
                                                 <th>Match</th>
+                                                <th title="Match kickoff time (local, from the fixture).">Time</th>
                                                 <th>Type</th>
                                                 <th>Sel</th>
                                                 <th>Odd</th>
@@ -184,6 +193,7 @@
                                         <thead class="table-light">
                                             <tr>
                                                 <th>Match</th>
+                                                <th title="Match kickoff time (local, from the fixture).">Time</th>
                                                 <th>Type</th>
                                                 <th>Sel</th>
                                                 <th>Odd</th>
@@ -220,7 +230,13 @@
         {% for slip in history %}
         <div class="card mb-3 border-{{ 'success' if slip.status == 'CLOSED' and slip.pnl > 0 else ('danger' if slip.status == 'CLOSED' and slip.pnl < 0 else 'secondary') }}">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <div>
+                <div class="slip-toggle d-flex align-items-center gap-2 {{ '' if slip.status == 'OPEN' else 'collapsed' }}"
+                     role="button" style="cursor: pointer;"
+                     data-bs-toggle="collapse" data-bs-target="#slip-body-{{ loop.index }}"
+                     aria-expanded="{{ 'true' if slip.status == 'OPEN' else 'false' }}"
+                     aria-controls="slip-body-{{ loop.index }}"
+                     title="Click to expand / collapse this slip">
+                    <span class="slip-caret">▾</span>
                     <strong>{{ slip.date }}</strong>
                     <span class="badge bg-{{ 'primary' if slip.status == 'OPEN' else 'dark' }} ms-2 me-3">{{ slip.status }}</span>
                     {% set _settled = slip.bets | selectattr('pnl', 'defined') | list %}
@@ -282,13 +298,14 @@
                     {% endif %}
                 </div>
             </div>
-            <div class="card-body p-0">
+            <div class="card-body p-0 collapse {{ 'show' if slip.status == 'OPEN' else '' }}" id="slip-body-{{ loop.index }}">
                 <div class="table-responsive">
                     <table class="table table-sm table-striped mb-0">
                         <thead class="table-light">
                             <tr>
                                 <th>Lane</th>
                                 <th>Match</th>
+                                <th title="Match kickoff time (local, from the fixture). '—' for legacy bets placed before kickoff time was recorded.">Time</th>
                                 <th title="Actual match result in the bet's market (1/X/2 or Over/Under 2.5). Green = matches your selection, red = doesn't. For cashed-out bets, compare against the Result column.">Final</th>
                                 <th title="Actual final score of the match">Score</th>
                                 <th>Selection</th>
@@ -316,6 +333,13 @@
                                           title="Flagged for live (real-money) betting when this slip was placed. Real placement is dormant — this is a recorded intent only.">⚡ live</span>
                                     {% endif %}
                                 </td>
+                                {# Kickoff time: prefer the explicit `time` field, else derive
+                                   from the `date` field (skip a zeroed 00:00 from legacy rows). #}
+                                {% set _bt = bet.get('time', '') %}
+                                {% if not _bt and bet.date and ' ' in bet.date and not bet.date.endswith('00:00') %}
+                                    {% set _bt = bet.date.split(' ')[1] %}
+                                {% endif %}
+                                <td class="small text-nowrap text-muted">{{ _bt or '—' }}</td>
                                 {# Final = the actual match result in the bet's market: 1/X/2 for
                                    1X2, Over/Under 2.5 for O/U, derived from the final score. Colored
                                    green when it matches the bet's selection (would-win at full time),
@@ -422,7 +446,7 @@
         const tbody = document.getElementById(tbodyId);
         tbody.innerHTML = '';
         if (!bets.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-3 text-muted small">No bets in this lane.</td></tr>';
             return;
         }
         bets.forEach(b => {
@@ -433,6 +457,7 @@
                           + `data-bet-type="${typeAttr}" data-selection="${b.selection}"`;
             tr.innerHTML = `
                 <td class="small">${b.match}</td>
+                <td class="small text-nowrap text-muted">${b.time || '—'}</td>
                 <td><span class="badge ${b.type === '1X2' ? 'bg-secondary' : 'bg-info text-dark'}">${b.type}</span></td>
                 <td class="fw-bold">${b.selection}</td>
                 <td>${b.odds}</td>
