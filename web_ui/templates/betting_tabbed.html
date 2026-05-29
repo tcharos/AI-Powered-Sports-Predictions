@@ -56,7 +56,9 @@
               id="tab-euroleague-btn" data-bs-toggle="tab" data-bs-target="#tab-euroleague"
               type="button" role="tab" aria-controls="tab-euroleague" aria-selected="false"
               aria-label="Euroleague">
-        <img src="{{ url_for('static', filename='img/euroleague.svg') }}"
+        {# Logo-only glyph (the .svg is the full wordmark incl. the "Euroleague"
+           text, which squishes in a tab — use the icon-only PNG here). #}
+        <img src="{{ url_for('static', filename='img/euroleague_logo_only.png') }}"
              alt="Euroleague" class="sport-icon-tab">
       </button>
     </li>
