@@ -109,7 +109,7 @@
                   {{ '%+.2f'|format(s.totals.pnl) }}
                 </td>
                 <td class="text-end {% if s.totals.roi > 0 %}text-success{% elif s.totals.roi < 0 %}text-danger{% endif %}">
-                  {% if s.totals.stake > 0 %}{{ '%+.1f'|format(s.totals.roi * 100) }}%{% else %}—{% endif %}
+                  {% if s.totals.stake > 0 %}{{ '%+.1f'|format(s.totals.roi) }}%{% else %}—{% endif %}
                 </td>
               </tr>
               {% endfor %}
@@ -125,7 +125,7 @@
                   {{ '%+.2f'|format(totals_all.pnl) }}
                 </td>
                 <td class="text-end {% if totals_all.roi > 0 %}text-success{% elif totals_all.roi < 0 %}text-danger{% endif %}">
-                  {% if totals_all.stake > 0 %}{{ '%+.1f'|format(totals_all.roi * 100) }}%{% else %}—{% endif %}
+                  {% if totals_all.stake > 0 %}{{ '%+.1f'|format(totals_all.roi) }}%{% else %}—{% endif %}
                 </td>
               </tr>
             </tfoot>

@@ -2613,7 +2613,9 @@ def betting_tabbed():
             'bankroll': s_bankroll,
             'totals':   s_totals,
         })
-    totals_all['roi'] = (totals_all['pnl'] / totals_all['stake']) if totals_all['stake'] > 0 else 0.0
+    # ROI as a percentage, matching compute_sport_summary's convention (the
+    # template renders it directly, no extra ×100).
+    totals_all['roi'] = (totals_all['pnl'] / totals_all['stake'] * 100) if totals_all['stake'] > 0 else 0.0
 
     # Football panel context — must match /football/betting exactly so the
     # included partial renders identically.
