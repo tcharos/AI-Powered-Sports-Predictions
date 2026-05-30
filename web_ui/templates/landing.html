@@ -138,6 +138,84 @@
         </div>
         {% endif %}
 
+        {# ---- Cashout backtest reminder (weekly, LOCAL — phase 8d) ---- #}
+        <div class="card mt-4 {% if not backtest or backtest.stale %}border-warning{% else %}border-success{% endif %}">
+            <div class="card-header d-flex justify-content-between align-items-center
+                        {% if not backtest or backtest.stale %}bg-warning text-dark{% else %}bg-success text-white{% endif %}">
+                <h5 class="mb-0">⚡ Cashout Backtest <span class="small fw-normal">· weekly · local</span></h5>
+                <form action="/run_backtest" method="post" class="d-inline" onsubmit="triggerBacktest(event)">
+                    <button type="submit" id="runBacktestBtn"
+                            class="btn btn-sm {% if not backtest or backtest.stale %}btn-dark{% else %}btn-light text-success fw-bold{% endif %}">
+                        ▶ Run backtest now
+                    </button>
+                </form>
+            </div>
+            <div class="card-body">
+                {% if not backtest %}
+                <p class="mb-0 text-muted">No backtest has run yet. Run it to start scoring the
+                    <code>momentum_fade</code> pace rule (phase 8d) as live data accrues.</p>
+                {% else %}
+                <div class="d-flex flex-wrap gap-4 align-items-center mb-3">
+                    <div>
+                        <div class="small text-muted text-uppercase">last run</div>
+                        <div class="fw-semibold">
+                            {{ backtest.last_run }}
+                            {% if backtest.stale %}
+                            <span class="badge bg-danger ms-1" title="≥7 days since the last run — due for a re-run">
+                                stale · {{ backtest.days_since }}d
+                            </span>
+                            {% else %}
+                            <span class="badge bg-success ms-1">{{ backtest.days_since }}d ago</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="small text-muted text-uppercase">window</div>
+                        <div class="fw-semibold">{{ backtest.window }}</div>
+                    </div>
+                    <div>
+                        <div class="small text-muted text-uppercase">sample</div>
+                        <div class="fw-semibold">{{ backtest.evaluated }} bets
+                            <span class="text-muted small">({{ backtest.real_used }} real / {{ backtest.synth_used }} synth)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="small text-muted text-uppercase mb-1">momentum_fade Δ
+                    <span class="text-lowercase">(phase 8d — promote only when positive &amp; sign-stable across runs)</span>
+                </div>
+                {% if backtest.momentum %}
+                <table class="table table-sm table-bordered w-auto mb-2">
+                    <thead class="table-light">
+                        <tr><th>Lane</th><th class="text-end">Δ P/L</th><th class="text-end">Bets</th><th class="text-end">Trig%</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for m in backtest.momentum %}
+                        <tr>
+                            <td>{{ m.lane }}</td>
+                            <td class="text-end fw-semibold {% if m.delta > 0 %}text-success{% elif m.delta < 0 %}text-danger{% endif %}">
+                                {{ '%+.2f'|format(m.delta) }}
+                            </td>
+                            <td class="text-end">{{ m.bets }}</td>
+                            <td class="text-end">{{ (m.trigger_rate * 100)|round(0)|int }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted small mb-2">No <code>momentum_fade</code> rows in the latest run
+                    (run the default rule set to include it).</p>
+                {% endif %}
+                {% endif %}
+                <p class="mb-0 small text-muted">
+                    Synthetic-estimate pricing throughout; trajectories shift synth→real as
+                    <code>output/live_history/</code> accrues. The run is mechanical (this button);
+                    <strong>nudge me to evaluate</strong> the Δ &amp; decide on tuning. See
+                    <code>FOOTBALL_NEXT_STEPS.md</code> → phase 8d.
+                </p>
+            </div>
+        </div>
+
         <div class="text-center mt-5">
             <p class="text-muted small">
                 Adding a new sport: create a Flask blueprint at <code>web_ui/&lt;sport&gt;/routes.py</code>,
@@ -152,4 +230,46 @@
     .sport-card:hover { transform: translateY(-4px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important; }
     .sport-card-disabled { cursor: not-allowed; }
 </style>
+
+<script>
+    // Cashout-backtest button: fire-and-poll, then reload to show fresh Δ.
+    let backtestRunning = false;
+
+    function triggerBacktest(event) {
+        event.preventDefault();
+        const form = event.target;
+        fetch(form.action, { method: 'POST' })
+            .then(r => {
+                if (r.ok) {
+                    const btn = document.getElementById('runBacktestBtn');
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
+                    }
+                } else {
+                    alert('Failed to start backtest.');
+                }
+            })
+            .catch(err => console.error(err));
+    }
+
+    function pollBacktest() {
+        fetch('/status').then(r => r.json()).then(data => {
+            if (!data.backtest) return;
+            const st = data.backtest.state;
+            const btn = document.getElementById('runBacktestBtn');
+            if (st === 'running') {
+                backtestRunning = true;
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
+                }
+            } else if (backtestRunning && (st === 'completed' || st === 'error')) {
+                backtestRunning = false;
+                location.reload();
+            }
+        }).catch(() => { /* network blip: skip */ });
+    }
+    setInterval(pollBacktest, 2000);
+</script>
 {% endblock %}

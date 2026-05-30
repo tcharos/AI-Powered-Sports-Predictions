@@ -116,7 +116,8 @@ TASKS = {
     'live': {'process': None, 'log': 'live.log'},
     'update': {'process': None, 'log': 'update.log'},
     'leagues': {'process': None, 'log': 'leagues.log'},
-    'retrain': {'process': None, 'log': 'retrain.log'}
+    'retrain': {'process': None, 'log': 'retrain.log'},
+    'backtest': {'process': None, 'log': 'backtest.log'},
 }
 
 @football_bp.route('/')
@@ -2549,6 +2550,89 @@ def inject_sports():
 
 
 # --- Sport-agnostic landing page ---
+# Cashout backtest is a weekly LOCAL cadence (output/ is gitignored — a cloud
+# agent sees nothing), so instead of a scheduler we surface a staleness reminder
+# + the latest momentum_fade Δ (phase 8d) on the landing page. See
+# FOOTBALL_NEXT_STEPS.md "Weekly backtest re-run".
+_BACKTEST_STALE_DAYS = 7
+
+
+def _latest_backtest_summary():
+    """Read the newest output/backtests/*.json for the landing-page reminder.
+
+    Returns None if no backtest has ever run, else a dict: last-run date,
+    days-since + stale flag, sample counters, and momentum_fade Δ per lane
+    (phase 8d's accruing signal). Best-effort — any read error → None."""
+    bt_dir = os.path.join(OUTPUT_DIR, 'backtests')
+    try:
+        files = glob.glob(os.path.join(bt_dir, '*.json'))
+        if not files:
+            return None
+        newest = max(files, key=os.path.getmtime)
+        with open(newest) as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(newest))
+    days_since = (datetime.datetime.now() - mtime).days
+    meta = data.get('meta', {})
+    counters = meta.get('counters', {})
+    agg = data.get('aggregate', {})
+
+    # momentum_fade Δ per lane (phase 8d). Keys are "<rule>|<lane>".
+    momentum = []
+    for key, row in agg.items():
+        if key.startswith('momentum_fade|'):
+            momentum.append({
+                'lane': key.split('|', 1)[1],
+                'delta': row.get('delta', 0.0),
+                'bets': row.get('bets', 0),
+                'trigger_rate': row.get('trigger_rate', 0.0),
+            })
+    momentum.sort(key=lambda r: r['lane'])
+
+    return {
+        'last_run': mtime.strftime('%Y-%m-%d %H:%M'),
+        'days_since': days_since,
+        'stale': days_since >= _BACKTEST_STALE_DAYS,
+        'window': f"{meta.get('start', '?')} → {meta.get('end', '?')}",
+        'evaluated': counters.get('evaluated', 0),
+        'real_used': counters.get('real_used', 0),
+        'synth_used': counters.get('synth_used', 0),
+        'momentum': momentum,
+    }
+
+
+@app.route('/run_backtest', methods=['POST'])
+def run_backtest():
+    """Launch the cashout backtest (scripts/run_backtest.py) server-side, same
+    subprocess+TASKS pattern as Predict/Verify/Retrain. Self-service for the
+    weekly LOCAL re-run nudged by the landing-page reminder. Interpreting the
+    Δ (sign-stability, whether momentum_fade is ripe to tune — phase 8d) is a
+    separate, human/Claude judgment step, not this button."""
+    if TASKS.get('backtest') and TASKS['backtest'].get('process') and TASKS['backtest']['process'].poll() is None:
+        flash('Backtest is already running!', 'warning')
+        return redirect(url_for('landing'))
+    try:
+        script_path = os.path.join(PROJECT_ROOT, 'scripts', 'run_backtest.py')
+        log_file = open(os.path.join(LOG_DIR, 'backtest.log'), 'w')
+        env = os.environ.copy()
+        ml_paths = [PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'ml_project')]
+        env['PYTHONPATH'] = os.pathsep.join([p for p in ml_paths + [env.get('PYTHONPATH', '')] if p])
+        # Default rules (includes momentum_fade) over the default 30-day window,
+        # data=auto (real live_history trajectories where available).
+        proc = subprocess.Popen(
+            ['venv/bin/python', script_path], cwd=PROJECT_ROOT,
+            stdout=log_file, stderr=subprocess.STDOUT, env=env)
+        TASKS['backtest'] = {'process': proc, 'start_time': datetime.datetime.now()}
+        flash('Cashout backtest started — refreshing when it finishes. '
+              'Nudge me to evaluate the momentum_fade Δ once it lands.', 'info')
+    except Exception as e:
+        flash(f"Error starting backtest: {e}", 'danger')
+    return redirect(url_for('landing'))
+
+
 @app.route('/')
 def landing():
     """Sport picker + portfolio summary. Active sports link to their dashboards.
@@ -2559,7 +2643,8 @@ def landing():
         bets_dir = sport.get('bets_dir')
         if bets_dir:
             sport_summaries[sport['slug']] = compute_sport_summary(bets_dir)['totals']
-    return render_template('landing.html', sport_summaries=sport_summaries)
+    return render_template('landing.html', sport_summaries=sport_summaries,
+                           backtest=_latest_backtest_summary())
 
 
 @app.route('/betting')
