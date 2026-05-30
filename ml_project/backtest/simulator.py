@@ -93,6 +93,11 @@ def walk_bet(bet: dict,
     else:
         return _untriggered(f'unsupported_type:{bet_type}')
 
+    # Rolling per-snapshot history of THIS bet's walk so far (prior snapshots
+    # only — the current one isn't appended until after the rule is consulted).
+    # Lets trajectory-aware rules (e.g. momentum_fade) compute pace/velocity.
+    # Pre-existing rules ignore ctx['history'], so this is backward-compatible.
+    history: List[dict] = []
     for snap in trajectory:
         adj = adj_fn(pre_probs, snap.stats, snap.minute, snap.score)
         adj_prob = adj.get(sel_key, 0.0)
@@ -100,6 +105,7 @@ def walk_bet(bet: dict,
         ctx = {
             'minute': snap.minute, 'score': snap.score, 'stats': snap.stats,
             'adj_probs': adj, 'pre_probs': pre_probs, 'sel_key': sel_key,
+            'history': history,
         }
         if rule(bet, ctx, fc):
             rule_pnl = round(fc - stake, 2)
@@ -109,5 +115,10 @@ def walk_bet(bet: dict,
                 baseline_pnl=baseline, rule_pnl=rule_pnl,
                 delta=round(rule_pnl - baseline, 2),
             )
+        # Record this snapshot for the NEXT iteration's pace computation.
+        history.append({
+            'minute': snap.minute, 'score': snap.score, 'stats': snap.stats,
+            'adj_prob': adj_prob, 'fair_cashout': fc,
+        })
 
     return _untriggered()
