@@ -486,8 +486,13 @@ def place_bets():
 # Bin-script task triggers (preserved from the previous routes file)
 # ---------------------------------------------------------------------------
 
-def _kick(task: str, script: str, success_msg: str) -> None:
-    """Spawn a bin script as a tracked background task."""
+def _kick(task: str, script: str, args: list, success_msg: str) -> None:
+    """Spawn a bin script as a tracked background task.
+
+    ``args`` is forwarded positionally to the bin script — the predict /
+    verify wrappers accept an optional ``[YYYY-MM-DD]`` as ``$1`` (empty
+    list = the script's default tomorrow / yesterday).
+    """
     if NBA_TASKS.get(task) and NBA_TASKS[task].poll() is None:
         flash(f"NBA {task} is already running.", "warning")
         return
@@ -497,7 +502,7 @@ def _kick(task: str, script: str, success_msg: str) -> None:
     log_path = os.path.join(project_root, 'logs', f"nba_{task}.log")
     try:
         log_f = open(log_path, 'w')
-        proc = subprocess.Popen(['/bin/bash', script_path], cwd=project_root,
+        proc = subprocess.Popen(['/bin/bash', script_path, *args], cwd=project_root,
                                 stdout=log_f, stderr=subprocess.STDOUT)
         NBA_TASKS[task] = proc
         flash(success_msg, "success")
@@ -507,17 +512,23 @@ def _kick(task: str, script: str, success_msg: str) -> None:
 
 @nba_bp.route('/predict', methods=['POST'])
 def predict():
-    _kick('predict', 'run_nba_predictions.sh', "Started NBA prediction pipeline (tomorrow). Check logs.")
+    date = (request.form.get('date') or '').strip()
+    args = [date] if date else []
+    _kick('predict', 'run_nba_predictions.sh', args,
+          f"Started NBA prediction pipeline ({date or 'tomorrow'}). Check logs.")
     return redirect(url_for('nba.index'))
 
 
 @nba_bp.route('/verify', methods=['POST'])
 def verify():
-    _kick('verify', 'run_nba_verification.sh', "Started NBA verification (yesterday).")
+    date = (request.form.get('date') or '').strip()
+    args = [date] if date else []
+    _kick('verify', 'run_nba_verification.sh', args,
+          f"Started NBA verification ({date or 'yesterday'}).")
     return redirect(url_for('nba.index'))
 
 
 @nba_bp.route('/retrain', methods=['POST'])
 def retrain():
-    _kick('retrain', 'retrain_nba_pipeline.sh', "Started NBA retrain pipeline (full).")
+    _kick('retrain', 'retrain_nba_pipeline.sh', [], "Started NBA retrain pipeline (full).")
     return redirect(url_for('nba.index'))

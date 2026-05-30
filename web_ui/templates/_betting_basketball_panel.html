@@ -1,0 +1,191 @@
+{# ---------------------------------------------------------------------------
+   Shared betting panel for the basketball sports (NBA + Euroleague).
+   Phase B of NBA_NEXT_STEPS.md / EUROLEAGUE_NEXT_STEPS.md: a real per-bet
+   panel mirroring football's lane-comparison + slip-history shape, adapted
+   for the moneyline + Over/Under markets (no 1X2, no live cashout/void —
+   basketball v1 has no in-play feed).
+
+   Expected context (scope with {% with %} when including for each sport):
+     - sport_label   : e.g. "NBA" / "EuroLeague"
+     - lane_stats    : {lane: {bets, settled, won, lost, void, stake,
+                               returned, pnl, win_rate, roi}}  (compute_sport_summary)
+     - lane_defaults : {lane: {bankroll, cap_pct}}
+     - history       : list of slips (compute_sport_summary['history'])
+     - dashboard_url : where to place new bets (per-sport dashboard)
+--------------------------------------------------------------------------- #}
+<style>
+  .slip-toggle .slip-caret { transition: transform .15s ease; display: inline-block; }
+  .slip-toggle.collapsed .slip-caret { transform: rotate(-90deg); }
+</style>
+<div class="row">
+  <div class="col-md-10 offset-md-1">
+
+    <!-- LANE COMPARISON TABLE -->
+    <div class="card border-dark mb-4">
+      <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">📊 Strategy Comparison · {{ sport_label|default('') }} <small class="text-white-50">(cumulative)</small></h4>
+        <small class="text-white-50">Tagged bets across all historical slips for this sport</small>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 align-middle text-center">
+          <thead class="table-light">
+            <tr>
+              <th class="text-start">Lane</th>
+              <th title="Current bankroll for this lane (independent bucket).">Bankroll</th>
+              <th>Bets</th>
+              <th>Settled</th>
+              <th>Won / Lost / Void</th>
+              <th>Win %</th>
+              <th>Stake</th>
+              <th>Returned</th>
+              <th>Net P/L</th>
+              <th>ROI %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
+            {% for lane_name, s in lane_stats.items() %}
+            <tr>
+              <td class="text-start fw-bold">
+                <span class="badge {{ lane_badge.get(lane_name, 'bg-secondary') }}">{{ lane_name|capitalize }}</span>
+              </td>
+              <td class="fw-bold">€{{ (lane_defaults.get(lane_name, {}).get('bankroll', 0))|round(2) }}</td>
+              <td>{{ s.bets }}</td>
+              <td>{{ s.settled }}</td>
+              <td>
+                <span class="text-success">{{ s.won }}</span> /
+                <span class="text-danger">{{ s.lost }}</span> /
+                <span class="text-muted">{{ s.void }}</span>
+              </td>
+              <td>{{ s.win_rate }}%</td>
+              <td>{{ s.stake }}</td>
+              <td>{{ s.returned }}</td>
+              <td class="fw-bold {{ 'text-success' if s.pnl > 0 else ('text-danger' if s.pnl < 0 else 'text-muted') }}">
+                {{ '+' if s.pnl > 0 else '' }}{{ s.pnl }}
+              </td>
+              <td class="fw-bold {{ 'text-success' if s.roi > 0 else ('text-danger' if s.roi < 0 else 'text-muted') }}">
+                {{ '+' if s.roi > 0 else '' }}{{ s.roi }}%
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PLACE-BETS POINTER (the wager generator is sport-specific; lives on the dashboard) -->
+    <div class="alert alert-light border d-flex justify-content-between align-items-center mb-4">
+      <div class="small text-muted mb-0">
+        Generate &amp; place {{ sport_label }} slips (three-lane sizing, moneyline + Over/Under) from the
+        {{ sport_label }} dashboard. This panel is the cumulative review surface.
+      </div>
+      <a class="btn btn-success btn-sm flex-shrink-0 ms-3" href="{{ dashboard_url }}">💸 Go to {{ sport_label }} dashboard</a>
+    </div>
+
+    <!-- BETTING HISTORY (same tag as football's panel) -->
+    <h3 class="mt-4 mb-3 border-bottom pb-2">📜 Betting History</h3>
+    {% if history %}
+    {% for slip in history %}
+    <div class="card mb-3 border-{{ 'success' if slip.status == 'CLOSED' and slip.pnl > 0 else ('danger' if slip.status == 'CLOSED' and slip.pnl < 0 else 'secondary') }}">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="slip-toggle d-flex align-items-center gap-2 collapsed"
+             role="button" style="cursor: pointer;"
+             data-bs-toggle="collapse" data-bs-target="#bbslip-body-{{ loop.index }}"
+             aria-expanded="false" aria-controls="bbslip-body-{{ loop.index }}"
+             title="Click to expand / collapse this slip">
+          <span class="slip-caret">▾</span>
+          <strong>{{ slip.date }}</strong>
+          <span class="badge bg-{{ 'primary' if slip.status == 'OPEN' else 'dark' }} ms-2 me-3">{{ slip.status }}</span>
+          {% set _settled = slip.bets | selectattr('pnl', 'defined') | list %}
+          {% set _realized_pnl = _settled | sum(attribute='pnl') %}
+          <span class="small">
+            Played: <strong>{{ slip.get('total_stake', 0)|round(2) }}</strong>
+            <span class="mx-1">|</span>
+            Outcome:
+            {% if _settled | length > 0 %}
+            Diff:
+            <strong class="{{ 'text-success' if _realized_pnl > 0 else ('text-danger' if _realized_pnl < 0 else 'text-muted') }}">
+              {{ '+' if _realized_pnl > 0 else '' }}{{ _realized_pnl|round(2) }}
+            </strong>
+            {% if _settled | length < slip.bets | length %}
+            <span class="badge bg-secondary ms-1" style="font-size:0.7em;"
+                  title="Realized so far from settled bets; {{ slip.bets|length - _settled|length }} bet(s) still open.">partial · {{ _settled|length }}/{{ slip.bets|length }}</span>
+            {% endif %}
+            {% else %}
+            <span class="text-muted">-</span>
+            {% endif %}
+          </span>
+        </div>
+      </div>
+      <div class="card-body p-0 collapse" id="bbslip-body-{{ loop.index }}">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Lane</th>
+                <th>Match</th>
+                <th title="Market: ML = moneyline (winner), O/U = total points Over/Under.">Market</th>
+                <th>Selection</th>
+                <th>Odds</th>
+                <th>Stake</th>
+                <th title="Amount returned: payout if won, 0 if lost, stake refunded if void.">Return</th>
+                <th>P/L</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bet in slip.bets %}
+              {% set _lane = bet.get('lane', 'value') %}
+              <tr class="{{ 'bet-won' if bet.result == 'WON' else ('bet-lost' if bet.result == 'LOST' else '') }}">
+                <td>
+                  <span class="badge {{ 'bg-warning text-dark' if _lane == 'conviction' else ('bg-info text-dark' if _lane == 'model' else 'bg-lane-value text-dark') }}">
+                    {{ _lane|capitalize }}
+                  </span>
+                </td>
+                <td>{{ bet.match }}</td>
+                <td>
+                  <span class="badge {{ 'bg-secondary' if bet.get('type') == 'O/U' else 'bg-dark' }}">{{ bet.get('type', 'ML') }}</span>
+                </td>
+                <td class="fw-bold">{{ bet.selection }}</td>
+                <td>{{ bet.odds }}</td>
+                <td>{{ bet.get('stake_units', 0)|round(2) }}</td>
+                <td class="fw-bold" title="Amount returned for this bet's outcome.">
+                  {% if bet.pnl is defined %}
+                  {{ (bet.get('stake_units', 0) + bet.pnl)|round(2) }}
+                  {% else %}
+                  <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td class="fw-bold">
+                  {% if bet.pnl is defined %}
+                  {{ '+' if bet.pnl > 0 else '' }}{{ bet.pnl|round(2) }}
+                  {% else %}-{% endif %}
+                </td>
+                <td>
+                  {% if bet.result == 'WON' %}
+                  <span class="badge bg-success">WON</span>
+                  {% elif bet.result == 'LOST' %}
+                  <span class="badge bg-danger">LOST</span>
+                  {% elif bet.status == 'VOID' %}
+                  <span class="badge bg-warning text-dark">VOID</span>
+                  {% else %}
+                  <span class="badge bg-secondary">OPEN</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="alert alert-light text-center">
+      No {{ sport_label }} betting history yet. Place a slip from the
+      <a href="{{ dashboard_url }}">{{ sport_label }} dashboard</a> to populate this panel.
+    </div>
+    {% endif %}
+
+  </div>
+</div>

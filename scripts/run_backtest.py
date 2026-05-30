@@ -82,7 +82,11 @@ def load_verif_row(date: str, home: str, away: str):
 def build_trajectories(args, date: str, match_id: str, hg: int, ag: int):
     """Return a list of trajectories. Length 1 for real data; `paths` for synthetic."""
     if args.data in ('real', 'auto'):
-        hist = os.path.join(OUTPUT_DIR, f'live_history_{date}.jsonl')
+        # Live history now lives in output/live_history/; fall back to the
+        # legacy flat output/ path for any snapshots not yet migrated.
+        hist = os.path.join(OUTPUT_DIR, 'live_history', f'live_history_{date}.jsonl')
+        if not os.path.exists(hist):
+            hist = os.path.join(OUTPUT_DIR, f'live_history_{date}.jsonl')
         t = RealTrajectory.from_jsonl(hist, match_id)
         if t:
             return [t], 'real'

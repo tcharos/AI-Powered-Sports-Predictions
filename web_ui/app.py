@@ -2612,18 +2612,21 @@ def betting_tabbed():
     if active_tab not in ('all', 'football', 'nba', 'euroleague'):
         active_tab = 'all'
 
-    # Per-sport summary + bankroll for the All tab + Football panel context.
+    # Per-sport summary + bankroll for the All tab + each sport panel's context.
     sport_rows = []
     totals_all = {'bets': 0, 'settled': 0, 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
     bank_by_sport = all_lane_bankrolls()
     total_bankroll = 0.0
+    summary_by_slug = {}
     for sport in SPORTS:
         if not sport.get('bets_dir'):
             continue
         s_lane_br = bank_by_sport.get(sport['slug'], {})
         s_bankroll = round(sum(s_lane_br.values()), 2) if s_lane_br else 0.0
         total_bankroll += s_bankroll
-        s_totals = compute_sport_summary(sport['bets_dir'])['totals']
+        s_summary = compute_sport_summary(sport['bets_dir'])
+        summary_by_slug[sport['slug']] = s_summary
+        s_totals = s_summary['totals']
         for k in ('bets', 'settled', 'stake', 'returned', 'pnl'):
             totals_all[k] += s_totals.get(k, 0)
         sport_rows.append({
@@ -2639,17 +2642,17 @@ def betting_tabbed():
 
     # Football panel context — must match /football/betting exactly so the
     # included partial renders identically.
-    summary = compute_sport_summary(OUTPUT_DIR)
-    cfg = get_sport_config('football')
-    lane_br = lane_bankrolls('football')
-    lane_defaults = {
-        'value':      {'bankroll': lane_br['value'],
-                       'cap_pct':  cfg['value_max_daily_exposure_pct'] * 100},
-        'conviction': {'bankroll': lane_br['conviction'],
-                       'cap_pct':  cfg['conviction_max_daily_exposure_pct'] * 100},
-        'model':      {'bankroll': lane_br['model'],
-                       'cap_pct':  cfg['model_max_daily_exposure_pct'] * 100},
-    }
+    summary = summary_by_slug.get('football', compute_sport_summary(OUTPUT_DIR))
+
+    # Per-sport lane defaults (bankroll + daily-exposure cap) for the panels.
+    def _lane_defaults_for(slug):
+        c = get_sport_config(slug)
+        lb = lane_bankrolls(slug)
+        return {lane: {'bankroll': lb.get(lane, 0.0),
+                       'cap_pct': c.get(f'{lane}_max_daily_exposure_pct', 0.0) * 100}
+                for lane in ('value', 'conviction', 'model')}
+
+    lane_defaults = _lane_defaults_for('football')
 
     return render_template(
         'betting_tabbed.html',
@@ -2662,7 +2665,11 @@ def betting_tabbed():
         lane_stats=summary['lane_stats'],
         lane_defaults=lane_defaults,
         sport_label='Football',
-        # NBA + Euroleague tab placeholders (link-to-dashboard cards)
+        # NBA + Euroleague tab panels (Phase B — shared basketball panel)
+        nba_summary=summary_by_slug.get('nba'),
+        nba_lane_defaults=_lane_defaults_for('nba'),
+        euroleague_summary=summary_by_slug.get('euroleague'),
+        euroleague_lane_defaults=_lane_defaults_for('euroleague'),
         nba_bankrolls=bank_by_sport.get('nba', {}),
         euroleague_bankrolls=bank_by_sport.get('euroleague', {}),
     )

@@ -24,23 +24,30 @@
     </div>
   </div>
 
-  {# ---- Action row ---- #}
-  <div class="row g-2 mb-3">
+  {# ---- Action row (date inputs on predict/verify — parity with football + Euroleague) ---- #}
+  <div class="row g-2 mb-3 align-items-end">
     <div class="col-auto">
       <form action="/nba/predict" method="post" class="d-inline">
-        <button class="btn btn-primary" type="submit"
-                onclick="return confirm('Run NBA prediction pipeline for tomorrow?');">🔮 Predict (tomorrow)</button>
+        <label class="form-label small mb-1 d-block">🔮 Predict</label>
+        <div class="input-group input-group-sm">
+          <input type="date" class="form-control" name="date" title="Target date (optional; default tomorrow)">
+          <button class="btn btn-primary" type="submit">Run</button>
+        </div>
       </form>
     </div>
     <div class="col-auto">
       <form action="/nba/verify" method="post" class="d-inline">
-        <button class="btn btn-outline-primary" type="submit"
-                onclick="return confirm('Run NBA verification for yesterday?');">✅ Verify (yesterday)</button>
+        <label class="form-label small mb-1 d-block">✅ Verify</label>
+        <div class="input-group input-group-sm">
+          <input type="date" class="form-control" name="date" title="Target date (optional; default yesterday)">
+          <button class="btn btn-outline-primary" type="submit">Run</button>
+        </div>
       </form>
     </div>
     <div class="col-auto">
       <form action="/nba/retrain" method="post" class="d-inline">
-        <button class="btn btn-outline-secondary" type="submit"
+        <label class="form-label small mb-1 d-block">&nbsp;</label>
+        <button class="btn btn-outline-secondary btn-sm" type="submit"
                 onclick="return confirm('Run full NBA retrain pipeline? Several minutes.');">🔄 Retrain</button>
       </form>
     </div>

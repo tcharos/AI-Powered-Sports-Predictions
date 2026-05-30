@@ -14,8 +14,11 @@ TODAY_FILE_DATE = datetime.datetime.now().strftime('%Y-%m-%d')
 PREDICTIONS_FILE = os.path.join(OUTPUT_DIR, f"predictions_{TODAY_FILE_DATE}.csv")
 LIVE_OUTPUT = os.path.join(OUTPUT_DIR, "live_data.json")
 # Append-only per-tick snapshots. One JSON object per match per refresh.
-# Feeds the (forthcoming) cashout backtest harness.
-LIVE_HISTORY = os.path.join(OUTPUT_DIR, f"live_history_{TODAY_FILE_DATE}.jsonl")
+# Feeds the cashout backtest harness (scripts/run_backtest.py). Kept in a
+# dedicated subdir so it's clearly separate from the throwaway live_data.json
+# the UI Clear button zeroes — this is accruing data the weekly backtest needs.
+LIVE_HISTORY_DIR = os.path.join(OUTPUT_DIR, "live_history")
+LIVE_HISTORY = os.path.join(LIVE_HISTORY_DIR, f"live_history_{TODAY_FILE_DATE}.jsonl")
 
 def _open_bet_priors_by_team():
     """Build minimal prediction-like rows for matches with open bets but
@@ -345,6 +348,7 @@ def main():
         })
 
     if history_lines:
+        os.makedirs(LIVE_HISTORY_DIR, exist_ok=True)
         with open(LIVE_HISTORY, 'a') as hf:
             for line in history_lines:
                 hf.write(json.dumps(line) + '\n')

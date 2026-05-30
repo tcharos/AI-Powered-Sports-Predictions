@@ -84,7 +84,7 @@ per live match. Each card has four columns:
 **⚡ Refresh Live Snapshot** button at the bottom of the section
 triggers a fresh scrape of all currently-live matches (predictions +
 open bets union). Writes `output/live_data.json` and appends to
-`output/live_history_<date>.jsonl`.
+`output/live_history/live_history_<date>.jsonl`.
 
 **Auto 10m** checkbox auto-triggers a browser-side refresh every 10 minutes
 while the tab is visible (UI convenience only; state persists via localStorage).
