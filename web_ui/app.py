@@ -2213,13 +2213,12 @@ import pandas as pd
 from flask import jsonify
 
 def _available_prediction_dates():
-    """Dates that (a) have a predictions_<date>.csv, (b) have no ACTIVE
-    bets_<date>.json yet, and (c) are today or later. Archived slips
-    under output/history/ do NOT count as "bet" — place_bets writes to
-    output/ so regenerating a date whose slip was archived is safe (no
-    clobber). Past dates are excluded so the picker can't surface
-    fixtures that already kicked off. Sorted descending so today (the
-    most common pick) is first."""
+    """Dates that (a) have a predictions_<date>.csv, (b) have NO bets slip —
+    active OR archived — yet, and (c) are today or later. A date whose slip
+    was archived to output/history/ counts as already-bet: archiving means
+    that date is done, so it must not be re-offered for regeneration. Past
+    dates are excluded so the picker can't surface fixtures that already
+    kicked off. Sorted descending so today (the most common pick) is first."""
     today_str = datetime.date.today().isoformat()
     pred_dates = set()
     for p in glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv')):
@@ -2227,7 +2226,12 @@ def _available_prediction_dates():
         if name.startswith('predictions_') and name.endswith('.csv'):
             pred_dates.add(name[len('predictions_'):-len('.csv')])
     bet_dates = set()
-    for b in glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json')):
+    # Active slips (output/) AND archived slips (output/history/) both mark a
+    # date as already-bet. Soft-delete moves bets_<date>.json to history/, so
+    # checking only output/ wrongly re-surfaced archived-slip dates (the bug).
+    slip_paths = (glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json'))
+                  + glob.glob(os.path.join(OUTPUT_DIR, 'history', 'bets_*.json')))
+    for b in slip_paths:
         name = os.path.basename(b)
         if name.startswith('bets_') and name.endswith('.json'):
             # Strip optional `.<ts>` archive suffix some old slips carry
