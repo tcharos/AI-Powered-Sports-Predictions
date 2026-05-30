@@ -747,25 +747,40 @@ class FlashscoreSpider(scrapy.Spider):
                         const aScore = document.querySelector('.detailScore__wrapper span:nth-child(3)')?.innerText;
                         if(hScore && aScore) scores = hScore + "-" + aScore;
                         
-                        let time = document.querySelector('.eventTime')?.innerText;
-                        
-                        if (!time) {
-                             time = document.querySelector('.detailScore__status')?.innerText || '0';
-                        }
+                        // The live match minute/status lives in .event__stage--block
+                        // (e.g. "67'", "45+2'", "Half Time", "Finished"). Use it as
+                        // the authoritative source; fall back to the older selectors
+                        // only when it's absent.
+                        let time = document.querySelector('.event__stage--block')?.innerText
+                                 || document.querySelector('.eventTime')?.innerText
+                                 || document.querySelector('.detailScore__status')?.innerText
+                                 || '0';
                         
                         // Check for 2nd Half Status for time correction
                         const bodyUpper = document.body.innerText.toUpperCase();
                         const is2nd = bodyUpper.includes("2ND HALF") || bodyUpper.includes("SECOND HALF");
                         
-                        // Robust Time Extraction (Look for mm:ss or 90+)
+                        // Robust time extraction. The primary selector (.eventTime)
+                        // gives the live clock; when it's empty (e.g. at Half Time)
+                        // .detailScore__status returns a status WORD ("HALF TIME")
+                        // with no ':' or "'". Earlier this fell through to a
+                        // document.body-wide mm:ss regex — which wrongly matched the
+                        // KICKOFF time (e.g. "17:00" in .duelParticipant__startTime),
+                        // freezing every match that kicked off at HH:00 at minute 17.
+                        // Fix: explicit status words win first, and any clock scan is
+                        // scoped to the status element only (never the whole body,
+                        // which contains the kickoff / wall-clock time).
                         if (!time || (!time.includes(':') && !time.includes("'"))) {
-                             const timeMatch = document.body.innerText.match(/(\d{1,3}):(\d{2})/);
-                             if (timeMatch) {
-                                 time = timeMatch[0]; // "63:06"
-                             } else if (document.body.innerText.includes("Half Time") || document.body.innerText.includes("HT")) {
+                             if (bodyUpper.includes("HALF TIME") || bodyUpper.includes("HALFTIME")) {
                                  time = "45";
-                             } else if (document.body.innerText.includes("Finished")) {
-                                  time = "90";
+                             } else if (bodyUpper.includes("FINISHED") || bodyUpper.includes("FULL TIME")) {
+                                 time = "90";
+                             } else {
+                                 const statusEl = document.querySelector(
+                                     '.event__stage--block, .detailScore__status, .eventTime, .fixedHeaderDuel__detailStatus');
+                                 const statusTxt = statusEl ? statusEl.innerText : '';
+                                 const tm = statusTxt.match(/(\d{1,3})'/) || statusTxt.match(/(\d{1,3}):(\d{2})/);
+                                 if (tm) time = tm[0]; // e.g. "63:06" or "67'"
                              }
                         }
 
