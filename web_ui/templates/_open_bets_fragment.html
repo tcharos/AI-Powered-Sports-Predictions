@@ -1,7 +1,7 @@
 {# Open bets on a live match — display + Cash Out button.
 
-   Included from both `dashboard.html` (the compact, inline column on each
-   live row) and `live.html` (the standalone /football/live_analysis page).
+   Included from `_live_football_panel.html` (the football live panel on the
+   standalone tabbed /live page) as the compact, inline strip on each live row.
    Phase 6 polish + Phase 7 cashout button. See
    docs/LIVE_BETTING_TRANSITION.md.
 
@@ -22,9 +22,8 @@
    trustworthiness of the number is clear at a glance.
 
    `compact` (optional): when truthy, render one bet per LINE (flex
-   row) instead of the multi-line card — used by the live-analysis
-   page (`live.html`) to save vertical space. Same info either way.
-   The dashboard leaves `compact` unset → keeps the card layout.
+   row) instead of the multi-line card — used by the live panel to
+   save vertical space. Same info either way.
 #}
 {% set _lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
 {% set _state_badge = {'lock_in': 'bg-success', 'stop_loss': 'bg-danger', 'hold': 'bg-secondary'} %}

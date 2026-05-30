@@ -1,0 +1,100 @@
+{% extends "layout.html" %}
+
+{# Sport-tabbed standalone Live page (parallels betting_tabbed.html).
+
+   - Football tab: includes `_live_football_panel.html` — the in-play analysis
+     panel moved off the football dashboard (live stats, Pre→Live 1X2 + O/U
+     adjustments, open-bet cashout, refresh / auto-10m / auto-cashout controls).
+   - EuroLeague / NBA tabs: placeholders — no in-play feed yet. To light one up,
+     add a per-sport live-data source (e.g. output_basketball/live_data_nba.json)
+     + a `_live_<sport>_panel.html`, then include it in that tab.
+
+   Tab order matches the landing page (football, euroleague, nba).
+   Route wiring this template: `/live` (sport-agnostic, on `app`).
+#}
+{% block content %}
+<div class="container-fluid mt-3">
+
+  {# ---- Header ---- #}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="mb-0">⚡ Live Analysis</h2>
+      <div class="text-muted small">In-play match analysis &amp; pre→live probability adjustments — tabs switch between sports.</div>
+    </div>
+  </div>
+
+  {# ---- Tabs ---- #}
+  <ul class="nav nav-tabs" id="liveTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link {% if active_tab == 'football' %}active{% endif %}"
+              id="tab-football-btn" data-bs-toggle="tab" data-bs-target="#tab-football"
+              type="button" role="tab" aria-controls="tab-football" aria-selected="true">
+        ⚽ Football
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link {% if active_tab == 'euroleague' %}active{% endif %}"
+              id="tab-euroleague-btn" data-bs-toggle="tab" data-bs-target="#tab-euroleague"
+              type="button" role="tab" aria-controls="tab-euroleague" aria-selected="false">
+        <img src="{{ url_for('static', filename='img/euroleague_logo_only.png') }}"
+             alt="EuroLeague logo" class="sport-icon-sm me-1"> EuroLeague
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link {% if active_tab == 'nba' %}active{% endif %}"
+              id="tab-nba-btn" data-bs-toggle="tab" data-bs-target="#tab-nba"
+              type="button" role="tab" aria-controls="tab-nba" aria-selected="false">
+        <img src="{{ url_for('static', filename='img/nba.svg') }}"
+             alt="NBA logo" class="sport-icon-sm me-1"> NBA
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content py-3" id="liveTabsContent">
+
+    {# =============================== FOOTBALL =============================== #}
+    <div class="tab-pane fade {% if active_tab == 'football' %}show active{% endif %}"
+         id="tab-football" role="tabpanel" aria-labelledby="tab-football-btn">
+      {% include "_live_football_panel.html" %}
+    </div>
+
+    {# ============================== EUROLEAGUE ============================== #}
+    <div class="tab-pane fade {% if active_tab == 'euroleague' %}show active{% endif %}"
+         id="tab-euroleague" role="tabpanel" aria-labelledby="tab-euroleague-btn">
+      <div class="alert alert-light border text-center my-4">
+        No live feed for EuroLeague yet — in-play scraping is football-only for now.
+      </div>
+    </div>
+
+    {# =============================== NBA =============================== #}
+    <div class="tab-pane fade {% if active_tab == 'nba' %}show active{% endif %}"
+         id="tab-nba" role="tabpanel" aria-labelledby="tab-nba-btn">
+      <div class="alert alert-light border text-center my-4">
+        No live feed for NBA yet — in-play scraping is football-only for now.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Keep the open tab across a page refresh (the live panel reloads itself on
+  // each scrape completion): when a tab is shown, write its slug into ?tab= so
+  // the server re-renders the same tab. Mirrors betting_tabbed.html.
+  (function () {
+    const tabEls = document.querySelectorAll('#liveTabs button[data-bs-toggle="tab"]');
+    function slugOf(btn) {
+      return (btn.getAttribute('data-bs-target') || '').replace('#tab-', '');
+    }
+    tabEls.forEach(function (btn) {
+      btn.addEventListener('shown.bs.tab', function () {
+        const slug = slugOf(btn);
+        const url = new URL(window.location);
+        url.searchParams.set('tab', slug);
+        window.history.replaceState({}, '', url);
+        try { localStorage.setItem('liveTab', slug); } catch (e) {}
+      });
+    });
+  })();
+</script>
+{% endblock %}

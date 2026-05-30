@@ -1661,36 +1661,11 @@ def view_file(filename):
 
 @football_bp.route('/live_analysis')
 def live_analysis():
-    live_file = os.path.join(OUTPUT_DIR, "live_data.json")
-    matches_data = []
-
-    if os.path.exists(live_file):
-        try:
-            with open(live_file, 'r') as f:
-                matches_data = json.load(f)
-        except Exception as e:
-            print(f"Error loading live data: {e}")
-
-    # Enrich with any OPEN bets on these matches (same data shape as the
-    # dashboard's live rows — both pages now share the open-bets fragment).
-    _attach_open_bets(matches_data)
-
-    # Live-analysis-specific filter: only show matches where we have a
-    # corresponding REAL bet at Pamestoixima (any attached bet with
-    # `linked_to_bookmaker=True`). The dashboard keeps the full live
-    # listing — this page is the focused "skin in the game" view.
-    # Matches with no attached bets at all are also dropped (no bet
-    # = nothing to monitor here). Driven by the bookmaker snapshot
-    # at output/real_betting/open_bets_snapshot.json; if the snapshot
-    # is stale (>cashout_snapshot_max_age_s) the filter silently
-    # produces an empty list — refresh via the page's button first.
-    matches_data = [
-        m for m in matches_data
-        if any(b.get('linked_to_bookmaker') for b in (m.get('open_bets') or []))
-    ]
-
-    # Fallback/Empty state handled in template
-    return render_template('live.html', matches=matches_data)
+    """Retired: the live analysis now lives on the standalone sport-tabbed
+    /live page (football tab). This route 301-redirects so old bookmarks /
+    deep-links keep working. The former bookmaker-linked-only filtered view
+    is gone — /live shows the full football live panel."""
+    return redirect(url_for('live_tabbed', tab='football'), code=301)
 
 def _launch_live_refresh(with_bookmaker=False):
     """Start the Flashscore live scrape (`scripts/run_live_analysis.py`).
@@ -2672,6 +2647,46 @@ def betting_tabbed():
         euroleague_lane_defaults=_lane_defaults_for('euroleague'),
         nba_bankrolls=bank_by_sport.get('nba', {}),
         euroleague_bankrolls=bank_by_sport.get('euroleague', {}),
+    )
+
+
+@app.route('/live')
+def live_tabbed():
+    """Sport-tabbed standalone Live page (parallels /betting).
+
+    Renders templates/live_tabbed.html with three tabs (order matches the
+    landing page: football, euroleague, nba):
+      - **Football**: includes `_live_football_panel.html` — the in-play
+        analysis panel moved off the football dashboard (live stats, Pre→Live
+        1X2 + O/U adjustments, open-bet cashout, refresh / auto-10m /
+        auto-cashout controls).
+      - **EuroLeague / NBA**: placeholders — no in-play feed yet (in-play
+        scraping is football-only). Each lights up by adding a per-sport
+        live-data source + a `_live_<sport>_panel.html`.
+
+    Initial tab via ?tab=football|euroleague|nba (default 'football').
+    """
+    active_tab = (request.args.get('tab') or 'football').strip().lower()
+    if active_tab not in ('football', 'euroleague', 'nba'):
+        active_tab = 'football'
+
+    # Football is the only sport with a live feed today. Same read + enrich
+    # path the football dashboard used before the panel was relocated here.
+    live_file = os.path.join(OUTPUT_DIR, "live_data.json")
+    live_matches = []
+    if os.path.exists(live_file):
+        try:
+            with open(live_file, 'r') as f:
+                live_matches = json.load(f)
+        except Exception:
+            pass
+    _attach_open_bets(live_matches)
+
+    return render_template(
+        'live_tabbed.html',
+        active_tab=active_tab,
+        live_matches=live_matches[:50],
+        auto_cashout_armed=_auto_cashout_armed(),
     )
 
 
