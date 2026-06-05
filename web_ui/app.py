@@ -726,6 +726,8 @@ def get_status():
             poll = task_info['process'].poll()
             if poll is None:
                 status[task_name] = {'state': 'running'}
+                if task_info.get('target_date'):
+                    status[task_name]['target_date'] = task_info['target_date']
             elif poll == 0:
                 status[task_name] = {'state': 'completed'}
             else:
@@ -809,13 +811,17 @@ def run_prediction():
         date_arg = request.form.get('date')
         if date_arg:
             cmd.append(date_arg)
-            
+            target_date = date_arg
+        else:
+            # Default matches run_predictions.sh: tomorrow.
+            target_date = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+
         if request.form.get('force'):
             cmd.append('--force')
-            
+
         proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
-        
-        TASKS['predict'] = {'process': proc, 'start_time': datetime.datetime.now()}
+
+        TASKS['predict'] = {'process': proc, 'start_time': datetime.datetime.now(), 'target_date': target_date}
         
         flash('Prediction pipeline started! Check <a href="/logs/predict.log">logs</a> for status.', 'success')
     except Exception as e:
@@ -863,9 +869,9 @@ def run_verification():
             cmd.append(date_arg)
             
         proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
-        
-        TASKS['verify'] = {'process': proc, 'start_time': datetime.datetime.now()}
-        
+
+        TASKS['verify'] = {'process': proc, 'start_time': datetime.datetime.now(), 'target_date': target_date}
+
         flash('Verification pipeline started! Check <a href="/logs/verify.log">logs</a> for status.', 'success')
     except Exception as e:
         flash(f'Error starting verification: {e}', 'danger')

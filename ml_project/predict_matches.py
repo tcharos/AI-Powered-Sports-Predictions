@@ -68,6 +68,16 @@ class MatchPredictor:
         self.history_df = self.loader.load_historical_data()
         self.history_df = self.history_df.sort_values('date')
 
+        # League categories the model actually saw at training time, read
+        # straight out of the saved model (authoritative — the live history
+        # can contain newer leagues the last-trained model never saw). Newer
+        # XGBoost (enable_categorical) hard-errors on an unseen category at
+        # inference instead of treating it as missing, so `_as_league_category`
+        # rebuilds the inference column against exactly this set and lets any
+        # unseen league fall through as missing. See run_predictions failures
+        # on "WORLD: World Championship" and "Veikkausliiga " (2026-06-05).
+        self.known_leagues = self._load_model_league_categories("models/xgb_model_1x2.json")
+
         self.adjuster = HeuristicAdjuster()
 
         # Per-league Platt calibrators (C4). Empty dict if file missing.
@@ -83,7 +93,48 @@ class MatchPredictor:
         else:
             print("No league_calibration.json found — predictions will use raw probs.")
 
-    # ... (existing methods) ...
+    @staticmethod
+    def _load_model_league_categories(model_path):
+        """Decode the league_cat training categories stored inside a saved
+        XGBoost model. Returns a sorted list (empty on any failure).
+
+        The model JSON keeps per-feature category dictionaries under
+        `learner.gradient_booster.model.cats.enc` — one entry per feature, each
+        a flat UTF-8 byte `values` array sliced by `offsets`. We pick the entry
+        for the single categorical feature (identified via `feature_types == 'c'`).
+        """
+        try:
+            with open(model_path, 'r') as f:
+                model = json.load(f)
+            learner = model['learner']
+            cat_idx = learner['feature_types'].index('c')
+            col = learner['gradient_booster']['model']['cats']['enc'][cat_idx]
+            offs, vals = col['offsets'], col['values']
+            cats = [bytes(vals[offs[i]:offs[i + 1]]).decode('utf-8')
+                    for i in range(len(offs) - 1)]
+            return sorted(cats)
+        except Exception as e:
+            print(f"[WARN] Could not read league categories from {model_path}: {e}")
+            return []
+
+    def _as_league_category(self, series):
+        """Coerce a league_cat column to a pandas Categorical whose categories
+        are exactly the leagues seen at training time.
+
+        Leading/trailing whitespace is stripped first ("Veikkausliiga " ->
+        "Veikkausliiga") so cosmetic name drift doesn't read as a new league.
+        Any value still not in the training set (e.g. "WORLD: World
+        Championship") becomes a missing *code* while the column keeps a
+        string-typed category dtype. This restores the pre-upgrade behaviour
+        where XGBoost treated an unseen category as missing instead of either
+        hard-erroring ("category not in the training set") or tripping the
+        float-dtype guard a bare NaN would. With no known leagues, fall back to
+        a plain categorical so behaviour is unchanged.
+        """
+        cleaned = series.astype('string').str.strip()
+        if not self.known_leagues:
+            return cleaned.astype('category')
+        return pd.Categorical(cleaned, categories=self.known_leagues)
 
     def get_team_stats(self, team_name, date_before):
         """
@@ -258,7 +309,7 @@ class MatchPredictor:
             # fall through unchanged and remain an unseen category for
             # the model (same behaviour as before the alias lookup).
             league_cat_value = LEAGUE_ALIASES.get(league_name, league_name)
-                
+
             # --- LEAGUE FILTERING ---
             SUPPORTED_COUNTRIES = {
                 'ENGLAND', 'SPAIN', 'FRANCE', 'GERMANY', 'ITALY', 'NETHERLANDS', 'PORTUGAL', 'SCOTLAND', 
@@ -366,7 +417,7 @@ class MatchPredictor:
             
             # Generate DF for prediction
             input_df = pd.DataFrame([input_row])
-            input_df['league_cat'] = input_df['league_cat'].astype('category')
+            input_df['league_cat'] = self._as_league_category(input_df['league_cat'])
             
             # --- 1X2 PROBABILITIES (single-stage; the binary draw model
             # used to average in here, but it acted as an implicit
@@ -393,7 +444,7 @@ class MatchPredictor:
             input_row['H_form_ou'] = h_stats['form_ou']
             input_row['A_form_ou'] = a_stats['form_ou']
             input_df_ou = pd.DataFrame([input_row])
-            input_df_ou['league_cat'] = input_df_ou['league_cat'].astype('category')
+            input_df_ou['league_cat'] = self._as_league_category(input_df_ou['league_cat'])
             for c in self.features_ou:
                 if c not in input_df_ou.columns: input_df_ou[c] = 0
                 

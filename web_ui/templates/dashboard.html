@@ -39,6 +39,13 @@
                             role="progressbar" style="width: 100%"></div>
                     </div>
                 </div>
+                <div id="predictError" class="alert alert-danger alert-dismissible mt-2 mb-0 py-2 small"
+                    style="display:none;">
+                    <strong>Prediction failed.</strong>
+                    <pre id="predictErrorMsg" class="mb-0 mt-1"
+                        style="white-space:pre-wrap;font-size:0.75rem;"></pre>
+                    <button type="button" class="btn-close" onclick="dismissError('predict')"></button>
+                </div>
             </div>
 
             <!-- Generate Slip (right) -->
@@ -73,6 +80,13 @@
                         <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
                             role="progressbar" style="width: 100%"></div>
                     </div>
+                </div>
+                <div id="verifyError" class="alert alert-danger alert-dismissible mt-2 mb-0 py-2 small"
+                    style="display:none;">
+                    <strong>Verification failed.</strong>
+                    <pre id="verifyErrorMsg" class="mb-0 mt-1"
+                        style="white-space:pre-wrap;font-size:0.75rem;"></pre>
+                    <button type="button" class="btn-close" onclick="dismissError('verify')"></button>
                 </div>
             </div>
 
@@ -353,6 +367,34 @@
         }
     }
 
+    // YYYY-MM-DD -> dd/mm/yyyy (returns '' if not parseable).
+    function fmtDate(iso) {
+        if (!iso) return '';
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+        return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+    }
+
+    // Tracks which error banners the user has dismissed, so a persistent
+    // 'error' state from /status doesn't keep re-opening the banner every poll.
+    const errorDismissed = { predict: false, verify: false };
+
+    function dismissError(task) {
+        errorDismissed[task] = true;
+        const el = document.getElementById(task + 'Error');
+        if (el) el.style.display = 'none';
+    }
+
+    // Non-blocking inline error (replaces the old blocking alert() that
+    // re-fired every poll and froze the page).
+    function showError(task, msg) {
+        if (errorDismissed[task]) return;
+        const box = document.getElementById(task + 'Error');
+        const body = document.getElementById(task + 'ErrorMsg');
+        if (!box || !body) return;
+        body.innerText = msg || 'Unknown error. Check the logs.';
+        box.style.display = 'block';
+    }
+
     function updateStatus() {
         fetch('/status')
             .then(response => response.json())
@@ -360,13 +402,17 @@
                 // Predict
                 const pState = data.predict.state;
                 if (pState === 'running') {
+                    errorDismissed.predict = false;
+                    document.getElementById('predictError').style.display = 'none';
                     document.getElementById('predictStatus').style.display = 'block';
                     document.getElementById('predictBtn').disabled = true;
-                    document.getElementById('predictState').innerText = 'Running...';
+                    const pDate = fmtDate(data.predict.target_date);
+                    document.getElementById('predictState').innerText =
+                        pDate ? `Running Prediction for ${pDate}...` : 'Running...';
                 } else if (pState === 'error') {
                     document.getElementById('predictStatus').style.display = 'none';
                     document.getElementById('predictBtn').disabled = false;
-                    alert("Prediction Error: " + data.predict.msg);
+                    showError('predict', data.predict.msg);
                 } else {
                     document.getElementById('predictStatus').style.display = 'none';
                     document.getElementById('predictBtn').disabled = false;
@@ -375,13 +421,17 @@
                 // Verify
                 const vState = data.verify.state;
                 if (vState === 'running') {
+                    errorDismissed.verify = false;
+                    document.getElementById('verifyError').style.display = 'none';
                     document.getElementById('verifyStatus').style.display = 'block';
                     document.getElementById('verifyBtn').disabled = true;
-                    document.getElementById('verifyState').innerText = 'Running...';
+                    const vDate = fmtDate(data.verify.target_date);
+                    document.getElementById('verifyState').innerText =
+                        vDate ? `Running Verification for ${vDate}...` : 'Running...';
                 } else if (vState === 'error') {
                     document.getElementById('verifyStatus').style.display = 'none';
                     document.getElementById('verifyBtn').disabled = false;
-                    alert("Verification Error: " + data.verify.msg);
+                    showError('verify', data.verify.msg);
                 } else {
                     document.getElementById('verifyStatus').style.display = 'none';
                     document.getElementById('verifyBtn').disabled = false;
