@@ -258,15 +258,6 @@ class FlashscoreSpider(scrapy.Spider):
                     self.logger.info(f"Scroll {i}: Found {count} match elements (g_1_*) so far.")
             
             self.logger.info("Finished scrolling.")
-            
-            # DEBUG: Log the date displayed on the page
-            try:
-                # Flashscore date picker often shows "DD/MM" or "Today", "Yesterday"
-                date_text = await page.inner_text(".calendar__datepicker")
-                self.logger.warning(f"DEBUG: Page Date Indicator: {date_text}")
-                
-            except Exception as e:
-                self.logger.warning(f"Could not read page date: {e}")
 
         except Exception as e:
             self.logger.error(f"Error navigating to next day: {e}")
@@ -499,7 +490,14 @@ class FlashscoreSpider(scrapy.Spider):
                 if await h2h_tab.count() > 0:
                      await h2h_tab.first.click()
                      self.logger.info(f"Clicked H2H tab for {item['match_id']}")
-                     await page.wait_for_selector(".h2h__section", timeout=5000)
+                     # Wait for an actual ROW, not just the .h2h__section shell: clicking H2H
+                     # re-renders the panel and the section element appears (so a bare
+                     # wait_for_selector(".h2h__section") returns) a beat BEFORE its rows are
+                     # populated — parse_h2h_section's `sections.count()` then reads 0 and we
+                     # silently return empty. The sections also load progressively (home first,
+                     # away a moment later), so settle briefly to let section 1 fill in too.
+                     await page.wait_for_selector(".h2h__section .h2h__row", timeout=12000)
+                     await page.wait_for_timeout(1500)
 
                      
                      async def parse_h2h_section(section_index):
@@ -511,7 +509,9 @@ class FlashscoreSpider(scrapy.Spider):
                              for i in range(min(count, 5)):
                                  row = rows.nth(i)
                                  try:
-                                     date = await row.locator(".h2h__date").first.inner_text()
+                                     # Flashscore renamed the date cell to `wclH2h__date` in the wcl-* redesign
+                                     # (legacy `h2h__date` dropped); match either so we survive both DOM versions.
+                                     date = await row.locator(".h2h__date, .wclH2h__date").first.inner_text()
                                      home = await row.locator(".h2h__homeParticipant").first.inner_text()
                                      away = await row.locator(".h2h__awayParticipant").first.inner_text()
                                      score = ""
