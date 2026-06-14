@@ -2828,6 +2828,12 @@ def _auto_cashout_scheduler():
 
 
 if __name__ == '__main__':
+    # Auto-cashout is armed via the dashboard checkbox and persisted to disk.
+    # Disarm on every startup so the loop is never silently running from a
+    # stale flag left over from a prior session (it must be a deliberate,
+    # in-session opt-in). The user re-ticks the checkbox to re-arm.
+    if _auto_cashout_armed():
+        _set_auto_cashout_armed(False)
     # Autonomous auto-cashout loop (executes server-side, no browser needed).
     import threading
     threading.Thread(target=_auto_cashout_scheduler, daemon=True).start()
