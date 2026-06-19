@@ -79,7 +79,8 @@
                             <th class="text-start">Sport</th>
                             <th>Bets</th>
                             <th>Settled</th>
-                            <th>Stake</th>
+                            <th title="Total stake committed across all bets (including open/unsettled).">Stake</th>
+                            <th title="Stake of settled bets only (excludes open/unsettled) — this is the ROI denominator.">Settled</th>
                             <th>Returned</th>
                             <th>Net P/L</th>
                             <th>ROI %</th>
@@ -87,13 +88,14 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% set ns = namespace(total_bets=0, total_settled=0, total_stake=0.0, total_returned=0.0, total_pnl=0.0, total_bankroll=0.0) %}
+                        {% set ns = namespace(total_bets=0, total_settled=0, total_stake=0.0, total_settled_stake=0.0, total_returned=0.0, total_pnl=0.0, total_bankroll=0.0) %}
                         {% for sport in sports %}
-                        {% set s = sport_summaries.get(sport.slug, {'bets':0,'settled':0,'stake':0,'returned':0,'pnl':0,'roi':0}) %}
+                        {% set s = sport_summaries.get(sport.slug, {'bets':0,'settled':0,'stake':0,'settled_stake':0,'returned':0,'pnl':0,'roi':0}) %}
                         {% set br = bankrolls.get(sport.slug, 0.0) %}
                         {% set ns.total_bets = ns.total_bets + s.bets %}
                         {% set ns.total_settled = ns.total_settled + s.settled %}
                         {% set ns.total_stake = ns.total_stake + s.stake %}
+                        {% set ns.total_settled_stake = ns.total_settled_stake + s.get('settled_stake', 0) %}
                         {% set ns.total_returned = ns.total_returned + s.returned %}
                         {% set ns.total_pnl = ns.total_pnl + s.pnl %}
                         {% set ns.total_bankroll = ns.total_bankroll + br %}
@@ -107,6 +109,7 @@
                             <td>{{ s.bets }}</td>
                             <td>{{ s.settled }}</td>
                             <td>€{{ s.stake }}</td>
+                            <td>€{{ s.get('settled_stake', 0) }}</td>
                             <td>€{{ s.returned }}</td>
                             <td class="fw-bold {{ 'text-success' if s.pnl > 0 else ('text-danger' if s.pnl < 0 else 'text-muted') }}">
                                 {{ '+' if s.pnl > 0 else '' }}€{{ s.pnl }}
@@ -117,12 +120,13 @@
                             <td>€{{ br|round(2) }}</td>
                         </tr>
                         {% endfor %}
-                        {% set portfolio_roi = (ns.total_pnl / ns.total_stake * 100) if ns.total_stake > 0 else 0 %}
+                        {% set portfolio_roi = (ns.total_pnl / ns.total_settled_stake * 100) if ns.total_settled_stake > 0 else 0 %}
                         <tr class="table-dark fw-bold">
                             <td class="text-start">🏆 Total</td>
                             <td>{{ ns.total_bets }}</td>
                             <td>{{ ns.total_settled }}</td>
                             <td>€{{ ns.total_stake|round(2) }}</td>
+                            <td>€{{ ns.total_settled_stake|round(2) }}</td>
                             <td>€{{ ns.total_returned|round(2) }}</td>
                             <td class="{{ 'text-success' if ns.total_pnl > 0 else ('text-danger' if ns.total_pnl < 0 else '') }}">
                                 {{ '+' if ns.total_pnl > 0 else '' }}€{{ ns.total_pnl|round(2) }}

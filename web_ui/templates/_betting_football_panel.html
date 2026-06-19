@@ -22,7 +22,8 @@
                             <th>Settled</th>
                             <th>Won / Lost / Void</th>
                             <th>Win %</th>
-                            <th>Stake</th>
+                            <th title="Total stake committed across all bets (including open/unsettled).">Stake</th>
+                            <th title="Stake of settled bets only (excludes open/unsettled) — this is the ROI denominator.">Settled</th>
                             <th>Returned</th>
                             <th>Net P/L</th>
                             <th>ROI %</th>
@@ -47,6 +48,7 @@
                             </td>
                             <td>{{ s.win_rate }}%</td>
                             <td>{{ s.stake }}</td>
+                            <td>{{ s.settled_stake }}</td>
                             <td>{{ s.returned }}</td>
                             <td class="fw-bold {{ 'text-success' if s.pnl > 0 else ('text-danger' if s.pnl < 0 else 'text-muted') }}">
                                 {{ '+' if s.pnl > 0 else '' }}{{ s.pnl }}

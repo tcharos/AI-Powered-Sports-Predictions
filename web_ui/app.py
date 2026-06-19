@@ -1949,7 +1949,8 @@ def _load_slip(filepath):
 
 def _empty_bet_stats():
     return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
-            'cashed_out': 0, 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
+            'cashed_out': 0, 'stake': 0.0, 'settled_stake': 0.0,
+            'returned': 0.0, 'pnl': 0.0}
 
 
 def _accumulate_bet(s, bet):
@@ -1966,6 +1967,7 @@ def _accumulate_bet(s, bet):
     if status == 'OPEN':
         return
     s['settled'] += 1
+    s['settled_stake'] += stake  # ROI denominator: only stake of resolved bets
     if status == 'CASHED_OUT' or result == 'CASHED_OUT':
         s['cashed_out'] += 1
         cashout_amount = float(bet.get('cashout_amount', stake))
@@ -1992,8 +1994,12 @@ def _finalize_bet_stats(s):
     """Add win_rate + roi and round the money fields. Mutates + returns `s`."""
     decided = s['won'] + s['lost']
     s['win_rate'] = round((s['won'] / decided * 100) if decided > 0 else 0.0, 1)
-    s['roi'] = round((s['pnl'] / s['stake'] * 100) if s['stake'] > 0 else 0.0, 1)
+    # ROI is realized: divide P/L by stake of SETTLED bets only, so open
+    # (unrealized) bets don't deflate the figure. `stake` stays the total
+    # committed amount (used for exposure display).
+    s['roi'] = round((s['pnl'] / s['settled_stake'] * 100) if s['settled_stake'] > 0 else 0.0, 1)
     s['stake'] = round(s['stake'], 2)
+    s['settled_stake'] = round(s['settled_stake'], 2)
     s['returned'] = round(s['returned'], 2)
     s['pnl'] = round(s['pnl'], 2)
     return s
@@ -2048,10 +2054,11 @@ def compute_sport_summary(bets_dir):
         'bets': sum(s['bets'] for s in lane_stats.values()),
         'settled': sum(s['settled'] for s in lane_stats.values()),
         'stake': round(sum(s['stake'] for s in lane_stats.values()), 2),
+        'settled_stake': round(sum(s['settled_stake'] for s in lane_stats.values()), 2),
         'returned': round(sum(s['returned'] for s in lane_stats.values()), 2),
         'pnl': round(sum(s['pnl'] for s in lane_stats.values()), 2),
     }
-    totals['roi'] = round((totals['pnl'] / totals['stake'] * 100) if totals['stake'] > 0 else 0.0, 1)
+    totals['roi'] = round((totals['pnl'] / totals['settled_stake'] * 100) if totals['settled_stake'] > 0 else 0.0, 1)
 
     return {'history': history, 'lane_stats': lane_stats, 'totals': totals}
 
@@ -2684,7 +2691,8 @@ def betting_tabbed():
 
     # Per-sport summary + bankroll for the All tab + each sport panel's context.
     sport_rows = []
-    totals_all = {'bets': 0, 'settled': 0, 'stake': 0.0, 'returned': 0.0, 'pnl': 0.0}
+    totals_all = {'bets': 0, 'settled': 0, 'stake': 0.0, 'settled_stake': 0.0,
+                  'returned': 0.0, 'pnl': 0.0}
     bank_by_sport = all_lane_bankrolls()
     total_bankroll = 0.0
     summary_by_slug = {}
@@ -2697,7 +2705,7 @@ def betting_tabbed():
         s_summary = compute_sport_summary(sport['bets_dir'])
         summary_by_slug[sport['slug']] = s_summary
         s_totals = s_summary['totals']
-        for k in ('bets', 'settled', 'stake', 'returned', 'pnl'):
+        for k in ('bets', 'settled', 'stake', 'settled_stake', 'returned', 'pnl'):
             totals_all[k] += s_totals.get(k, 0)
         sport_rows.append({
             'slug':     sport['slug'],
@@ -2710,7 +2718,7 @@ def betting_tabbed():
         })
     # ROI as a percentage, matching compute_sport_summary's convention (the
     # template renders it directly, no extra ×100).
-    totals_all['roi'] = (totals_all['pnl'] / totals_all['stake'] * 100) if totals_all['stake'] > 0 else 0.0
+    totals_all['roi'] = (totals_all['pnl'] / totals_all['settled_stake'] * 100) if totals_all['settled_stake'] > 0 else 0.0
 
     # Football panel context — must match /football/betting exactly so the
     # included partial renders identically.
