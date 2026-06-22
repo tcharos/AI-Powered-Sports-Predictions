@@ -10,11 +10,17 @@ Base name = the league label with playoff/group/division suffixes stripped
 """
 
 # National-team competitions (base names) — these route to the NT model.
+# NOTE: Flashscore labels the FIFA World Cup finals as "World Championship"
+# (not "World Cup"), so both spellings are registered to keep routing robust.
 INTERNATIONAL_BASES = {
     "WORLD: World Cup",
     "WORLD: World Cup Qualification",
     "WORLD: World Cup Final Tournament",
     "WORLD: World Cup Play Offs",
+    "WORLD: World Championship",
+    "WORLD: World Championship Qualification",
+    "WORLD: World Championship Final Tournament",
+    "WORLD: World Championship Play Offs",
     "EUROPE: Euro",
     "EUROPE: Euro Qualification",
     "EUROPE: Euro Final Tournament",
@@ -28,6 +34,8 @@ INTERNATIONAL_BASES = {
 NEUTRAL_BASES = {
     "WORLD: World Cup",
     "WORLD: World Cup Final Tournament",
+    "WORLD: World Championship",
+    "WORLD: World Championship Final Tournament",
     "EUROPE: Euro",
     "EUROPE: Euro Final Tournament",
 }

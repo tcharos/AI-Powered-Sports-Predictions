@@ -2227,12 +2227,14 @@ import pandas as pd
 from flask import jsonify
 
 def _available_prediction_dates():
-    """Dates that (a) have a predictions_<date>.csv, (b) have NO bets slip —
-    active OR archived — yet, and (c) are today or later. A date whose slip
-    was archived to output/history/ counts as already-bet: archiving means
-    that date is done, so it must not be re-offered for regeneration. Past
-    dates are excluded so the picker can't surface fixtures that already
-    kicked off. Sorted descending so today (the most common pick) is first."""
+    """Dates that (a) have a predictions_<date>.csv, (b) have NO *live* bets
+    slip — active OR archived — yet, and (c) are today or later. A slip counts
+    as live only if it holds at least one non-VOID bet; a fully-cancelled slip
+    (every bet VOID) means that date is effectively un-bet and IS re-offered, so
+    the user can re-bet after cancelling. A date whose slip was archived to
+    output/history/ with real (WON/LOST/OPEN) bets still counts as done. Past
+    dates are excluded so the picker can't surface fixtures that already kicked
+    off. Sorted descending so today (the most common pick) is first."""
     today_str = datetime.date.today().isoformat()
     pred_dates = set()
     for p in glob.glob(os.path.join(OUTPUT_DIR, 'predictions_*.csv')):
@@ -2240,18 +2242,28 @@ def _available_prediction_dates():
         if name.startswith('predictions_') and name.endswith('.csv'):
             pred_dates.add(name[len('predictions_'):-len('.csv')])
     bet_dates = set()
-    # Active slips (output/) AND archived slips (output/history/) both mark a
-    # date as already-bet. Soft-delete moves bets_<date>.json to history/, so
-    # checking only output/ wrongly re-surfaced archived-slip dates (the bug).
+    # Active slips (output/) AND archived slips (output/history/) can both mark a
+    # date as already-bet — but only if they still hold a non-VOID bet. A slip
+    # whose bets were all voided/cancelled no longer blocks the date.
     slip_paths = (glob.glob(os.path.join(OUTPUT_DIR, 'bets_*.json'))
                   + glob.glob(os.path.join(OUTPUT_DIR, 'history', 'bets_*.json')))
     for b in slip_paths:
         name = os.path.basename(b)
-        if name.startswith('bets_') and name.endswith('.json'):
-            # Strip optional `.<ts>` archive suffix some old slips carry
-            # (e.g. bets_2026-05-21.20260522_124718.json).
-            stem = name[len('bets_'):-len('.json')]
-            bet_dates.add(stem.split('.', 1)[0])
+        if not (name.startswith('bets_') and name.endswith('.json')):
+            continue
+        # Strip optional `.<ts>` archive suffix some old slips carry
+        # (e.g. bets_2026-05-21.20260522_124718.json).
+        stem = name[len('bets_'):-len('.json')]
+        date_key = stem.split('.', 1)[0]
+        try:
+            data = json.load(open(b))
+        except (ValueError, OSError):
+            # Unreadable slip: be conservative and treat the date as bet.
+            bet_dates.add(date_key)
+            continue
+        bets = data if isinstance(data, list) else data.get('bets', [])
+        if any(str(bet.get('status', '')).upper() != 'VOID' for bet in bets):
+            bet_dates.add(date_key)
     return sorted(
         (d for d in pred_dates - bet_dates if d >= today_str),
         reverse=True,
