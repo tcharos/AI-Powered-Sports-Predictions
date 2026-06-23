@@ -5,6 +5,7 @@ A multi-sport Machine Learning pipeline to scrape match data, simulate betting s
 ## Features
 *   **Data Scraping**: Flashscore (results, 1X2 + O/U odds, standings, form, live stats); football-data.co.uk (historical CSV results); `euroleague-api` (Euroleague + EuroCup history); `nba_api` (NBA fixtures + results, against `data.nba.com`); eloratings.net (national-team ELO + match history).
 *   **Machine Learning**: XGBoost models for football (multi-class 1X2 + Poisson O/U 2.5) and NBA (winner classifier + total regressor). Per-league Platt calibration. Time-series 5-fold CV.
+*   **Swappable model families (estimator seam)**: the football model family is decoupled from the pipeline behind a small registry — train and serve any registered estimator (XGBoost, logistic regression, random forest, Poisson GLM …) per head without touching training/serving code. Includes a cross-model value-bet benchmark. See [Swappable Models](#swappable-models-estimator-seam).
 *   **Heuristic Adjustments**: Post-prediction logic (form momentum, standings differential, live red cards, in-play xG pace) to refine raw model probabilities.
 *   **Multi-Sport Betting Dashboard**: Flask web UI with sport-tabbed `/betting` page, three-lane bankroll strategy (value / conviction / model), virtual money slip history, cashout flow (synthetic + bookmaker-linked).
 *   **Live Analysis**: Server-side in-play snapshot + LiveAdjuster (Poisson goal model from observed xG). Auto-cashout (functionality test) sweeps every 10 min while armed.
@@ -99,6 +100,40 @@ python3 scripts/euroleague_probe/fetch_seasons.py --start 2017 --end 2025 --comp
     ```bash
     python3 scripts/run_live_analysis.py
     ```
+
+### Swappable Models (estimator seam)
+The football model family is **decoupled** from the rest of the pipeline. Training, serving, and benchmarking all talk to a uniform `fit` / `predict_proba` (or `predict` for the Poisson O/U head) contract defined in [`ml_project/model_registry.py`](ml_project/model_registry.py) — they never reference XGBoost directly. Swapping a model is a config choice, not a code change.
+
+```
+                       ┌──────────────────────────┐
+                       │     model_registry.py     │   the seam
+                       │  REGISTRY[market][family] │   (1x2 | ou | draw)
+                       │  → ModelSpec.build()      │   xgboost · logreg · rf · poisson_glm …
+                       └────────────┬──────────────┘
+              build()               │                 load via meta sidecar
+        ┌──────────────────────────┼───────────────────────────┐
+        ▼                          ▼                            ▼
+  train_model.py            benchmark_models.py           predict_matches.py
+  (fit + write              (compare families on a        (load family from
+   model_meta_<m>.json)      value-bet backtest)           model_meta_<m>.json;
+                                                            legacy XGBoost JSON
+                                                            fallback if absent)
+```
+
+Each trained head writes a `models/model_meta_<market>.json` sidecar recording which family/artifact serves it; the predictor reads it and loads the right estimator (falling back to the legacy XGBoost JSON when no sidecar exists, so existing deployments are unchanged). Production stays byte-identical XGBoost by default.
+
+```bash
+# Cross-model value-bet benchmark (research only — touches no production model)
+PYTHONPATH="$(pwd):$(pwd)/ml_project" python3 scripts/benchmark_models.py \
+    --models implied,prior,logreg,rf,xgboost
+
+# Train a challenger family per head (default for every head is xgboost)
+MODEL_FAMILY_1X2=logreg MODEL_FAMILY_OU=poisson_glm \
+    python3 ml_project/train_model.py
+./bin/run_predictions.sh    # predictor auto-loads whatever was trained
+```
+
+Registered families: **1X2** `xgboost` · `logreg` · `rf`; **O/U** `xgboost` · `poisson_glm`; **draw** `xgboost` · `logreg` (draw is trained but not served at inference). Add a new one by registering a `ModelSpec` factory in `model_registry.py`. Note: swapping the *production* model invalidates `league_calibration.json` (fit against the deployed model) — roll model changes through `./bin/retrain_pipeline.sh`, which refits calibration in the same run.
 
 ## Documentation
 Per-sport roadmaps live at the repo root (forward-looking — phase status, active queue, deferred items):

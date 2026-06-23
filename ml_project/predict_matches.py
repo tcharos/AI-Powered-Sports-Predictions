@@ -11,6 +11,7 @@ from data_loader import DataLoader
 import glob
 
 from heuristic_adjuster import HeuristicAdjuster
+from model_registry import load_1x2_model, load_ou_model
 
 # Per-league Platt calibration (Phase C4). Loaded once at construction.
 from ml_project.calibration.apply import (
@@ -36,13 +37,15 @@ def _load_league_calibration_flag(default: bool = True) -> bool:
 
 class MatchPredictor:
     def __init__(self, history_dir="data_sets/MatchHistory", scraper_output="output/output.json"):
-        # Load Models
-        self.model_1x2 = xgb.XGBClassifier()
-        self.model_1x2.load_model("models/xgb_model_1x2.json")
-        
-        # Load O/U Model (Regressor now)
-        self.model_ou = xgb.XGBRegressor() 
-        self.model_ou.load_model("models/xgb_model_ou.json")
+        # Load Models — 1X2 head resolves through the registry seam: a
+        # model_meta_1x2.json sidecar (if present) picks the family; otherwise
+        # it falls back to the legacy XGBoost JSON, so a pre-seam deployment is
+        # unchanged.
+        self.model_1x2, self.model_1x2_family = load_1x2_model("models")
+
+        # Load O/U Model (Poisson regressor) — also seam-routed via meta with
+        # a legacy XGBoost-JSON fallback. predict(X) -> lambda.
+        self.model_ou, self.model_ou_family = load_ou_model("models")
         
         # Draw Model (Stage A): no longer used in the prediction loop —
         # the 2-stage average was acting as an implicit base-rate regularizer,
@@ -76,7 +79,18 @@ class MatchPredictor:
         # rebuilds the inference column against exactly this set and lets any
         # unseen league fall through as missing. See run_predictions failures
         # on "WORLD: World Championship" and "Veikkausliiga " (2026-06-05).
-        self.known_leagues = self._load_model_league_categories("models/xgb_model_1x2.json")
+        # league_cat is an XGBoost-only categorical; other families consume a
+        # numeric-only feature list. The training categories are identical
+        # across heads (same data), so decode them from whichever served head
+        # is XGBoost — preferring 1X2, falling back to O/U so a non-XGBoost
+        # 1X2 challenger paired with the XGBoost O/U head still gets correct
+        # category handling.
+        if self.model_1x2_family == 'xgboost':
+            self.known_leagues = self._load_model_league_categories("models/xgb_model_1x2.json")
+        elif self.model_ou_family == 'xgboost':
+            self.known_leagues = self._load_model_league_categories("models/xgb_model_ou.json")
+        else:
+            self.known_leagues = []
 
         self.adjuster = HeuristicAdjuster()
 

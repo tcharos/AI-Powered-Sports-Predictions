@@ -8,12 +8,20 @@ import os
 import gc
 from data_loader import DataLoader
 from feature_engineering import FeatureEngineer
+from model_registry import get_spec, save_meta
 import feature_engineering
 print(f"DEBUG: Loaded feature_engineering from {feature_engineering.__file__}")
 
 class ModelTrainer:
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, model_family: str = 'xgboost',
+                 ou_family: str = 'xgboost', draw_family: str = 'xgboost'):
         self.data_dir = data_dir
+        # Per-head model families, each resolved through the registry seam.
+        # 'xgboost' is production and byte-identical to the pre-seam path;
+        # the other families (see model_registry) are swappable challengers.
+        self.model_family = model_family   # 1X2 head
+        self.ou_family = ou_family         # Over/Under 2.5 head
+        self.draw_family = draw_family     # binary draw head
         self.common_features = [
             'H_form_pts', 'H_form_gf', 'H_form_ga',
             'A_form_pts', 'A_form_gf', 'A_form_ga',
@@ -114,17 +122,25 @@ class ModelTrainer:
         return df_train
 
     def train_draw(self, df):
-        print("\n--- Training Binary Draw Model (Stage A) ---")
+        print(f"\n--- Training Binary Draw Model (Stage A, family={self.draw_family}) ---")
+        # Resolved through the seam. NOTE: the draw head is trained but NOT
+        # served at inference (predict_matches leaves model_draw=None) — see
+        # FOOTBALL_NEXT_STEPS D0. Seam-routing keeps it swappable for future
+        # reactivation / experiments.
+        spec = get_spec('draw', self.draw_family)
+
         features = ['B365D', 'abs_elo_diff', 'abs_ppg_diff', 'abs_form_pts_diff'] + self.common_features
         features = list(dict.fromkeys(features)) # Remove duplicates while preserving order
-        
+        if not spec.uses_categorical and 'league_cat' in features:
+            features = [f for f in features if f != 'league_cat']
+
         # We focus on features relevant to balance/uncertainty
         df_train = df.dropna(subset=features + ['target_draw']).copy()
         df_train = df_train.sort_values('date')
 
-        if 'league_cat' in df_train.columns:
+        if spec.uses_categorical and 'league_cat' in df_train.columns:
             df_train['league_cat'] = df_train['league_cat'].astype('category')
-            
+
         # Class balance note: draws are ~25%. Default (no scale_pos_weight,
         # i.e. weight 1.0) produces well-calibrated probabilities — mean
         # predicted P(draw) ≈ 0.26, matching the actual rate of 0.25
@@ -144,28 +160,19 @@ class ModelTrainer:
         # power even at lower thresholds (rec@0.3 ≈ 0.23). It's effectively
         # a near-constant predictor that contributes little signal beyond
         # the multi-class 1X2 model. See FOOTBALL_NEXT_STEPS D0 for the proper fix
-        # (richer features or different architecture).
-        params = {
-            'objective': 'binary:logistic',
-            'n_estimators': 100,
-            'learning_rate': 0.05, # Lower LR for stability
-            'max_depth': 4, # Shallower trees
-            'eval_metric': 'logloss',
-            'tree_method': 'hist',
-            'enable_categorical': True
-        }
+        # (richer features or different architecture). The XGBoost params
+        # (binary:logistic, n_est 100, lr 0.05, max_depth 4) now live in the
+        # draw spec in model_registry.
 
         # Quick Train (Validation split)
         split_idx = int(len(df_train) * 0.90)
         train_data = df_train.iloc[:split_idx]
         valid_data = df_train.iloc[split_idx:]
 
-        model = xgb.XGBClassifier(**params)
-        model.fit(
-            train_data[features], train_data['target_draw'],
-            eval_set=[(valid_data[features], valid_data['target_draw'])],
-            verbose=False
-        )
+        # Plain fit (no eval_set) — the draw params carry no early stopping,
+        # so the prior eval_set never altered the fitted model.
+        model = spec.build()
+        model.fit(train_data[features], train_data['target_draw'])
 
         # Metrics — report at multiple thresholds since the default 0.5
         # is the wrong cut for a positive-weighted binary classifier.
@@ -192,22 +199,39 @@ class ModelTrainer:
             print(f"  ⚠ WARN: model is undercalibrating draws — mean P(draw) is "
                   f"{mean_p/actual_draw_rate:.2f}x the actual rate. Consider raising scale_pos_weight.")
         
-        model.save_model("models/xgb_model_draw.json")
+        if self.draw_family == 'xgboost':
+            artifact = "xgb_model_draw.json"
+            model.save_model(f"models/{artifact}")
+        else:
+            import joblib
+            artifact = f"sk_model_draw_{self.draw_family}.joblib"
+            joblib.dump(model, f"models/{artifact}")
+        save_meta('draw', self.draw_family, artifact)
         with open("models/features_draw.json", "w") as f:
             json.dump(features, f)
-        print("Saved Draw model.")
+        print(f"Saved Draw model ({self.draw_family}).")
 
     def train_1x2(self, df):
-        print("\n--- Training 1X2 Model ---")
+        print(f"\n--- Training 1X2 Model (family={self.model_family}) ---")
+        # The model family is resolved through the shared seam (model_registry).
+        # The estimator carries its own params (XGBoost honours the tuned
+        # best_params_1x2.json; linear/tree baselines carry their own pipeline),
+        # so this method no longer assembles XGBoost params inline.
+        spec = get_spec('1x2', self.model_family)
+
         # Ensure unique features
         features = ['B365H', 'B365D', 'B365A'] + self.common_features
         features = list(dict.fromkeys(features))
-        
+        # league_cat is an XGBoost-categorical column; families that can't
+        # consume a category dtype (linear/tree baselines) drop it.
+        if not spec.uses_categorical and 'league_cat' in features:
+            features = [f for f in features if f != 'league_cat']
+
         df_train = df.dropna(subset=features + ['target_1x2']).copy()
         df_train = df_train.sort_values('date')
 
-        # Enable Categorical for XGBoost
-        if 'league_cat' in df_train.columns:
+        # Enable Categorical for XGBoost (only when the family consumes it)
+        if spec.uses_categorical and 'league_cat' in df_train.columns:
             df_train['league_cat'] = df_train['league_cat'].astype('category')
 
         # 1. Cross-Validation
@@ -216,36 +240,17 @@ class ModelTrainer:
         accuracies = []
         recalls = []
 
-        # Load Best Params if available
-        param_file = "models/best_params_1x2.json"
-        if os.path.exists(param_file):
-            print(f"Loading tuned parameters from {param_file}...")
-            with open(param_file, "r") as f:
-                params = json.load(f)
-        else:
-            print("Using default parameters (No tuning found)...")
-            params = {
-                'objective': 'multi:softprob',
-                'num_class': 3,
-                'n_estimators': 100,
-                'learning_rate': 0.1,
-                'max_depth': 5,
-                'eval_metric': 'mlogloss',
-                'early_stopping_rounds': 10,
-                'tree_method': 'hist', # Required for categorical
-                'enable_categorical': True
-            }
-
         for fold, (train_idx, test_idx) in enumerate(tscv.split(df_train)):
             cv_train = df_train.iloc[train_idx]
             cv_test = df_train.iloc[test_idx]
 
-            model = xgb.XGBClassifier(**params)
-            model.fit(
-                cv_train[features], cv_train['target_1x2'],
-                eval_set=[(cv_test[features], cv_test['target_1x2'])],
-                verbose=False
-            )
+            # Plain fit (no eval_set): the tuned params carry no
+            # early_stopping_rounds, so the prior eval_set only logged a
+            # metric — it never altered tree building. Dropping it keeps the
+            # fitted model identical while unifying the fit contract across
+            # families.
+            model = spec.build()
+            model.fit(cv_train[features], cv_train['target_1x2'])
             # Predictions
             preds_prob = model.predict_proba(cv_test[features])
             preds_class = model.predict(cv_test[features])
@@ -275,11 +280,13 @@ class ModelTrainer:
             # 5. ROI Simulation (Flat betting on prediction)
             # Odds columns: B365H (index 0), B365D (index 1), B365A (index 2)
             odds_cols = ['B365H', 'B365D', 'B365A']
-            # Get odds for the predicted class
-            # preds_class is array of 0, 1, 2. We need to select corresponding column.
-            # Advanced indexing:
+            # Get odds for the predicted class via advanced indexing.
+            # preds_class must be integer here: XGBoost.predict returns int,
+            # but sklearn classifiers return labels in the dtype of y, which is
+            # float64 after the target's dropna — cast so the index is valid
+            # for any family. (XGBoost path unchanged: astype(int) is a no-op.)
             rows = np.arange(len(preds_class))
-            pred_odds = cv_test[odds_cols].values[rows, preds_class]
+            pred_odds = cv_test[odds_cols].values[rows, np.asarray(preds_class).astype(int)]
             
             # Profit logic: if correct, profit = odds - 1. If wrong, profit = -1.
             profits = np.where(is_correct, pred_odds - 1.0, -1.0)
@@ -293,87 +300,72 @@ class ModelTrainer:
         
         print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg Recall: {np.mean(recalls):.4f}")
         
-        # 2. Final Training on Full Dataset (with small validation split for early stopping)
+        # 2. Final Training on the same 95% head the pre-seam path used.
+        # (The trailing 5% was only ever an eval_set for an early-stopping
+        # rule that the tuned params don't enable, so the saved model was
+        # always fit on this 95% slice. Fitting it without the inert eval_set
+        # reproduces the identical model.)
         print("Retraining Final Model on Full Dataset (2020-Present)...")
-        # Use last 5% as validation to prevent overfitting on the very last chunk, but maximize training data
         split_idx = int(len(df_train) * 0.95)
         final_train = df_train.iloc[:split_idx]
-        final_valid = df_train.iloc[split_idx:]
-        
-        final_model = xgb.XGBClassifier(**params)
-        final_model.fit(
-            final_train[features], final_train['target_1x2'],
-            eval_set=[(final_valid[features], final_valid['target_1x2'])],
-            verbose=False
-        )
-        
-        final_model.save_model("models/xgb_model_1x2.json")
+
+        final_model = spec.build()
+        final_model.fit(final_train[features], final_train['target_1x2'])
+
+        # Persistence. XGBoost keeps its native JSON path (what predict_matches
+        # loads today). Non-XGBoost families dump alongside via joblib; wiring
+        # the predictor to load them is step 3 of the estimator-seam plan.
+        if self.model_family == 'xgboost':
+            artifact = "xgb_model_1x2.json"
+            final_model.save_model(f"models/{artifact}")
+        else:
+            import joblib
+            artifact = f"sk_model_1x2_{self.model_family}.joblib"
+            joblib.dump(final_model, f"models/{artifact}")
+        # Record which family/artifact serves this head so predict_matches
+        # loads the right one (legacy XGBoost JSON still works without it).
+        save_meta('1x2', self.model_family, artifact)
         with open("models/features_1x2.json", "w") as f:
             json.dump(features, f)
-        print("Saved final 1X2 model.")
+        print(f"Saved final 1X2 model ({self.model_family}).")
 
     def train_ou(self, df):
-        print("\n--- Training O/U 2.5 Model (Poisson Regression) ---")
+        print(f"\n--- Training O/U 2.5 Model (Poisson, family={self.ou_family}) ---")
+        # Resolved through the seam — the spec carries the Poisson objective
+        # and tuned params (XGBoost) or its own pipeline (GLM baseline).
+        spec = get_spec('ou', self.ou_family)
+
         features = ['B365H', 'B365D', 'B365A', 'H_form_ou', 'A_form_ou'] + self.common_features
         features = list(dict.fromkeys(features))
-        
+        if not spec.uses_categorical and 'league_cat' in features:
+            features = [f for f in features if f != 'league_cat']
+
         # Target: Total Goals
         df['total_goals'] = df['FTHG'] + df['FTAG']
-        
+
         df_train = df.dropna(subset=features + ['total_goals']).copy()
         df_train = df_train.sort_values('date')
-        
-        # Enable Categorical for XGBoost
-        if 'league_cat' in df_train.columns:
+
+        # Enable Categorical for XGBoost (only when the family consumes it)
+        if spec.uses_categorical and 'league_cat' in df_train.columns:
             df_train['league_cat'] = df_train['league_cat'].astype('category')
-        
+
         # 1. Cross-Validation
         print("Running Time-Series Cross-Validation (5 Splits)...")
         tscv = TimeSeriesSplit(n_splits=5)
         accuracies = []
         recalls = []
         log_losses = []
-        
-        # Load Best Params if available
-        param_file = "models/best_params_ou.json"
-        
-        # Using Regression Parameters suitable for Count Data
-        # We try to load, but override the objective if it was binary
-        if os.path.exists(param_file):
-            print(f"Loading tuned parameters from {param_file}...")
-            with open(param_file, "r") as f:
-                params = json.load(f)
-            # FORCE Poisson or Regression objective
-            params['objective'] = 'count:poisson' 
-            # Remove binary-specific metrics if present
-            if 'eval_metric' in params and params['eval_metric'] in ['logloss', 'error']:
-                params['eval_metric'] = 'poisson-nloglik'
-        else:
-            print("Using default Poisson parameters...")
-            params = {
-                'objective': 'count:poisson',
-                'n_estimators': 100,
-                'learning_rate': 0.1,
-                'max_depth': 5,
-                'eval_metric': 'poisson-nloglik',
-                'early_stopping_rounds': 10,
-                'tree_method': 'hist',
-                'enable_categorical': True
-            }
-        
+
         for fold, (train_idx, test_idx) in enumerate(tscv.split(df_train)):
             cv_train = df_train.iloc[train_idx]
             cv_test = df_train.iloc[test_idx]
-            
-            # Use XGBRegressor
-            model = xgb.XGBRegressor(**params)
-            
-            model.fit(
-                cv_train[features], cv_train['total_goals'],
-                eval_set=[(cv_test[features], cv_test['total_goals'])],
-                verbose=False
-            )
-            
+
+            # Plain fit (no eval_set) — the tuned OU params carry no early
+            # stopping, so the prior eval_set never altered the fitted model.
+            model = spec.build()
+            model.fit(cv_train[features], cv_train['total_goals'])
+
             preds_lambda = model.predict(cv_test[features])
             
             # --- Convert Lambda to Probability (Poisson) ---
@@ -411,26 +403,36 @@ class ModelTrainer:
             
         print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg Recall: {np.mean(recalls):.4f} | Avg LogLoss: {np.mean(log_losses):.4f}")
         
-        # 2. Final Training
+        # 2. Final Training (same 95% head the pre-seam path used; the inert
+        # eval_set is dropped, reproducing the identical model).
         print("Retraining Final Model on Full Dataset (2020-Present)...")
         split_idx = int(len(df_train) * 0.95)
         final_train = df_train.iloc[:split_idx]
-        final_valid = df_train.iloc[split_idx:]
-        
-        final_model = xgb.XGBRegressor(**params)
-        final_model.fit(
-            final_train[features], final_train['total_goals'],
-            eval_set=[(final_valid[features], final_valid['total_goals'])],
-            verbose=False
-        )
-        
-        final_model.save_model("models/xgb_model_ou.json")
+
+        final_model = spec.build()
+        final_model.fit(final_train[features], final_train['total_goals'])
+
+        if self.ou_family == 'xgboost':
+            artifact = "xgb_model_ou.json"
+            final_model.save_model(f"models/{artifact}")
+        else:
+            import joblib
+            artifact = f"sk_model_ou_{self.ou_family}.joblib"
+            joblib.dump(final_model, f"models/{artifact}")
+        save_meta('ou', self.ou_family, artifact)
         with open("models/features_ou.json", "w") as f:
             json.dump(features, f)
-        print("Saved final O/U model (Regression/Poisson).")
+        print(f"Saved final O/U model ({self.ou_family}).")
 
 if __name__ == "__main__":
-    trainer = ModelTrainer("data_sets/MatchHistory")
+    # Per-head family overrides for challenger experiments
+    # (default = production xgboost for every head).
+    trainer = ModelTrainer(
+        "data_sets/MatchHistory",
+        model_family=os.environ.get("MODEL_FAMILY_1X2", "xgboost"),
+        ou_family=os.environ.get("MODEL_FAMILY_OU", "xgboost"),
+        draw_family=os.environ.get("MODEL_FAMILY_DRAW", "xgboost"),
+    )
     data = trainer.prepare_data()
     trainer.train_1x2(data)
     trainer.train_draw(data)

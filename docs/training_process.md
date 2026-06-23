@@ -47,10 +47,14 @@ The raw data is processed by `ml_project/feature_engineering.py` to generate the
     *   `A_away_...`: Away team's form *only in away games*.
 
 ## 3. Model Training
-*   **Algorithm**: XGBoost (`XGBClassifier`).
+*   **Algorithm**: XGBoost (`XGBClassifier` / `XGBRegressor`) by default — but the model *family* is pluggable (see "Swappable model families" below).
 *   **Models**:
     1.  **1X2 Model**: Multi-class classification (Home, Draw, Away).
     2.  **O/U Model**: Binary classification (Under 2.5, Over 2.5).
+*   **Swappable model families (estimator seam)**:
+    *   `ml_project/model_registry.py` decouples the model family from the pipeline. `REGISTRY[market][family]` (markets `1x2`/`ou`/`draw`) returns a `ModelSpec` whose `build()` yields a fresh estimator with a uniform contract (`predict_proba` for `1x2`/`draw`, `predict`→Poisson λ for `ou`).
+    *   `train_model.py` builds every head through the seam and writes a `models/model_meta_<market>.json` sidecar; `predict_matches.py` loads each head from that sidecar (legacy `xgb_model_<market>.json` fallback). `scripts/benchmark_models.py` compares families on a value-bet backtest.
+    *   Pick a family per head with the env vars `MODEL_FAMILY_1X2` / `MODEL_FAMILY_OU` / `MODEL_FAMILY_DRAW` (default `xgboost`, byte-identical to the pre-seam path). Registered: 1X2 `xgboost`/`logreg`/`rf`; O/U `xgboost`/`poisson_glm`; draw `xgboost`/`logreg`.
 *   **Hyperparameter Tuning**:
     *   Executed via `ml_project/tune_model.py`.
     *   Parameters are optimized in 6 steps (Trees -> Depth -> Gamma -> Sampling -> Reg -> LR).
