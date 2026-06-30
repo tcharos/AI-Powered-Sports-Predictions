@@ -176,7 +176,19 @@ def resolve_all_bets(bets_dir, results_file=None, verification_file=None, config
 
         file_date = extract_date_from_filename(b_file)
         if target_date and file_date and file_date != target_date:
-            continue
+            # Wrong-date slip: never settle its bets against today's results.
+            # But still let it through to finalize if every bet is already
+            # terminal — otherwise a slip whose bets all went terminal
+            # out-of-band (manual void/cashout, or settled on its own date)
+            # would be stuck OPEN forever, because this file is never the
+            # current target_date again. Falling through is safe: Phase A's
+            # bet-level guard skips any non-OPEN bet, so nothing is mis-settled.
+            bets = bets_data.get('bets', [])
+            still_open = any(b.get('status', 'OPEN') == 'OPEN' for b in bets)
+            if not bets or still_open or bets_data.get('status') == 'CLOSED':
+                continue
+            # else: fall through — Phase A is a no-op (all bets terminal),
+            # Phase B recomputes totals, the tail sets status=CLOSED.
 
         bets = bets_data.get('bets', [])
 

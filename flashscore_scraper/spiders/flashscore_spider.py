@@ -341,7 +341,33 @@ class FlashscoreSpider(scrapy.Spider):
                     # Capture scores if available (for verification mode)
                     home_score = child.css('.event__score--home::text').get()
                     away_score = child.css('.event__score--away::text').get()
-                    
+
+                    # Match stage/status text (e.g. "Finished", "After Pen.",
+                    # "AET", "Postp.", or a live minute). Scheduled matches show
+                    # only a kickoff time and have no populated stage block.
+                    stage_text = ' '.join(child.css('.event__stage ::text').getall()).strip()
+
+                    # In PREDICTION mode we only want not-yet-started fixtures.
+                    # A match that has already finished (incl. AET / penalties),
+                    # is live, or is postponed/abandoned can still appear in the
+                    # day's list with a final score and a stage marker — skip it
+                    # so it isn't treated as an upcoming fixture to predict.
+                    if self.mode == 'prediction':
+                        has_score = (str(home_score or '').strip().isdigit()
+                                     and str(away_score or '').strip().isdigit())
+                        finished_markers = (
+                            'finished', 'after pen', 'aet', 'awarded',
+                            'walkover', 'abandoned', 'cancel', 'postp', 'retired',
+                        )
+                        stage_lower = stage_text.lower()
+                        if has_score or any(m in stage_lower for m in finished_markers):
+                            self.logger.info(
+                                f"Skipping non-upcoming match (Prediction): "
+                                f"{home_team} vs {away_team} "
+                                f"[{stage_text or f'{home_score}-{away_score}'}]"
+                            )
+                            continue
+
                     item = MatchItem()
                     item['match_id'] = match_id
                     item['home_team'] = home_team
