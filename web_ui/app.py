@@ -2421,7 +2421,8 @@ def auto_wager():
             if stake < min_stake_eur:
                 return None
             bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
-            bet.update({'lane': 'value', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
+            bet.update({'lane': 'value', 'stake_units': round(stake, 2), 'stake': round(stake, 2),
+                        '_rank': ev})
             return bet
 
         def build_conviction_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
@@ -2434,7 +2435,8 @@ def auto_wager():
             if stake < min_stake_eur:
                 return None
             bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
-            bet.update({'lane': 'conviction', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
+            bet.update({'lane': 'conviction', 'stake_units': round(stake, 2), 'stake': round(stake, 2),
+                        '_rank': conf})
             return bet
 
         def build_model_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
@@ -2449,7 +2451,8 @@ def auto_wager():
             if stake < model_min_stake_eur:
                 return None
             bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
-            bet.update({'lane': 'model', 'stake_units': round(stake, 2), 'stake': round(stake, 2)})
+            bet.update({'lane': 'model', 'stake_units': round(stake, 2), 'stake': round(stake, 2),
+                        '_rank': conf * ev_factor})
             return bet
 
         value_bets, conviction_bets, model_bets = [], [], []
@@ -2465,23 +2468,43 @@ def auto_wager():
                 mb = build_model_bet(row, bet_type, sel, odd, conf, ev, kelly)
                 if mb: model_bets.append(mb)
 
-        def _enforce_daily_cap(bets, bankroll, cap_pct, lane_name, floor):
-            """Per-lane daily cap: scale this lane proportionally if it exceeds cap. Drop sub-floor."""
+        def _enforce_daily_cap(bets, bankroll, cap_pct, lane_name):
+            """Per-lane daily cap: rank-and-truncate — keep the best bets at full
+            stake until the cap is exhausted, drop the rest.
+
+            The previous policy scaled every stake pro-rata to fit the cap, which
+            broke down on large slates: with ~128 fixtures the value/model lanes
+            produced 57/254 candidates, the scale factor fell to 0.12/0.24, and
+            *every* scaled stake landed under the lane's min-stake floor — so both
+            lanes emptied out completely (see bets_2026-08-29.json). Truncation
+            keeps the surviving bets at their intended size and honours the cap
+            exactly. Each builder stamps a `_rank` (value: EV, conviction: conf,
+            model: conf x ev_factor); a bet that doesn't fit the remaining room is
+            skipped rather than ending the fill, so smaller bets further down can
+            still use it up. Stakes are never scaled, and builders already reject
+            sub-floor stakes, so no floor check is needed here.
+            """
             cap = bankroll * cap_pct
             total = sum(b['stake_units'] for b in bets)
             action = None
             if cap > 0 and total > cap:
-                scale = cap / total
-                for b in bets:
-                    b['stake_units'] = round(b['stake_units'] * scale, 2)
-                    b['stake'] = b['stake_units']
-                bets = [b for b in bets if b['stake_units'] >= floor]
-                action = f"{lane_name}-scaled"
+                ranked = sorted(bets, key=lambda b: b['_rank'], reverse=True)
+                kept, room = [], cap
+                for b in ranked:
+                    if b['stake_units'] <= room:
+                        kept.append(b)
+                        room -= b['stake_units']
+                action = f"{lane_name}-truncated {len(kept)}/{len(bets)}"
+                # Restore the original (CSV) ordering for display.
+                kept_ids = {id(b) for b in kept}
+                bets = [b for b in bets if id(b) in kept_ids]
+            for b in bets:
+                b.pop('_rank', None)
             return bets, cap, action
 
-        value_bets, value_cap, value_action     = _enforce_daily_cap(value_bets, value_br, value_cap_pct, 'value', min_stake_eur)
-        conviction_bets, conv_cap, conv_action  = _enforce_daily_cap(conviction_bets, conv_br, conv_cap_pct, 'conviction', min_stake_eur)
-        model_bets, model_cap, model_action     = _enforce_daily_cap(model_bets, model_br, model_cap_pct, 'model', model_min_stake_eur)
+        value_bets, value_cap, value_action     = _enforce_daily_cap(value_bets, value_br, value_cap_pct, 'value')
+        conviction_bets, conv_cap, conv_action  = _enforce_daily_cap(conviction_bets, conv_br, conv_cap_pct, 'conviction')
+        model_bets, model_cap, model_action     = _enforce_daily_cap(model_bets, model_br, model_cap_pct, 'model')
 
         value_total      = sum(b['stake_units'] for b in value_bets)
         conviction_total = sum(b['stake_units'] for b in conviction_bets)
