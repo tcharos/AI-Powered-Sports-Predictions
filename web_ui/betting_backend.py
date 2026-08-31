@@ -63,6 +63,67 @@ def make_bet_id(date: str, home: str, away: str,
     return f"{date}:{_slug(home)}:{_slug(away)}:{_slug(bet_type)}:{_slug(selection)}"
 
 
+# ---- slip finalization ----------------------------------------------------
+
+def recompute_slip_totals(slip: dict) -> dict:
+    """Recompute a slip's aggregate fields from its bets' current state.
+
+    Mirrors Phase B of `ml_project/resolve_daily_bets.resolve_all_bets`
+    so that mutations made outside the settlement pass (manual void,
+    cashout, slip cancel) leave the slip in the same shape settlement
+    would. Idempotent — safe to call after every write.
+
+    Sets `pnl`, `total_return`, `return_by_lane`, `pnl_by_lane`,
+    `settled` and `status` ('OPEN' while any bet is still OPEN,
+    'CLOSED' once every bet is terminal — which is what makes the
+    Archive button appear). Mutates and returns `slip`.
+    """
+    from sports_config import LANES
+
+    total_pnl = 0.0
+    total_return = 0.0
+    return_by_lane = {lane: 0.0 for lane in LANES}
+    pnl_by_lane = {lane: 0.0 for lane in LANES}
+    bets = slip.get('bets', [])
+    for bet in bets:
+        status = bet.get('status', 'OPEN')
+        if status == 'OPEN':
+            continue
+        lane = bet.get('lane', 'value')
+        if lane not in LANES:
+            lane = 'value'
+        stake = float(bet.get('stake', bet.get('stake_units', 0)) or 0)
+        if status == 'CASHED_OUT':
+            amount = float(bet.get('cashout_amount', stake) or 0)
+            pnl_v = float(bet.get('pnl', amount - stake) or 0)
+            return_by_lane[lane] += amount
+            pnl_by_lane[lane] += pnl_v
+            total_return += amount
+            total_pnl += pnl_v
+        elif status == 'WON':
+            odd = float(bet.get('odd', bet.get('odds', 1.0)) or 1.0)
+            payout = stake * odd
+            return_by_lane[lane] += payout
+            pnl_by_lane[lane] += payout - stake
+            total_return += payout
+            total_pnl += payout - stake
+        elif status == 'LOST':
+            pnl_by_lane[lane] -= stake
+            total_pnl -= stake
+        elif status == 'VOID':
+            return_by_lane[lane] += stake
+            total_return += stake
+
+    any_open = any(b.get('status', 'OPEN') == 'OPEN' for b in bets)
+    slip['pnl'] = round(total_pnl, 2)
+    slip['total_return'] = round(total_return, 2)
+    slip['return_by_lane'] = {k: round(v, 2) for k, v in return_by_lane.items()}
+    slip['pnl_by_lane'] = {k: round(v, 2) for k, v in pnl_by_lane.items()}
+    slip['settled'] = not any_open
+    slip['status'] = 'OPEN' if any_open else 'CLOSED'
+    return slip
+
+
 # ---- shared constants (fair-value cashout) --------------------------------
 
 # Selection → adjusted-probs key. Duplicated from app.py's
@@ -380,6 +441,7 @@ class VirtualBettingBackend(BettingBackend):
         if cashed_count == 0:
             return False  # nothing OPEN matched; nothing to write
 
+        recompute_slip_totals(slip)
         with open(slip_path, 'w') as f:
             json.dump(slip, f, indent=4)
         return True
@@ -447,6 +509,7 @@ class VirtualBettingBackend(BettingBackend):
         if voided_count == 0:
             return False
 
+        recompute_slip_totals(slip)
         with open(slip_path, 'w') as f:
             json.dump(slip, f, indent=4)
         return True
@@ -499,7 +562,7 @@ class VirtualBettingBackend(BettingBackend):
             update_bankroll(self.SPORT, stake, lane=lane)
             refunded_by_lane[lane] = refunded_by_lane.get(lane, 0.0) + stake
 
-        slip['status'] = 'CLOSED'
+        recompute_slip_totals(slip)
         slip['cancelled_timestamp'] = now_iso
         with open(slip_path, 'w') as f:
             json.dump(slip, f, indent=4)
