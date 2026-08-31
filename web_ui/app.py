@@ -206,15 +206,23 @@ def index():
         _bet_by_league = {r['league']: r for r in compute_league_betting_summary(OUTPUT_DIR, lane='model')}
         for row in league_stats:
             b = _bet_by_league.get(row['League'])
+            open_count = (b['bets'] - b['settled']) if b else 0
             if b and b.get('settled'):
                 row['Bet_Settled'] = b['settled']
-                row['Bet_Stake'] = b['stake']
+                # All four money columns are over the SETTLED subset so the row
+                # reconciles: Return - Stake = P/L, and ROI = P/L / Stake. Using
+                # the total committed stake here instead (which includes bets
+                # still OPEN) made high-ROI leagues look like they returned less
+                # than they staked. Unsettled money is reported as Open EUR.
+                row['Bet_Stake'] = b['settled_stake']
                 row['Bet_Returned'] = b['returned']
                 row['Bet_PnL'] = b['pnl']
                 row['Bet_ROI'] = b['roi']
             else:
                 row['Bet_Settled'] = 0
                 row['Bet_Stake'] = row['Bet_Returned'] = row['Bet_PnL'] = row['Bet_ROI'] = None
+            row['Bet_Open_Stake'] = round(b['stake'] - b['settled_stake'], 2) if open_count else None
+            row['Bet_Open_Count'] = open_count
     except Exception:
         pass
 

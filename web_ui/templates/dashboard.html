@@ -232,43 +232,48 @@
     <div id="leagueStatsBody" class="collapse">
         <div class="card-body p-0">
             {% if league_stats %}
-            <table class="table table-sm table-striped m-0">
+            <div class="px-3 py-2 border-bottom small text-muted d-flex justify-content-between align-items-center">
+                <span>Click a column to sort · Shift+click to add it as a secondary (then tertiary…) sort key</span>
+                <a href="#" id="leagueStatsSortClear" class="link-secondary" style="display:none;">Clear sort</a>
+            </div>
+            <table class="table table-sm table-striped m-0" id="leagueStatsTable">
                 <thead>
                     <tr>
-                        <th>League</th>
-                        <th title="Predicted + verified matches (the accuracy denominator)">Count</th>
-                        <th>Accuracy 1X2 (%)</th>
-                        <th>Accuracy O/U (%)</th>
-                        <th title="Settled MODEL-LANE bets in this league (the model lane bets ~every prediction, so it tracks the accuracy coverage). Cashout-aware.">Bets (model)</th>
-                        <th>Stake €</th>
-                        <th title="Gross money returned: payouts on wins + cashout amounts + void refunds (P/L = Return − Stake)">Return €</th>
-                        <th title="Realized model-lane betting P/L for this league (money, not accuracy)">P/L €</th>
-                        <th title="Realized model-lane betting ROI for this league = P/L / Stake">ROI %</th>
+                        <th class="sortable" data-type="text">League <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Predicted + verified matches (the accuracy denominator)">Count <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num">Accuracy 1X2 (%) <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num">Accuracy O/U (%) <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Settled MODEL-LANE bets in this league (the model lane bets ~every prediction, so it tracks the accuracy coverage). Cashout-aware.">Bets (model) <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Stake of the SETTLED bets only — the denominator the Return / P/L / ROI columns are measured against. Money still riding on unsettled bets is in the Open € column.">Stake € <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Gross money returned by those settled bets: payouts on wins + cashout amounts + void refunds (P/L = Return − Stake)">Return € <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Realized model-lane betting P/L for this league (money, not accuracy)">P/L € <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Realized model-lane betting ROI for this league = P/L / Stake (settled)">ROI % <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Stake still in flight: bets placed in this league that haven't settled yet. Excluded from Stake / Return / P/L / ROI, which cover settled bets only.">Open € <span class="sort-ind"></span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for stat in league_stats %}
                     <tr>
-                        <td>{{ stat['League'] }}</td>
-                        <td>{{ stat['Count'] }}</td>
-                        <td>
+                        <td data-v="{{ stat['League'] }}">{{ stat['League'] }}</td>
+                        <td data-v="{{ stat['Count'] }}">{{ stat['Count'] }}</td>
+                        <td data-v="{{ stat['Acc_1X2'] }}">
                             <span class="badge acc-badge {{ 'bg-success' if stat['Acc_1X2'] > 50 else 'bg-warning' }}">
                                 {{ stat['Acc_1X2'] }}%
                             </span>
                         </td>
-                        <td>
+                        <td data-v="{{ stat['Acc_OU'] }}">
                             <span class="badge acc-badge {{ 'bg-success' if stat['Acc_OU'] > 50 else 'bg-warning' }}">
                                 {{ stat['Acc_OU'] }}%
                             </span>
                         </td>
                         {% if stat.get('Bet_PnL') is not none %}
-                        <td>{{ stat['Bet_Settled'] }}</td>
-                        <td>{{ stat['Bet_Stake'] }}</td>
-                        <td>{{ stat['Bet_Returned'] }}</td>
-                        <td class="fw-bold {{ 'text-success' if stat['Bet_PnL'] > 0 else ('text-danger' if stat['Bet_PnL'] < 0 else 'text-muted') }}">
+                        <td data-v="{{ stat['Bet_Settled'] }}">{{ stat['Bet_Settled'] }}</td>
+                        <td data-v="{{ stat['Bet_Stake'] }}">{{ stat['Bet_Stake'] }}</td>
+                        <td data-v="{{ stat['Bet_Returned'] }}">{{ stat['Bet_Returned'] }}</td>
+                        <td data-v="{{ stat['Bet_PnL'] }}" class="fw-bold {{ 'text-success' if stat['Bet_PnL'] > 0 else ('text-danger' if stat['Bet_PnL'] < 0 else 'text-muted') }}">
                             {{ '+' if stat['Bet_PnL'] > 0 else '' }}{{ stat['Bet_PnL'] }}
                         </td>
-                        <td class="fw-bold {{ 'text-success' if stat['Bet_ROI'] > 0 else ('text-danger' if stat['Bet_ROI'] < 0 else 'text-muted') }}">
+                        <td data-v="{{ stat['Bet_ROI'] }}" class="fw-bold {{ 'text-success' if stat['Bet_ROI'] > 0 else ('text-danger' if stat['Bet_ROI'] < 0 else 'text-muted') }}">
                             {{ '+' if stat['Bet_ROI'] > 0 else '' }}{{ stat['Bet_ROI'] }}%
                         </td>
                         {% else %}
@@ -276,6 +281,12 @@
                         <td class="text-muted">—</td>
                         <td class="text-muted">—</td>
                         <td class="text-muted">—</td>
+                        <td class="text-muted">—</td>
+                        {% endif %}
+                        {% if stat.get('Bet_Open_Stake') is not none %}
+                        <td data-v="{{ stat['Bet_Open_Stake'] }}" class="text-muted"
+                            title="{{ stat['Bet_Open_Count'] }} bet(s) not settled yet">{{ stat['Bet_Open_Stake'] }}</td>
+                        {% else %}
                         <td class="text-muted">—</td>
                         {% endif %}
                     </tr>
@@ -468,6 +479,95 @@
     wireCollapsible('recentReportsBody', 'recentReportsChevron', 'recentReportsOpen', true);
     wireCollapsible('leagueStatsBody',   'leagueStatsChevron',   'leagueStatsOpen',   false);
     wireCollapsible('scrapedDataBody',   'scrapedDataChevron',   'scrapedDataOpen',   false);
+
+    // Cumulative League Performance: dynamic multi-column sorting.
+    // Click a header = sort by that column alone (click again flips direction).
+    // Shift+click = append it as the next tie-breaker (e.g. ROI %, then Bets).
+    // The chosen keys are remembered across visits.
+    (function () {
+        const table = document.getElementById('leagueStatsTable');
+        if (!table) return;
+        const headers = Array.from(table.tHead.rows[0].cells);
+        const tbody = table.tBodies[0];
+        const defaultRows = Array.from(tbody.rows);   // server order (Count desc)
+        const clearLink = document.getElementById('leagueStatsSortClear');
+        const KEY = 'leagueStatsSort';
+        let spec = [];   // [{i: <column index>, dir: 1 asc | -1 desc}], first = primary
+
+        try { spec = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { spec = []; }
+        if (!Array.isArray(spec)) spec = [];
+        spec = spec.filter(s => s && Number.isInteger(s.i) && s.i >= 0 && s.i < headers.length
+                                && (s.dir === 1 || s.dir === -1));
+
+        function defaultDir(i) { return headers[i].dataset.type === 'num' ? -1 : 1; }
+
+        function cellValue(row, i) {
+            const cell = row.cells[i];
+            if (!cell) return null;
+            const raw = cell.dataset.v;
+            if (headers[i].dataset.type === 'num') {
+                if (raw === undefined || raw === '') return null;   // "—" (no bets)
+                const n = parseFloat(raw);
+                return isNaN(n) ? null : n;
+            }
+            return (raw !== undefined ? raw : cell.textContent).trim().toLowerCase();
+        }
+
+        function compare(a, b) {
+            for (const s of spec) {
+                const va = cellValue(a, s.i), vb = cellValue(b, s.i);
+                if (va === null && vb === null) continue;
+                if (va === null) return 1;    // leagues with no bet data always last
+                if (vb === null) return -1;
+                if (va < vb) return -s.dir;
+                if (va > vb) return s.dir;
+            }
+            return defaultRows.indexOf(a) - defaultRows.indexOf(b);
+        }
+
+        function render() {
+            const rows = defaultRows.slice();
+            if (spec.length) rows.sort(compare);
+            rows.forEach(r => tbody.appendChild(r));
+            headers.forEach((th, i) => {
+                const ind = th.querySelector('.sort-ind');
+                if (!ind) return;
+                const pos = spec.findIndex(s => s.i === i);
+                if (pos === -1) { ind.textContent = ''; return; }
+                const arrow = spec[pos].dir === 1 ? '\u25B2' : '\u25BC';
+                ind.textContent = spec.length > 1 ? arrow + (pos + 1) : arrow;
+            });
+            localStorage.setItem(KEY, JSON.stringify(spec));
+            if (clearLink) clearLink.style.display = spec.length ? '' : 'none';
+        }
+
+        headers.forEach((th, i) => {
+            if (!th.classList.contains('sortable')) return;
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', (ev) => {
+                const pos = spec.findIndex(s => s.i === i);
+                if (ev.shiftKey) {
+                    if (pos === -1) spec.push({i: i, dir: defaultDir(i)});
+                    else spec[pos].dir = -spec[pos].dir;
+                } else if (spec.length === 1 && pos === 0) {
+                    spec = [{i: i, dir: -spec[0].dir}];
+                } else {
+                    spec = [{i: i, dir: defaultDir(i)}];
+                }
+                render();
+            });
+        });
+
+        if (clearLink) {
+            clearLink.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                spec = [];
+                render();
+            });
+        }
+
+        render();
+    })();
 
     updateStatus();
 </script>
