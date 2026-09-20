@@ -225,7 +225,7 @@ def index():
             else:
                 row['Bet_Settled'] = 0
                 row['Bet_Stake'] = row['Bet_Returned'] = row['Bet_PnL'] = row['Bet_ROI'] = None
-            row['Bet_Open_Stake'] = round(b['stake'] - b['settled_stake'], 2) if open_count else None
+            row['Bet_Open_Stake'] = round(b['open_stake'], 2) if open_count else None
             row['Bet_Open_Count'] = open_count
     except Exception:
         pass
@@ -2125,7 +2125,22 @@ def _load_slip(filepath):
 def _empty_bet_stats():
     return {'bets': 0, 'settled': 0, 'won': 0, 'lost': 0, 'void': 0,
             'cashed_out': 0, 'stake': 0.0, 'settled_stake': 0.0,
+            'open_stake': 0.0, 'void_stake': 0.0,
             'returned': 0.0, 'pnl': 0.0}
+
+
+def _bet_pnl(bet, default):
+    """Net P/L of one settled bet, tolerating the pre-rename field name.
+
+    `resolve_daily_bets` writes both `pnl` and its back-compat alias `profit`,
+    but slips written before the rename carry `profit` only. Reading `pnl`
+    alone booked those wins as break-even (36 bets across the three May-2026
+    slips, understating P/L by EUR 48.42)."""
+    for key in ('pnl', 'profit'):
+        v = bet.get(key)
+        if v is not None:
+            return float(v)
+    return default
 
 
 def _accumulate_bet(s, bet):
@@ -2133,20 +2148,27 @@ def _accumulate_bet(s, bet):
     realized money). Shared by the per-lane (compute_sport_summary) and
     per-league (compute_league_betting_summary) aggregations so cashout / void /
     won / lost are counted identically. Cashed-out bets are realized by their
-    stored cashout_amount / pnl (a cashout > stake is a win, < stake a loss)."""
+    stored cashout_amount / pnl (a cashout > stake is a win, < stake a loss).
+
+    VOID stake goes to `void_stake`, deliberately NOT to `settled_stake` or
+    `returned`: a void is a refund, not an outcome, and booking it as a bet
+    that returned exactly its stake drags ROI toward zero (78 voided bets were
+    holding the conviction lane at +2.6% when it had earned +3.0%). The money
+    buckets keep the identity pnl == returned - settled_stake."""
     stake = float(bet.get('stake_units', 0) or 0)
     status = bet.get('status', 'OPEN')
     result = bet.get('result', '')
     s['bets'] += 1
     s['stake'] += stake
     if status == 'OPEN':
+        s['open_stake'] += stake
         return
     s['settled'] += 1
-    s['settled_stake'] += stake  # ROI denominator: only stake of resolved bets
     if status == 'CASHED_OUT' or result == 'CASHED_OUT':
         s['cashed_out'] += 1
+        s['settled_stake'] += stake
         cashout_amount = float(bet.get('cashout_amount', stake))
-        pnl_v = float(bet.get('pnl', cashout_amount - stake))
+        pnl_v = _bet_pnl(bet, cashout_amount - stake)
         s['returned'] += cashout_amount
         s['pnl'] += pnl_v
         if pnl_v > 0:
@@ -2155,28 +2177,30 @@ def _accumulate_bet(s, bet):
             s['lost'] += 1
     elif result == 'WON' or status == 'WON':
         s['won'] += 1
-        s['returned'] += stake + float(bet.get('pnl', 0))
-        s['pnl'] += float(bet.get('pnl', 0))
+        s['settled_stake'] += stake
+        pnl_v = _bet_pnl(bet, 0.0)
+        s['returned'] += stake + pnl_v
+        s['pnl'] += pnl_v
     elif result == 'LOST' or status == 'LOST':
         s['lost'] += 1
-        s['pnl'] += float(bet.get('pnl', -stake))
-    else:  # VOID (or unrecognised terminal status)
+        s['settled_stake'] += stake
+        s['pnl'] += _bet_pnl(bet, -stake)
+    else:  # VOID (or unrecognised terminal status) — refunded, see docstring
         s['void'] += 1
-        s['returned'] += stake
+        s['void_stake'] += stake
 
 
 def _finalize_bet_stats(s):
     """Add win_rate + roi and round the money fields. Mutates + returns `s`."""
     decided = s['won'] + s['lost']
     s['win_rate'] = round((s['won'] / decided * 100) if decided > 0 else 0.0, 1)
-    # ROI is realized: divide P/L by stake of SETTLED bets only, so open
-    # (unrealized) bets don't deflate the figure. `stake` stays the total
-    # committed amount (used for exposure display).
+    # ROI is realized: divide P/L by the stake that actually resolved into a
+    # win or a loss, so neither open (unrealized) nor voided (refunded) stake
+    # deflates the figure. `stake` stays the total committed amount (used for
+    # exposure display); the two excluded slices are kept separately.
     s['roi'] = round((s['pnl'] / s['settled_stake'] * 100) if s['settled_stake'] > 0 else 0.0, 1)
-    s['stake'] = round(s['stake'], 2)
-    s['settled_stake'] = round(s['settled_stake'], 2)
-    s['returned'] = round(s['returned'], 2)
-    s['pnl'] = round(s['pnl'], 2)
+    for _k in ('stake', 'settled_stake', 'open_stake', 'void_stake', 'returned', 'pnl'):
+        s[_k] = round(s[_k], 2)
     return s
 
 

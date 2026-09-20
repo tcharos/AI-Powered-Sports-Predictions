@@ -244,11 +244,11 @@
                         <th class="sortable" data-type="num">Accuracy 1X2 (%) <span class="sort-ind"></span></th>
                         <th class="sortable" data-type="num">Accuracy O/U (%) <span class="sort-ind"></span></th>
                         <th class="sortable" data-type="num" title="Settled MODEL-LANE bets in this league (the model lane bets ~every prediction, so it tracks the accuracy coverage). Cashout-aware.">Bets (model) <span class="sort-ind"></span></th>
-                        <th class="sortable" data-type="num" title="Stake of the SETTLED bets only — the denominator the Return / P/L / ROI columns are measured against. Money still riding on unsettled bets is in the Open € column.">Stake € <span class="sort-ind"></span></th>
-                        <th class="sortable" data-type="num" title="Gross money returned by those settled bets: payouts on wins + cashout amounts + void refunds (P/L = Return − Stake)">Return € <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Stake of the bets that resolved into a win or a loss — the denominator the Return / P/L / ROI columns are measured against. Money still riding on unsettled bets is in the Open € column; voided (refunded) stake is excluded entirely.">Stake € <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Gross money returned by those bets: payouts on wins + cashout amounts (P/L = Return − Stake). Void refunds are excluded from both sides.">Return € <span class="sort-ind"></span></th>
                         <th class="sortable" data-type="num" title="Realized model-lane betting P/L for this league (money, not accuracy)">P/L € <span class="sort-ind"></span></th>
                         <th class="sortable" data-type="num" title="Realized model-lane betting ROI for this league = P/L / Stake (settled)">ROI % <span class="sort-ind"></span></th>
-                        <th class="sortable" data-type="num" title="Stake still in flight: bets placed in this league that haven't settled yet. Excluded from Stake / Return / P/L / ROI, which cover settled bets only.">Open € <span class="sort-ind"></span></th>
+                        <th class="sortable" data-type="num" title="Stake still in flight: bets placed in this league that haven't settled yet. Excluded from Stake / Return / P/L / ROI, which cover bets that resolved into a win or a loss.">Open € <span class="sort-ind"></span></th>
                     </tr>
                 </thead>
                 <tbody>
