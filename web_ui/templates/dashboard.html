@@ -41,7 +41,7 @@
                 </div>
                 <div id="predictError" class="alert alert-danger alert-dismissible mt-2 mb-0 py-2 small"
                     style="display:none;">
-                    <strong>Prediction failed.</strong>
+                    <strong id="predictErrorTitle">Prediction failed.</strong>
                     <pre id="predictErrorMsg" class="mb-0 mt-1"
                         style="white-space:pre-wrap;font-size:0.75rem;"></pre>
                     <button type="button" class="btn-close" onclick="dismissError('predict')"></button>
@@ -639,22 +639,52 @@
 
     // Tracks which error banners the user has dismissed, so a persistent
     // 'error' state from /status doesn't keep re-opening the banner every poll.
+    // A terminal state is reported until the NEXT run starts, so in-memory
+    // alone re-opened the banner on every page reload. Persist the dismissal
+    // against the run's own id (the task's start_time, from /status) — one key
+    // per task, so it stays bounded and a re-run always shows its own result.
     const errorDismissed = { predict: false, verify: false };
+    const lastRunId = { predict: null, verify: null };
+
+    function dismissKey(task) { return 'dismissedRun:' + task; }
+
+    function isDismissed(task) {
+        if (errorDismissed[task]) return true;
+        const runId = lastRunId[task];
+        if (!runId) return false;
+        try {
+            return localStorage.getItem(dismissKey(task)) === runId;
+        } catch (e) { return false; }   // private mode / blocked storage
+    }
 
     function dismissError(task) {
         errorDismissed[task] = true;
+        if (lastRunId[task]) {
+            try { localStorage.setItem(dismissKey(task), lastRunId[task]); } catch (e) {}
+        }
         const el = document.getElementById(task + 'Error');
         if (el) el.style.display = 'none';
     }
 
     // Non-blocking inline error (replaces the old blocking alert() that
     // re-fired every poll and froze the page).
-    function showError(task, msg) {
-        if (errorDismissed[task]) return;
+    // `variant` 'empty' reuses the same banner for the not-a-failure case
+    // where the scrape worked but the day holds no fixtures to predict.
+    function showError(task, msg, variant) {
+        if (isDismissed(task)) return;
         const box = document.getElementById(task + 'Error');
         const body = document.getElementById(task + 'ErrorMsg');
         if (!box || !body) return;
-        body.innerText = msg || 'Unknown error. Check the logs.';
+        const empty = variant === 'empty';
+        box.classList.toggle('alert-danger', !empty);
+        box.classList.toggle('alert-info', empty);
+        const title = document.getElementById(task + 'ErrorTitle');
+        if (title) {
+            title.innerText = empty ? 'No fixtures to predict.'
+                                    : (task === 'verify' ? 'Verification failed.'
+                                                         : 'Prediction failed.');
+        }
+        body.innerText = msg || (empty ? '' : 'Unknown error. Check the logs.');
         box.style.display = 'block';
     }
 
@@ -664,6 +694,7 @@
             .then(data => {
                 // Predict
                 const pState = data.predict.state;
+                lastRunId.predict = data.predict.run_id || null;
                 if (pState === 'running') {
                     errorDismissed.predict = false;
                     document.getElementById('predictError').style.display = 'none';
@@ -672,10 +703,10 @@
                     const pDate = fmtDate(data.predict.target_date);
                     document.getElementById('predictState').innerText =
                         pDate ? `Running Prediction for ${pDate}...` : 'Running...';
-                } else if (pState === 'error') {
+                } else if (pState === 'error' || pState === 'empty') {
                     document.getElementById('predictStatus').style.display = 'none';
                     document.getElementById('predictBtn').disabled = false;
-                    showError('predict', data.predict.msg);
+                    showError('predict', data.predict.msg, pState);
                 } else {
                     document.getElementById('predictStatus').style.display = 'none';
                     document.getElementById('predictBtn').disabled = false;
@@ -683,6 +714,7 @@
 
                 // Verify
                 const vState = data.verify.state;
+                lastRunId.verify = data.verify.run_id || null;
                 if (vState === 'running') {
                     errorDismissed.verify = false;
                     document.getElementById('verifyError').style.display = 'none';

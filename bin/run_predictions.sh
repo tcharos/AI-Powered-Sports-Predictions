@@ -106,6 +106,12 @@ if [ "$NEED_SCRAPE" == "true" ]; then
     start_date=$(date "+%Y-%m-%d %H:%M:%S")
     echo "[$start_date] Status: Started" >> logs/scraper_status.log
 
+    # The spider drops a sidecar describing what the day page held (rows before
+    # filtering, rows inside target_leagues, rows kept). Remove any stale one
+    # first so a previous run's file can never be read as this run's result.
+    SCRAPE_STATS="logs/last_scrape_stats.json"
+    rm -f "$SCRAPE_STATS"
+
     # Pass day_diff
     scrapy crawl flashscore -O $OUTPUT_JSON -L WARNING -a filter_leagues=true -a day_diff=$DAY_DIFF
     # Capture immediately: any intervening command (even `date`) clobbers $?.
@@ -118,21 +124,62 @@ if [ "$NEED_SCRAPE" == "true" ]; then
     # Scrapy exits 0 even when every request errored out (e.g. Playwright's
     # browser binary is missing after a version bump), leaving a well-formed
     # but EMPTY `[]` on disk. So the exit code alone is not enough — count the
-    # scraped matches and treat an empty slate as a failure. A genuinely empty
-    # day is rare and re-runnable; a silent 0 is what hides a broken scraper.
+    # scraped matches. But 0 matches has two very different causes, and the
+    # sidecar is what tells them apart:
+    #
+    #   rows_on_page == 0        the day page never rendered -> BROKEN, exit 1
+    #   in_target_leagues == 0   the day holds fixtures, none whitelisted
+    #   kept == 0 (but > 0 above) whitelisted fixtures exist but all already
+    #                            kicked off / finished (or are women's games)
+    #
+    # The last two are normal days with nothing to predict, not failures, and
+    # they exit EXIT_NO_FIXTURES so the UI can say so instead of "Prediction
+    # failed". A missing/mismatched sidecar falls back to treating 0 as broken.
+    EXIT_NO_FIXTURES=3
     SCRAPED_COUNT=$(python3 -c "import json; print(len(json.load(open('$OUTPUT_JSON'))))" 2>/dev/null || echo "-1")
+
+    # "rows in_target kept" for this day_diff, or "" when unusable.
+    SCRAPE_FACTS=$(python3 - "$SCRAPE_STATS" "$DAY_DIFF" <<'PY' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+if int(d.get("day_diff", -999)) != int(sys.argv[2]) or not d.get("filtered"):
+    sys.exit(1)          # sidecar belongs to some other crawl - do not trust it
+print(d.get("rows_on_page", 0), d.get("in_target_leagues", 0), d.get("kept", 0))
+PY
+)
 
     if [ "$SCRAPY_RC" -eq 0 ] && [ "$SCRAPED_COUNT" -gt 0 ]; then
         echo "[+] Scraper Finished. $SCRAPED_COUNT matches saved to $OUTPUT_JSON"
         echo "[$end_date] Status: Success | Matches: $SCRAPED_COUNT | Start: $start_date | End: $end_date | Duration: ${duration}s" >> logs/scraper_status.log
+    elif [ "$SCRAPY_RC" -eq 0 ] && [ "$SCRAPED_COUNT" -eq 0 ] && [ -n "$SCRAPE_FACTS" ] \
+         && [ "$(echo "$SCRAPE_FACTS" | cut -d' ' -f1)" -gt 0 ]; then
+        ROWS=$(echo "$SCRAPE_FACTS" | cut -d' ' -f1)
+        IN_TARGET=$(echo "$SCRAPE_FACTS" | cut -d' ' -f2)
+        echo "[=] No fixtures to predict for $DATE."
+        if [ "$IN_TARGET" -eq 0 ]; then
+            echo "    The day page loaded fine ($ROWS matches listed), but none are in"
+            echo "    your target leagues (data_sets/target_leagues.json) — typically a"
+            echo "    domestic-cup or international-break day."
+        else
+            echo "    The day page loaded fine ($ROWS matches listed, $IN_TARGET in your target"
+            echo "    leagues), but every one has already kicked off or finished."
+        fi
+        echo "    The scraper is healthy; there is simply nothing to predict."
+        echo "[$end_date] Status: No fixtures | Matches: 0 | On page: $ROWS | In target: $IN_TARGET | Start: $start_date | End: $end_date | Duration: ${duration}s" >> logs/scraper_status.log
+        exit $EXIT_NO_FIXTURES
     else
         if [ "$SCRAPY_RC" -ne 0 ]; then
             echo "[-] Scraper Failed (scrapy exit code $SCRAPY_RC)."
         elif [ "$SCRAPED_COUNT" -lt 0 ]; then
             echo "[-] Scraper Failed: $OUTPUT_JSON is missing or not valid JSON."
         else
-            echo "[-] Scraper Failed: 0 matches scraped."
-            echo "    Either no target-league fixtures exist for $DATE, or the scrape broke."
+            echo "[-] Scraper Failed: 0 matches scraped and the day page was empty."
+            if [ -z "$SCRAPE_FACTS" ]; then
+                echo "    (no usable $SCRAPE_STATS — the crawl did not reach the day list)"
+            fi
             echo "    Check logs/pipeline_output.log — a missing Playwright browser"
             echo "    (after a playwright upgrade) is the usual cause; fix with:"
             echo "        source venv/bin/activate && playwright install chromium"

@@ -731,6 +731,11 @@ def _attach_open_bets(live_matches):
     live_matches[:] = [m for m in live_matches if not _all_terminal(m)]
 
 
+# Exit code bin/run_predictions.sh uses for "the scrape worked, the day just has
+# no fixtures we predict". Keep in sync with EXIT_NO_FIXTURES in that script.
+EXIT_NO_FIXTURES = 3
+
+
 @app.route('/status')
 def get_status():
     status = {}
@@ -750,17 +755,45 @@ def get_status():
             elif poll == 0:
                 status[task_name] = {'state': 'completed'}
             else:
+                # bin/run_predictions.sh exits EXIT_NO_FIXTURES when the day
+                # page loaded fine but held nothing to predict (cup day, or a
+                # slate that has already kicked off). That is a normal outcome,
+                # not a failure, so it gets its own state and the dashboard
+                # shows a notice rather than "Prediction failed".
+                empty = (poll == EXIT_NO_FIXTURES)
                 # Capture last lines of log directly
                 log_file = os.path.join(LOG_DIR, f"{task_name}.log")
                 error_msg = 'Unknown error'
                 if os.path.exists(log_file):
                      try:
-                         # Get last 3 lines
-                         lines = subprocess.check_output(['tail', '-n', '3', log_file]).decode('utf-8')
-                         error_msg = lines.strip()
+                         lines = subprocess.check_output(
+                             ['tail', '-n', '12', log_file]).decode('utf-8').splitlines()
+                         if empty:
+                             # Pull the wrapper's own explanation block rather
+                             # than a blind tail: scrapy writes deprecation
+                             # warnings to the same stream and they can land
+                             # after it.
+                             for i, ln in enumerate(lines):
+                                 if ln.startswith('[=]'):
+                                     lines = [l for l in lines[i:] if l.strip()]
+                                     break
+                             else:
+                                 lines = lines[-3:]
+                         else:
+                             lines = lines[-3:]
+                         error_msg = "\n".join(lines).strip()
                      except:
                          pass
-                status[task_name] = {'state': 'error', 'msg': error_msg}
+                status[task_name] = {'state': 'empty' if empty else 'error',
+                                     'msg': error_msg}
+                # A terminal state is reported on every poll until the next run
+                # starts, so the dashboard needs to know WHICH run it is looking
+                # at to remember that the banner was dismissed across reloads.
+                # start_time is unique per run and already tracked.
+                if task_info.get('start_time'):
+                    status[task_name]['run_id'] = task_info['start_time'].isoformat()
+                if task_info.get('target_date'):
+                    status[task_name]['target_date'] = task_info['target_date']
         elif task_info and task_info.get('state'): # Thread tasks wrapper
              status[task_name] = {'state': task_info['state'], 'msg': task_info.get('msg', '')}
         else:
