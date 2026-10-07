@@ -332,6 +332,44 @@ python3 scripts/national_teams/predict_nt_batch.py --matches "$OUTPUT_JSON" \
     && echo "[+] National-Team Prediction Complete." \
     || echo "[!] NT prediction step failed (non-fatal); club predictions intact."
 
+# 5. Availability / bajas extraction (D4 Paso 1, ver docs/enriched_match_data_roadmap.md).
+# Read-only respecto al modelo: solo escribe output/availability_<date>.json.
+# Non-fatal — si falla (o Flashscore cambia el DOM), las predicciones ya están escritas.
+echo ""
+echo "[*] Extracting availability (bajas) for $DATE..."
+python3 scripts/d4_injuries/extract_availability.py "$DATE" \
+    && echo "[+] Availability extraction complete." \
+    || echo "[!] Availability extraction failed (non-fatal); predictions intact."
+
+# 6. Árbitro del día (D4 Paso 3, Fase B, ver docs/enriched_match_data_roadmap.md).
+# Read-only respecto al modelo: solo escribe output/referees_<date>.json.
+# Non-fatal — si falla (o el partido no tiene árbitro asignado aún), las predicciones ya están escritas.
+echo ""
+echo "[*] Extracting referee assignments for $DATE..."
+python3 scripts/d4_referees/extract_referees.py "$DATE" \
+    && echo "[+] Referee extraction complete." \
+    || echo "[!] Referee extraction failed (non-fatal); predictions intact."
+
+# 7. Cards market (Paso 6 / Fase E) — isolated head; ON by default after gate.
+# Skip with CARDS_ENABLED=0. Non-fatal; never touches 1X2 / O/U picks or bankrolls.
+# 7a. Winamax cards O/U 3.5 odds (Flashscore has no market; Pamestoixima
+#     Akamai-blocked headless). Plain HTTPS PRELOADED_STATE — no Playwright.
+#     Patches matches_$DATE.json in place when a fixture links + market exists.
+if [ "${CARDS_ENABLED:-1}" != "0" ]; then
+    echo ""
+    echo "[*] Enriching cards O/U 3.5 odds from Winamax for $DATE..."
+    python3 -m ml_project.cards.winamax_odds "$DATE" \
+        && echo "[+] Winamax cards-odds enrich complete." \
+        || echo "[!] Winamax cards-odds enrich failed (non-fatal); predict continues."
+
+    echo ""
+    echo "[*] Running cards predictions for $DATE..."
+    python3 -m ml_project.cards.predict_cards "$DATE" \
+        && python3 -m ml_project.cards.merge_into_predictions "$DATE" \
+        && echo "[+] Cards prediction + merge into predictions_$DATE.csv complete." \
+        || echo "[!] Cards prediction failed (non-fatal); 1X2/O/U intact."
+fi
+
 echo ""
 echo "========================================"
 echo "           Pipeline Finished            "

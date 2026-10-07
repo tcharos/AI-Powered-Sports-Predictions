@@ -73,6 +73,42 @@ Start the UI to manage everything visually:
     ./bin/retrain_pipeline.sh
     ```
 
+### Cadencia operativa (fútbol)
+
+Los datos **no se actualizan solos**. `./bin/setup_data.sh` es solo el arranque (o cambio de temporada). El día a día es:
+
+**Diario** (activar venv antes: `source venv/bin/activate`):
+```bash
+./bin/update_leagues_data.sh   # standings/form → features a la hora de predecir
+./bin/run_predictions.sh       # scrape mañana + predicciones (+ availability + referees, no fatal)
+./bin/run_verification.sh      # al día siguiente: resultados de ayer + asienta apuestas (+ crece histórico de árbitros, no fatal)
+```
+
+`run_predictions.sh` escribe también `output/availability_<date>.json` (bajas Flashscore “Will not play”). Si falla, las predicciones siguen válidas. Re-correr a mano: `python3 scripts/d4_injuries/extract_availability.py YYYY-MM-DD`.
+
+`run_predictions.sh` escribe también `output/referees_<date>.json` (árbitro asignado, Flashscore). No fatal. Re-correr a mano: `python3 scripts/d4_referees/extract_referees.py YYYY-MM-DD`.
+
+`run_verification.sh` hace crecer `data_sets/referees/referee_matches.csv` (histórico de árbitros — tarjetas/rojas/córners cuando hay backfill, solo identidad+resultado en lo que crece día a día) cruzando el árbitro del día con el resultado. No fatal ni bloqueante si falta el árbitro. Detalle, seed inicial (3 temporadas ENG/SCO) y limitaciones de cobertura por liga: [Enriched match data roadmap → Paso 4](docs/enriched_match_data_roadmap.md). Consulta rápida:
+```bash
+python3 scripts/referees/build_referee_history.py --coverage        # qué ligas tienen árbitro en MatchHistory
+python3 scripts/referees/build_referee_history.py --stats "A Taylor"  # tasas de un árbitro concreto
+```
+**Nota**: el catálogo de árbitros (Paso 4) ya alimenta el **texto** de justificación (Paso 5). Sigue **sin** influir en el pick 1X2/O/U.
+
+**Semanal** (p.ej. lunes):
+```bash
+./bin/retrain_pipeline.sh      # refresca CSVs historial + standings + reentrena + calibradores
+```
+
+Orden típico del día: update standings → predict (noche antes) → verify (cuando hayan acabado los partidos de ayer).
+
+**Opcional — justificaciones (texto en español, nivel 1 + bajas + árbitro):**
+```bash
+python3 scripts/justify_predictions.py              # latest predictions_*.csv
+python3 scripts/justify_predictions.py --date YYYY-MM-DD --print
+```
+Escribe `output/justifications_<date>.{json,txt}` a partir de probs/cuotas/ELO/heurísticas. Si existe `availability_<date>.json`, añade bajas **relevantes** (lesión / sanción / dudoso; omite `inactive`). Si existe `referees_<date>.json`, añade el nombre del árbitro; si el catálogo local (`data_sets/referees/`) tiene ≥20 partidos con tarjetas para ese árbitro, también cita amarillas/partido, % con roja y córners/partido — **nunca inventa cifras** (fuera de ENG/SCO hoy suele salir solo el nombre). Bajas y árbitro son contexto tipster: **el modelo aún no ajusta el pick por ellas**. Al abrir el CSV de predicciones en la UI, la columna **Justification** aparece si existe ese JSON.
+
 ### CLI Commands (NBA)
 *   **Run Prediction** (Tomorrow's Matches):
     ```bash
@@ -145,6 +181,9 @@ Detailed guides in `docs/`:
 *   [Training Process](docs/training_process.md)
 *   [UI Manual](docs/ui_manual.md)
 *   [Codebase Overview](docs/codebase_overview.md)
+*   [Telegram notifications (GitHub Actions)](docs/telegram_notifications.md)
+*   [Server deployment](docs/server_deployment.md) — cuando quieras sacar el batch del Mac
+*   [Enriched match data roadmap](docs/enriched_match_data_roadmap.md) — alineaciones, árbitros, tarjetas, córners (qué hacer después y por qué)
 
 Project conventions, architecture, and pipeline details for Claude Code and human contributors:
 *   [`CLAUDE.md`](CLAUDE.md) — environment, common commands, architecture, data layout, operational cadence

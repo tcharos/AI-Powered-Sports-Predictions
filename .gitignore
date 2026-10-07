@@ -18,6 +18,24 @@ data_sets/*
 # ml_project/config_bootstrap.py (also runnable directly).
 !data_sets/betting_config.template.json
 !data_sets/team_mappings.template.json
+# Standings spider URL list — live copy is gitignored (local edits OK);
+# template is tracked so a fresh clone can seed it.
+!data_sets/standings_form_flashscore_direct_links.template.csv
+
+# D4 Paso 4 — referee history catalog (see docs/enriched_match_data_roadmap.md).
+# Live corpus grows from a MatchHistory backfill + daily verification append
+# (scripts/referees/build_referee_history.py) and regenerates deterministically,
+# so it stays local like the other caches above. `data_sets/*` already hides
+# the whole referees/ directory; re-allow it explicitly so the templates below
+# can be tracked.
+!data_sets/referees/
+data_sets/referees/*
+!data_sets/referees/referee_matches.template.csv
+!data_sets/referees/referees.template.json
+
+# Paso 6 — cards calibrator (live fit is deployment state; template tracked).
+!data_sets/cards_calibration.template.json
+
 logs/
 output/
 output_basketball/
@@ -33,6 +51,9 @@ __pycache__/
 
 # seleniumbase / soccerdata browser byproducts (D4 injury probes)
 downloaded_files/
+
+# Local Playwright browser path override (arm64 symlink workaround)
+.playwright-browsers/
 
 # national-teams generated corpus (regenerable via build_dataset.py) + raw cache
 data_sets/national_teams/*.csv
