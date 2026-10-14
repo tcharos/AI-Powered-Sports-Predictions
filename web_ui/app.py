@@ -2327,6 +2327,44 @@ def compute_sport_summary(bets_dir):
     return {'history': history, 'lane_stats': lane_stats, 'totals': totals}
 
 
+# EuroLeague-sport bets carry their competition only as the first letter of
+# `match_id` (the API gameId, e.g. "E2026_49" / "U2026_12"). Mirrors
+# ml_project/euroleague/euroleague_utils.COMPETITION_NAMES.
+EUROLEAGUE_COMPETITIONS = {'E': 'EuroLeague', 'U': 'EuroCup'}
+
+
+def compute_lane_stats_by_competition(bets_dir):
+    """Lane stats split by competition, for the EuroLeague betting tab.
+
+    Same accounting as compute_sport_summary's lane_stats (active + archived
+    slips). Returns {competition label: {'lanes': {lane: stats}, 'total': stats}}
+    in EUROLEAGUE_COMPETITIONS order. A bet whose match_id has no known prefix
+    lands under '(unknown)', so the split tables always sum to the combined one.
+    """
+    abs_dir = bets_dir if os.path.isabs(bets_dir) else os.path.join(PROJECT_ROOT, bets_dir)
+
+    def _blank():
+        return {'lanes': {lane: _empty_bet_stats() for lane in LANES},
+                'total': _empty_bet_stats()}
+
+    by_comp = {label: _blank() for label in EUROLEAGUE_COMPETITIONS.values()}
+    for d in (abs_dir, os.path.join(abs_dir, 'history')):
+        for f in glob.glob(os.path.join(d, "bets_*.json")):
+            slip = _load_slip(f)
+            if not slip:
+                continue
+            for bet in slip.get('bets', []):
+                comp = EUROLEAGUE_COMPETITIONS.get(str(bet.get('match_id') or '')[:1], '(unknown)')
+                group = by_comp.setdefault(comp, _blank())
+                lane = bet.get('lane', 'value')
+                _accumulate_bet(group['lanes'].setdefault(lane, _empty_bet_stats()), bet)
+                _accumulate_bet(group['total'], bet)
+    for group in by_comp.values():
+        for st in list(group['lanes'].values()) + [group['total']]:
+            _finalize_bet_stats(st)
+    return by_comp
+
+
 def compute_league_betting_summary(bets_dir, lane=None):
     """Per-LEAGUE realized betting performance (money, cashout-aware).
 
@@ -3340,6 +3378,8 @@ def betting_tabbed():
         nba_lane_defaults=_lane_defaults_for('nba'),
         euroleague_summary=summary_by_slug.get('euroleague'),
         euroleague_lane_defaults=_lane_defaults_for('euroleague'),
+        euroleague_competition_stats=compute_lane_stats_by_competition(
+            next((sp['bets_dir'] for sp in SPORTS if sp['slug'] == 'euroleague'), 'output_euroleague')),
         nba_bankrolls=bank_by_sport.get('nba', {}),
         euroleague_bankrolls=bank_by_sport.get('euroleague', {}),
     )

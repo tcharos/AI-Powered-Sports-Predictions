@@ -80,6 +80,88 @@
       </div>
     </div>
 
+    {# ---- PER-COMPETITION SPLIT (EuroLeague tab only: EuroLeague vs EuroCup) ----
+       `competition_stats` = compute_lane_stats_by_competition(); NBA's include
+       doesn't pass it, so the block is skipped there. No Bankroll column: lane
+       bankrolls are shared across competitions. #}
+    {% if competition_stats %}
+    {% set lane_badge = {'value': 'bg-lane-value text-dark', 'conviction': 'bg-warning text-dark', 'model': 'bg-info text-dark'} %}
+    <div class="card border-dark mb-4">
+      <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">📊 Strategy Comparison · by competition <small class="text-white-50">(cumulative)</small></h4>
+        <small class="text-white-50">Same bets as above, split by competition</small>
+      </div>
+      <div class="card-body p-0">
+        {% for comp, g in competition_stats.items() %}
+        <div class="px-3 pt-3 pb-1 fw-semibold">{{ comp }}</div>
+        <table class="table table-sm mb-0 align-middle text-center">
+          <thead class="table-light">
+            <tr>
+              <th class="text-start">Lane</th>
+              <th>Bets</th>
+              <th>Settled</th>
+              <th>Won / Lost / Void</th>
+              <th>Win %</th>
+              <th title="Total stake committed across all bets (including open/unsettled).">Stake</th>
+              <th title="Stake of bets that resolved into a win or a loss — the ROI denominator.">Settled</th>
+              <th>Returned</th>
+              <th>Net P/L</th>
+              <th>ROI %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lane_name, s in g.lanes.items() %}
+            <tr>
+              <td class="text-start fw-bold">
+                <span class="badge {{ lane_badge.get(lane_name, 'bg-secondary') }}">{{ lane_name|capitalize }}</span>
+              </td>
+              <td>{{ s.bets }}</td>
+              <td>{{ s.settled }}</td>
+              <td>
+                <span class="text-success">{{ s.won }}</span> /
+                <span class="text-danger">{{ s.lost }}</span> /
+                <span class="text-muted">{{ s.void }}</span>
+              </td>
+              <td>{{ s.win_rate }}%</td>
+              <td>{{ s.stake }}</td>
+              <td>{{ s.settled_stake }}</td>
+              <td>{{ s.returned }}</td>
+              <td class="fw-bold {{ 'text-success' if s.pnl > 0 else ('text-danger' if s.pnl < 0 else 'text-muted') }}">
+                {{ '+' if s.pnl > 0 else '' }}{{ s.pnl }}
+              </td>
+              <td class="fw-bold {{ 'text-success' if s.roi > 0 else ('text-danger' if s.roi < 0 else 'text-muted') }}">
+                {{ '+' if s.roi > 0 else '' }}{{ s.roi }}%
+              </td>
+            </tr>
+            {% endfor %}
+            {% set t = g.total %}
+            <tr class="table-light fw-bold">
+              <td class="text-start">Total</td>
+              <td>{{ t.bets }}</td>
+              <td>{{ t.settled }}</td>
+              <td>
+                <span class="text-success">{{ t.won }}</span> /
+                <span class="text-danger">{{ t.lost }}</span> /
+                <span class="text-muted">{{ t.void }}</span>
+              </td>
+              <td>{{ t.win_rate }}%</td>
+              <td>{{ t.stake }}</td>
+              <td>{{ t.settled_stake }}</td>
+              <td>{{ t.returned }}</td>
+              <td class="{{ 'text-success' if t.pnl > 0 else ('text-danger' if t.pnl < 0 else 'text-muted') }}">
+                {{ '+' if t.pnl > 0 else '' }}{{ t.pnl }}
+              </td>
+              <td class="{{ 'text-success' if t.roi > 0 else ('text-danger' if t.roi < 0 else 'text-muted') }}">
+                {{ '+' if t.roi > 0 else '' }}{{ t.roi }}%
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <!-- PLACE-BETS POINTER (the wager generator is sport-specific; lives on the dashboard) -->
     <div class="alert alert-light border d-flex justify-content-between align-items-center mb-4">
       <div class="small text-muted mb-0">
