@@ -744,6 +744,35 @@ def _attach_open_bets(live_matches):
 # Exit code bin/run_predictions.sh uses for "the scrape worked, the day just has
 # no fixtures we predict". Keep in sync with EXIT_NO_FIXTURES in that script.
 EXIT_NO_FIXTURES = 3
+# bin/_lock.sh: another instance holds the lock, so this run never started.
+# Its log tail is useless — it is the other run's output — so /status reports a
+# fixed message instead. Keep in sync with EXIT_LOCKED in that script.
+EXIT_LOCKED = 4
+
+
+def _lock_holder(name):
+    """(pid, started) of the live process holding bin/_lock.sh's on-disk lock
+    `name`, or None. Checked before launching a locked wrapper because the
+    launch opens the task's log with 'w' first: a run the lock then refuses
+    has already truncated the log the active run is writing to."""
+    lock_dir = os.path.join(LOG_DIR, f'.lock_{name}')
+    try:
+        with open(os.path.join(lock_dir, 'pid')) as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None          # stale: the wrapper takes it over on its next run
+    except PermissionError:
+        pass                 # alive, owned by another user
+    try:
+        with open(os.path.join(lock_dir, 'started')) as f:
+            started = f.read().strip()
+    except OSError:
+        started = '?'
+    return pid, started
 
 
 @app.route('/status')
@@ -798,6 +827,9 @@ def get_status():
                          error_msg = "\n".join(lines).strip()
                      except:
                          pass
+                if poll == EXIT_LOCKED:
+                    error_msg = ('Not started: another run was already in progress. '
+                                 'Wait for it to finish, or stop it first.')
                 status[task_name] = {'state': 'empty' if empty else 'error',
                                      'msg': error_msg}
                 # A terminal state is reported on every poll until the next run
@@ -883,6 +915,12 @@ def run_prediction():
     if TASKS['predict'] and TASKS['predict']['process'] and TASKS['predict']['process'].poll() is None:
          flash('Prediction is already running!', 'warning')
          return redirect(url_for('football.index'))
+
+    held = _lock_holder('predict')
+    if held:
+        flash(f'Prediction is already running (PID {held[0]}, since {held[1]}) — '
+              'started outside this server session. Stop it first, or wait for it to finish.', 'warning')
+        return redirect(url_for('football.index'))
 
     try:
         # Execute run_predictions.sh from project root
@@ -1982,7 +2020,14 @@ def update_leagues():
         if TASKS.get('leagues') and TASKS['leagues']['process'] and TASKS['leagues']['process'].poll() is None:
              flash('Leagues update is already running!', 'warning')
              return redirect(url_for('football.index'))
-             
+
+        # Also held by a prediction run's own standings refresh.
+        held = _lock_holder('standings')
+        if held:
+            flash(f'A standings crawl is already running (PID {held[0]}, since {held[1]}), '
+                  'possibly as part of a prediction run. Wait for it to finish.', 'warning')
+            return redirect(url_for('football.index'))
+
         log_file = open(os.path.join(LOG_DIR, 'leagues.log'), 'w')
         # Use simple bash execution
         proc = subprocess.Popen(['/bin/bash', script_path], cwd=PROJECT_ROOT, stdout=log_file, stderr=subprocess.STDOUT)
