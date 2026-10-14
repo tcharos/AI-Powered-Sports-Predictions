@@ -3206,21 +3206,23 @@ def _day_status_code(cfg, out_dir, slug, date_str):
     return {'code': '', 'title': 'Nothing run yet'}
 
 
-# A day drops off the grid once these sports are all verified (a sport with
-# nothing run that day has nothing to verify, so it doesn't hold the day open).
+# A day drops off the grid once these sports are all verified. A sport with
+# nothing to verify that day — nothing run, or a run that found nothing to
+# predict (N/A) — doesn't hold the day open.
 _DAY_GRID_DONE_SPORTS = ('football', 'euroleague')
 
 
 def _day_fully_verified(cells):
     tracked = [cells[s] for s in _DAY_GRID_DONE_SPORTS if s in cells]
     return (any(c['verified'] for c in tracked)
-            and all(c['verified'] or not c['code'] for c in tracked))
+            and all(c['verified'] or c['code'] in ('', 'p') for c in tracked))
 
 
 def _day_status_grid(days=5, lookback=7):
     """Columns from `lookback` days ago through `days - 1` days ahead. Past
     days only appear while something on them is still awaiting verification;
-    any day whose football + euroleague work is verified is hidden."""
+    any day whose football + euroleague work is verified, or where every sport
+    is blank / N/A, is hidden."""
     today = datetime.date.today()
     sports = [s for s in SPORTS if s.get('active')]
     rows = []
@@ -3230,7 +3232,9 @@ def _day_status_grid(days=5, lookback=7):
         cells = {s['slug']: _day_status(s['slug'], ds) for s in sports}
         if _day_fully_verified(cells):
             continue
-        if i < 0 and not any(c['code'] or c['verified'] for c in cells.values()):
+        # A past day where every sport is blank or N/A has nothing left to
+        # bet on or verify, so it's closed.
+        if i < 0 and all(c['code'] in ('', 'p') for c in cells.values()):
             continue
         rows.append({'date': ds, 'label': f'{d.day}/{d.month}',
                      'today': i == 0, 'cells': cells})
