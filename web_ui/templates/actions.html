@@ -140,6 +140,30 @@
     return m ? `${m}m ${s % 60}s` : `${s}s`;
   }
 
+  // A finished run's error/empty state is reported by /status until the next
+  // run starts, so without a dismiss it never goes away. Same localStorage key
+  // and value (the run's start time) as the per-sport dashboards, so closing
+  // it here closes it there too; a new run carries a new id and shows again.
+  // Thread-backed tasks report no run_id — the message stands in for it.
+  function dismissKey(key) { return 'dismissedRun:' + key; }
+  function runIdentity(info) { return info.run_id || info.msg || info.state; }
+  function isDismissed(key, info) {
+    try { return localStorage.getItem(dismissKey(key)) === runIdentity(info); }
+    catch (e) { return false; }   // private mode / blocked storage
+  }
+  function dismiss(key, info, el) {
+    try { localStorage.setItem(dismissKey(key), runIdentity(info)); } catch (e) {}
+    el.style.display = 'none';
+  }
+  function closeButton(key, info, el) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn-close btn-sm float-end ms-2';
+    b.setAttribute('aria-label', 'Dismiss');
+    b.onclick = () => dismiss(key, info, el);
+    return b;
+  }
+
   const rows = document.querySelectorAll('[data-status-key]');
   // Only announce "completed" for runs this page watched start — /status
   // keeps reporting a finished run's state until the next one begins.
@@ -167,9 +191,12 @@
       status.style.display = 'none';
       btn.disabled = false;
 
-      if (info.state === 'error') {
+      if ((info.state === 'error' || info.state === 'empty') && isDismissed(key, info)) {
+        result.style.display = 'none';
+      } else if (info.state === 'error') {
         result.className = 'action-result small mt-2 alert alert-danger py-1 px-2 mb-0';
         result.innerHTML = '';
+        result.append(closeButton(key, info, result));
         const title = document.createElement('strong');
         title.innerText = 'Last run failed.';
         const pre = document.createElement('pre');
@@ -180,7 +207,8 @@
         result.style.display = '';
       } else if (info.state === 'empty') {
         result.className = 'action-result small mt-2 alert alert-info py-1 px-2 mb-0';
-        result.innerText = 'No fixtures to predict.';
+        result.innerHTML = '';
+        result.append(closeButton(key, info, result), 'No fixtures to predict.');
         result.style.display = '';
       } else if (info.state === 'completed' && seenRunning[key]) {
         result.className = 'action-result small mt-2 text-success';
