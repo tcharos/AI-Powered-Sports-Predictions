@@ -2618,6 +2618,62 @@ def _available_prediction_dates():
     )
 
 
+def _load_slate_markets(date_str):
+    """{match_id: {'1X2': {'1','X','2' -> odd}, 'O/U': {'Over 2.5','Under 2.5' -> odd}}}
+    from the pre-match slate `matches_<date>.json`. Every side of each market
+    is kept so the selected price can be devigged. Missing/'-' prices are
+    dropped; a missing slate returns {}."""
+    path = os.path.join(OUTPUT_DIR, f'matches_{date_str}.json')
+    try:
+        with open(path) as fh:
+            slate = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+    def _odd(v):
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+        return v if v > 1.0 else None
+
+    markets = {}
+    for m in slate if isinstance(slate, list) else []:
+        mid = m.get('match_id')
+        if not mid:
+            continue
+        markets[mid] = {
+            '1X2': {k: _odd(m.get(f'interaction_1x2_{k}')) for k in ('1', 'X', '2')},
+            'O/U': {'Over 2.5': _odd(m.get('over_2_5')), 'Under 2.5': _odd(m.get('under_2_5'))},
+        }
+    return markets
+
+
+def _market_gap(conf, odd, book):
+    """How far the model's confidence sits above the price it is betting into.
+
+    `implied_prob` is 1/odd (vig included); `implied_prob_fair` is the
+    proportionally devigged probability of the same selection, and `conf_gap`
+    is conf minus it. The devigged form is the one to analyse: 1X2 and O/U
+    carry different margins, so a raw gap would mix a market-dependent offset
+    into the signal. `book` is the {selection: odd} dict for every side of
+    the market; when any side is missing the fair/gap fields are None and
+    only the raw gap is recorded. Logged for analysis only, never used to
+    select or size a bet."""
+    if odd <= 1.0:
+        return {}
+    implied = 1.0 / odd
+    out = {'implied_prob': round(implied, 4), 'conf_gap_raw': round(conf - implied, 4),
+           'implied_prob_fair': None, 'conf_gap': None, 'overround': None}
+    sides = list((book or {}).values())
+    if sides and all(sides):
+        overround = sum(1.0 / o for o in sides)
+        fair = implied / overround
+        out.update({'implied_prob_fair': round(fair, 4), 'conf_gap': round(conf - fair, 4),
+                    'overround': round(overround, 4)})
+    return out
+
+
 @football_bp.route('/predictions/available')
 def predictions_available():
     """List prediction dates that don't already have a bets slip on disk."""
@@ -2648,6 +2704,8 @@ def auto_wager():
                 pred_files.sort(reverse=True)
                 latest_file = pred_files[0]
         df = pd.read_csv(latest_file)
+        slate_markets = _load_slate_markets(
+            os.path.basename(latest_file)[len('predictions_'):-len('.csv')])
 
         def _to_float(v):
             try:
@@ -2785,6 +2843,11 @@ def auto_wager():
             bet = _common_fields(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col)
             bet.update({'lane': 'conviction', 'stake_units': round(stake, 2), 'stake': round(stake, 2),
                         '_rank': conf})
+            # Model-vs-bookmaker gap, recorded to test forward whether bets
+            # where the model sits furthest above the price win more often
+            # than it implies. Staking stays flat regardless.
+            book = slate_markets.get(row.get('match_id', ''), {}).get(bet_type)
+            bet.update(_market_gap(conf, odd, book))
             return bet
 
         def build_model_bet(row, bet_type, selection_col, odd_col, conf_col, ev_col, kelly_col):
