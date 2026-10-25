@@ -356,14 +356,14 @@ class ModelTrainer:
         
         print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg Recall: {np.mean(recalls):.4f}")
         
-        # 2. Final Training on the same 95% head the pre-seam path used.
-        # (The trailing 5% was only ever an eval_set for an early-stopping
-        # rule that the tuned params don't enable, so the saved model was
-        # always fit on this 95% slice. Fitting it without the inert eval_set
-        # reproduces the identical model.)
+        # 2. Final Training on EVERY usable row, newest included.
+        # Until 2026-10-25 this fit only the first 95%: the trailing 5% had
+        # been an eval_set for an early-stopping rule the tuned params never
+        # enabled, and the slice outlived it. On ~15.7k rows that silently
+        # dropped the newest ~3 weeks; on the 2012+ set it would drop the
+        # newest ~9 months, exactly the matches most like the next slate.
         print("Retraining Final Model on Full Dataset (2012-Present)...")
-        split_idx = int(len(df_train) * 0.95)
-        final_train = df_train.iloc[:split_idx]
+        final_train = df_train
 
         final_model = spec.build()
         final_model.fit(final_train[features], final_train['target_1x2'])
@@ -459,11 +459,10 @@ class ModelTrainer:
             
         print(f"Average CV Accuracy: {np.mean(accuracies):.4f} | Avg Recall: {np.mean(recalls):.4f} | Avg LogLoss: {np.mean(log_losses):.4f}")
         
-        # 2. Final Training (same 95% head the pre-seam path used; the inert
-        # eval_set is dropped, reproducing the identical model).
+        # 2. Final Training on every usable row (see train_1x2: the old 95%
+        # slice dropped the newest matches).
         print("Retraining Final Model on Full Dataset (2012-Present)...")
-        split_idx = int(len(df_train) * 0.95)
-        final_train = df_train.iloc[:split_idx]
+        final_train = df_train
 
         final_model = spec.build()
         final_model.fit(final_train[features], final_train['total_goals'])
