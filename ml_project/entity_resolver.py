@@ -2,12 +2,18 @@ import json
 import os
 from rapidfuzz import process, fuzz
 
+try:
+    from team_aliases import TEAM_ALIASES
+except ImportError:
+    from ml_project.team_aliases import TEAM_ALIASES
+
 class EntityResolver:
     def __init__(self, elo_file="data_sets/elo_ratings.json", mapping_file="data_sets/team_mappings.json"):
         self.elo_file = elo_file
         self.mapping_file = mapping_file
         self.elo_data = {}
         self.mappings = {}
+        self._failed = set()
         self.load_data()
         
     def load_data(self):
@@ -32,7 +38,11 @@ class EntityResolver:
             
         if os.path.exists(self.mapping_file):
             with open(self.mapping_file, 'r') as f:
-                self.mappings = json.load(f)
+                # A failed lookup used to be cached as None and was then
+                # returned forever, so a club that entered the corpus later
+                # (a promoted side, a new season file) never resolved. Drop
+                # them on load; the next save rewrites the file without them.
+                self.mappings = {k: v for k, v in json.load(f).items() if v}
                 
     def save_mappings(self):
         os.makedirs(os.path.dirname(self.mapping_file), exist_ok=True)
@@ -50,14 +60,23 @@ class EntityResolver:
         # 1. Direct key match
         if team_name in self.elo_data:
             return team_name
-            
-        # 2. Checked Cached Mapping
-        if team_name in self.mappings:
-            mapped_name = self.mappings[team_name]
-            # Verify it still exists in data? (Optional but good safety)
+
+        # 2. Hand-checked aliases (code, not cache), so they also override a
+        # wrong mapping cached in team_mappings.json.
+        alias = TEAM_ALIASES.get(team_name)
+        if alias in self.elo_data:
+            return alias
+
+        # 3. Cached Mapping — only if the target is still a known team. A
+        # target missing from elo_data (renamed, or learned against an older
+        # ELO file) falls through and is re-matched.
+        mapped_name = self.mappings.get(team_name)
+        if mapped_name in self.elo_data:
             return mapped_name
-                
-        # 3. Fuzzy Match
+
+        # 4. Fuzzy Match
+        if team_name in self._failed:
+            return None
         choices = list(self.elo_data.keys())
         if not choices:
             return None
@@ -69,10 +88,10 @@ class EntityResolver:
             self.mappings[team_name] = best_match
             self.save_mappings()
             return best_match
-        else:
-            self.mappings[team_name] = None
-            self.save_mappings()
-            return None
+        # A miss is remembered for this run only, never persisted: the corpus
+        # gains teams every season and the next run should try again.
+        self._failed.add(team_name)
+        return None
 
     def get_elo(self, team_name):
         canon = self.get_canonical_name(team_name)

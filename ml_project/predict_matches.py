@@ -9,6 +9,7 @@ from feature_engineering import (FeatureEngineer, FORM_WINDOWS,
                                  H2H_FEATURES, h2h_features)
 from entity_resolver import EntityResolver
 from data_loader import DataLoader
+from football_data_leagues import league_country
 import glob
 
 from heuristic_adjuster import HeuristicAdjuster
@@ -71,6 +72,19 @@ class MatchPredictor:
         self.loader = DataLoader(history_dir)
         self.history_df = self.loader.load_historical_data()
         self.history_df = self.history_df.sort_values('date')
+
+        # Countries each corpus team has played league football in. Used to
+        # reject a resolved name that belongs to a club in another country —
+        # the resolver's fuzzy match had cached "Sporting CP" as Sporting
+        # Kansas City, so Sporting were predicted from an MLS side's form.
+        self.team_countries = {}
+        for side in ('home_team', 'away_team'):
+            pairs = self.history_df[[side, 'league']].drop_duplicates()
+            for team, league in zip(pairs[side], pairs['league']):
+                country = league_country(league)
+                if country:
+                    self.team_countries.setdefault(team, set()).add(country)
+        self.corpus_countries = set().union(*self.team_countries.values())
 
         # League categories the model actually saw at training time, read
         # straight out of the saved model (authoritative — the live history
@@ -329,6 +343,7 @@ class MatchPredictor:
         predictions = []
         match_dates = set()
         unsupported = {}   # league -> fixtures dropped as neither NT nor club
+        unresolved = {}    # (league, team, reason) -> fixtures skipped
 
         print(f"Predicting {len(upcoming_matches)} matches...")
         
@@ -391,7 +406,27 @@ class MatchPredictor:
             # Resolve Names
             canon_home = self.resolver.get_canonical_name(scraper_home)
             canon_away = self.resolver.get_canonical_name(scraper_away)
-            
+
+            # Skip, don't guess. An unresolved team used to be served with
+            # ELO 1500 and all-zero form — 11.5% of fixtures on the
+            # 2026-09-19..10-24 slates — and the prediction looked like any
+            # other. The model then had nothing but the price to go on, under
+            # a confidence it had not earned.
+            skip = None
+            for raw, canon in ((scraper_home, canon_home), (scraper_away, canon_away)):
+                if canon is None or canon not in self.resolver.elo_data:
+                    skip = (raw, 'unresolved')
+                elif (country_prefix in self.corpus_countries
+                      and self.team_countries.get(canon)
+                      and country_prefix not in self.team_countries[canon]):
+                    skip = (raw, f'resolved to {canon}, a club outside {country_prefix}')
+                if skip:
+                    break
+            if skip:
+                key = (league_name, skip[0], skip[1])
+                unresolved[key] = unresolved.get(key, 0) + 1
+                continue
+
             # ELO Lookup
             home_elo = self.resolver.get_elo(scraper_home)
             away_elo = self.resolver.get_elo(scraper_away)
@@ -688,6 +723,13 @@ class MatchPredictor:
                   f"and not a supported club country (SUPPORTED_COUNTRIES):")
             for lg, n in sorted(unsupported.items(), key=lambda kv: -kv[1]):
                 print(f"      {n:>3}x  {lg}")
+
+        if unresolved:
+            total = sum(unresolved.values())
+            print(f"[!] {total} fixture(s) skipped — a team did not resolve to a "
+                  f"corpus club (add it to ml_project/team_aliases.py):")
+            for (lg, team, why), n in sorted(unresolved.items(), key=lambda kv: -kv[1]):
+                print(f"      {n:>3}x  {lg:<32} {team:<26} {why}")
 
         # Save Logic (Same as before)
         if match_dates:

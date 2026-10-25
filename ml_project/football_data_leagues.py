@@ -67,3 +67,23 @@ def league_code_from_filename(path):
     without a `Div` column; this recovers the code from the file name."""
     m = _SEASON_FILE.match(os.path.basename(path))
     return PREFIX_TO_CODE.get(m.group('prefix')) if m else None
+
+
+# File-name prefix -> the country as Flashscore writes it in a slate label.
+_PREFIX_COUNTRY = {
+    "ENG": "ENGLAND", "GER": "GERMANY", "ITA": "ITALY", "ESP": "SPAIN",
+    "FRA": "FRANCE", "NED": "NETHERLANDS", "BEL": "BELGIUM", "POR": "PORTUGAL",
+    "TUR": "TURKEY", "SCO": "SCOTLAND", "GR": "GREECE",
+}
+CODE_COUNTRY = {code: _PREFIX_COUNTRY[prefix.split('-')[0]]
+                for code, prefix in MAIN_MAPPING.items()}
+
+
+def league_country(league):
+    """Country of a corpus league label: a main-league code ("E0") or an
+    extra-league "COUNTRY: League" label. None if neither."""
+    if league in CODE_COUNTRY:
+        return CODE_COUNTRY[league]
+    if isinstance(league, str) and ':' in league:
+        return league.split(':', 1)[0].strip().upper()
+    return None
