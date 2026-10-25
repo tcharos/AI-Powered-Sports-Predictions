@@ -207,10 +207,10 @@ fi
 # The scraped fixture file supplies only the teams, kickoff and odds. Every
 # other feature is derived at serve time from two corpora on disk:
 #
-#   data_sets/MatchHistory/  -> rolling form, ELO, H2H (predict_matches.get_team_stats)
+#   data_sets/MatchHistory/  -> rolling form, H2H (predict_matches.get_team_stats),
+#                               and ELO via data_sets/elo_ratings.json (3a')
 #   data_sets/standings/     -> season-to-date PPG + attack/defence strength,
-#                               rank gaps and draw calibration, via
-#                               HeuristicAdjuster.get_team_strength
+#                               via HeuristicAdjuster.get_team_strength
 #
 # Until now nothing in this pipeline refreshed either; they were updated by the
 # weekly retrain or by the two UI buttons, so a daily predict could quietly
@@ -279,6 +279,29 @@ else
         fi
     else
         echo "[=]   Results CSVs are $(age_label "$RESULTS_AGE") (< ${REFRESH_MAX_AGE_H}h) — skipping."
+    fi
+
+    # 3a'. ELO ratings -> H_elo / A_elo, and the set of teams the resolver
+    # accepts. Only a retrain used to write data_sets/elo_ratings.json, so
+    # between retrains every prediction read ratings frozen at the last one
+    # (37 days old on 2026-10-25), and teams new to the corpus were missing
+    # from it, which predict_matches skips as unresolved. Rebuilt whenever the
+    # results CSVs are newer than the file, through the same code a retrain
+    # uses (elo_engine.history_elo), so there is no train/serve skew. ~4 s.
+    ELO_MTIME=$(stat_mtime "data_sets/elo_ratings.json" || echo 0)
+    ELO_AGE=$(age_hours "${ELO_MTIME:-0}")
+    echo ""
+    if [ "$FORCE_REFRESH" == "true" ] || [ "${ELO_MTIME:-0}" -le 0 ] \
+       || [ "$(newest_mtime "data_sets/MatchHistory" '*.csv')" -gt "$ELO_MTIME" ]; then
+        echo "[*]   ELO ratings ($(age_label "$ELO_AGE")) are older than the results CSVs — rebuilding..."
+        if python3 scripts/rebuild_elo.py; then
+            echo "[+]   ELO ratings rebuilt."
+        else
+            echo "[!]   ELO rebuild FAILED (non-fatal). Ratings stay $(age_label "$ELO_AGE"),"
+            echo "      and teams new to the corpus since then will be skipped as unresolved."
+        fi
+    else
+        echo "[=]   ELO ratings are newer than the results CSVs — skipping."
     fi
 
     # 3b. Standings + form -> season-to-date strength in HeuristicAdjuster.

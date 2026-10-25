@@ -102,18 +102,14 @@ class ModelTrainer:
         # 3. Merge ELOs back into the Training DF
 
         # 1. Lightweight History for ELO
-        cols_for_elo = ['date', 'home_team', 'away_team', 'FTHG', 'FTAG']
-        existing_cols = [c for c in cols_for_elo if c in df.columns]
-        df_elo_history = df[existing_cols].copy().sort_values('date')
-
         print("Calculating ELO ratings on full history...")
-        from elo_engine import EloTracker
-        elo_tracker = EloTracker()
-        df_elo_history = elo_tracker.process_history(df_elo_history)
+        from elo_engine import history_elo, save_ratings
+        df_elo_history, elo_tracker = history_elo(df)
 
-        # Save current ELO ratings for prediction usage
-        with open("data_sets/elo_ratings.json", "w") as f:
-            json.dump(elo_tracker.ratings, f)
+        # Save current ELO ratings for prediction usage. Between retrains,
+        # run_predictions.sh rebuilds this file from the refreshed corpus
+        # (scripts/rebuild_elo.py) through the same history_elo().
+        save_ratings(elo_tracker.ratings)
         print("Saved final ELO ratings to data_sets/elo_ratings.json")
 
         # 2. Filter Main DF for Feature Engineering (Buffer)
@@ -365,7 +361,7 @@ class ModelTrainer:
         # rule that the tuned params don't enable, so the saved model was
         # always fit on this 95% slice. Fitting it without the inert eval_set
         # reproduces the identical model.)
-        print("Retraining Final Model on Full Dataset (2020-Present)...")
+        print("Retraining Final Model on Full Dataset (2012-Present)...")
         split_idx = int(len(df_train) * 0.95)
         final_train = df_train.iloc[:split_idx]
 
@@ -465,7 +461,7 @@ class ModelTrainer:
         
         # 2. Final Training (same 95% head the pre-seam path used; the inert
         # eval_set is dropped, reproducing the identical model).
-        print("Retraining Final Model on Full Dataset (2020-Present)...")
+        print("Retraining Final Model on Full Dataset (2012-Present)...")
         split_idx = int(len(df_train) * 0.95)
         final_train = df_train.iloc[:split_idx]
 

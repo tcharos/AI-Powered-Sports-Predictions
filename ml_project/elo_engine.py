@@ -1,5 +1,10 @@
+import json
+import os
+
 import pandas as pd
 import numpy as np
+
+ELO_FILE = "data_sets/elo_ratings.json"
 
 class EloTracker:
     def __init__(self, k_factor=20, start_rating=1500, hfa=100):
@@ -101,3 +106,25 @@ class EloTracker:
         df['A_elo'] = a_elos
         
         return df
+
+
+def history_elo(df):
+    """Run a fresh tracker over a loaded results corpus (DataLoader output).
+
+    Returns (per-match frame with pre-match H_elo/A_elo, tracker). This is the
+    one implementation shared by training (ModelTrainer.prepare_data) and the
+    serve-time rebuild (scripts/rebuild_elo.py), so the ratings a prediction
+    reads are exactly the ones a retrain on the same corpus would write.
+    """
+    cols = [c for c in ('date', 'home_team', 'away_team', 'FTHG', 'FTAG') if c in df.columns]
+    tracker = EloTracker()
+    return tracker.process_history(df[cols].copy().sort_values('date')), tracker
+
+
+def save_ratings(ratings, path=ELO_FILE):
+    """Write the latest ratings atomically: both a retrain and the nightly
+    prediction run write this file, and the predictor reads it."""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(ratings, f)
+    os.replace(tmp, path)
