@@ -151,6 +151,24 @@ class MatchPredictor:
             return cleaned.astype('category')
         return pd.Categorical(cleaned, categories=self.known_leagues)
 
+    @staticmethod
+    def _require_features(input_df, features, head):
+        """Fail loudly if the serve row lacks a feature the model was trained on.
+
+        This used to zero-fill any missing column, which is how IP_H/IP_D/IP_A
+        were served as 0 on every prediction from the first commit until
+        2026-10-25 without a single warning: a feature present in training
+        but never built here is train/serve skew, and a slate predicted on it
+        is wrong in every row. Raise instead, so the next such gap is found on
+        the first run after the retrain that introduced it.
+        """
+        missing = [c for c in features if c not in input_df.columns]
+        if missing:
+            raise RuntimeError(
+                f"{head} model expects features the serve path does not build: "
+                f"{missing}. Build them in MatchPredictor.predict (mirroring "
+                f"FeatureEngineer) rather than defaulting them.")
+
     def get_team_stats(self, team_name, date_before):
         """
         Calculates the rolling features for a team given the historical database.
@@ -448,6 +466,15 @@ class MatchPredictor:
             # Construct Input Vector
             input_row = {
                 'B365H': b365_h, 'B365D': b365_d, 'B365A': b365_a,
+                # Implied probabilities, raw 1/odds exactly as
+                # FeatureEngineer.add_implied_probabilities builds them (not
+                # devigged). Both heads train on these; until 2026-10-25 they
+                # were never built here, so the zero-fill loop below served
+                # IP_* = 0 on every prediction — a value below anything seen in
+                # training (min ~0.02). Measured cost: +0.007-0.008 nats on 1X2,
+                # and it was the source of the "compressed probabilities" the
+                # EV gate kept selecting for. See scripts/experiment_live_gap.py.
+                'IP_H': 1.0 / b365_h, 'IP_D': 1.0 / b365_d, 'IP_A': 1.0 / b365_a,
                 'H_form_pts': h_stats['form_pts'], 'H_form_gf': h_stats['form_gf'], 'H_form_ga': h_stats['form_ga'],
                 'A_form_pts': a_stats['form_pts'], 'A_form_gf': a_stats['form_gf'], 'A_form_ga': a_stats['form_ga'],
                 'H_elo': home_elo, 'A_elo': away_elo,
@@ -499,8 +526,7 @@ class MatchPredictor:
             # the diagnosis and reasoning behind dropping the 2-stage
             # combination.) ---
 
-            for c in self.features_1x2:
-                if c not in input_df.columns: input_df[c] = 0
+            self._require_features(input_df, self.features_1x2, '1x2')
 
             probs_1x2 = self.model_1x2.predict_proba(input_df[self.features_1x2])[0]
             # [P(H), P(D), P(A)] — Platt calibration is applied below
@@ -517,9 +543,8 @@ class MatchPredictor:
             input_row['A_form_ou'] = a_stats['form_ou']
             input_df_ou = pd.DataFrame([input_row])
             input_df_ou['league_cat'] = self._as_league_category(input_df_ou['league_cat'])
-            for c in self.features_ou:
-                if c not in input_df_ou.columns: input_df_ou[c] = 0
-                
+            self._require_features(input_df_ou, self.features_ou, 'ou')
+
             # --- POISSON PREDICTION ---
             # Output is expected goals (lambda)
             pred_lam = self.model_ou.predict(input_df_ou[self.features_ou])[0]
