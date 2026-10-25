@@ -1,9 +1,11 @@
 """Apply per-league Platt calibration at inference time (Phase C4).
 
-`predict_matches.py` calls into here right after `model.predict_proba()`,
-before the heuristic adjuster. The flow becomes:
+`predict_matches.py` calls into here right after `model.predict_proba()`.
+The flow is:
 
-    raw_probs  →  apply_platt  →  heuristic_adjuster  →  final probs
+    raw_probs  →  apply_platt  →  final probs
+
+(A heuristic rule layer used to run after this step; removed 2026-10-25.)
 
 Lookup chain for a Flashscore league name:
 1. Exact match in LEAGUE_ALIASES → calibration key.

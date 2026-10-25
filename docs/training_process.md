@@ -1,6 +1,6 @@
 # Flashscore Predictor: Training Process & Methodology
 
-This document outlines the end-to-end training process, from data ingestion to model refinement, including the specific features used and the heuristic rules applied post-prediction.
+This document outlines the end-to-end training process, from data ingestion to model refinement, including the specific features used.
 
 ## 1. Data Ingestion
 *   **Source**: Historical match data provided by [Football-Data.co.uk](https://www.football-data.co.uk).
@@ -8,7 +8,8 @@ This document outlines the end-to-end training process, from data ingestion to m
 *   **Setup**: `scripts/setup_historical_data.py` downloads data for:
     *   **Main Leagues**: 22 Major European leagues (from `data.zip`).
     *   **Extra Leagues**: 15 Additional leagues (e.g., USA, BRA, JPN) sourced directly from `/new/` URL endpoints.
-*   **Update Mechanism**: `scripts/update_football_data.py` (and the UI button) fetches the latest data for **all** configured leagues.
+*   **Update Mechanism**: `scripts/update_football_data.py` (and the UI button) fetches the latest data for **all** configured leagues. The main-league season is derived from today's date (seasons roll over on 1 July); it refreshes both the previous and the current season. Until 2026-10-25 it was pinned to 2025/26, so 2026/27 results never arrived.
+*   **League labels**: main leagues are keyed by football-data's code (`E0`, `D1`, …). Season files before 2024/25 carry no `Div` column, so `DataLoader` recovers the code from the file name (`ml_project/football_data_leagues.py`). Extra leagues are keyed `"COUNTRY: League"` (`"USA: MLS"`), which is also the form Flashscore uses in a slate label.
 
 ## 2. Feature Engineering
 The raw data is processed by `ml_project/feature_engineering.py` to generate the input features for the XGBoost models.
@@ -25,6 +26,7 @@ The raw data is processed by `ml_project/feature_engineering.py` to generate the
 1.  **Inverse Odds (Implied Probability)**:
     *   `IP_H`, `IP_D`, `IP_A`: Calculated as $1 / Odds$.
     *   Helps linearize the input for the model.
+    *   *Note*: until 2026-10-25 these were never built at serve time and were zero-filled, so every live prediction was made with the model's strongest features set to 0. `predict_matches` now builds them, and fails loudly if any model feature is missing.
 
 2.  **ELO Ratings (`H_elo`, `A_elo`)**:
     *   Calculated via `ml_project/elo_engine.py` on full history (since ~2010).
@@ -35,7 +37,7 @@ The raw data is processed by `ml_project/feature_engineering.py` to generate the
     *   `H_form_gf`, `A_form_gf`: Average goals scored.
     *   `H_form_ga`, `A_form_ga`: Average goals conceded.
     *   `H_form_ou`: Frequency of Over 2.5 matches.
-    *   *Note*: Also calculated for Shots (`sf`, `sa`) and Corners (`cf`, `ca`) where available.
+    *   *Note*: Also calculated for Shots (`sf`, `sa`) and Corners (`cf`, `ca`) where available, but **not trained on** since 2026-10-25. Football-data publishes no shots for the extra leagues, so requiring them dropped every extra-league row from training while those leagues were still served.
 
 4.  **Season-to-Date Stats**:
     *   `H_ppg`, `A_ppg`: Points Per Game current season.
@@ -47,6 +49,7 @@ The raw data is processed by `ml_project/feature_engineering.py` to generate the
     *   `A_away_...`: Away team's form *only in away games*.
 
 ## 3. Model Training
+*   **Training window**: 2012-01-01 onward, every league in the corpus (~177k matches), with a one-year feature buffer before it. ELO is computed over the full history.
 *   **Algorithm**: XGBoost (`XGBClassifier` / `XGBRegressor`) by default — but the model *family* is pluggable (see "Swappable model families" below).
 *   **Models**:
     1.  **1X2 Model**: Multi-class classification (Home, Draw, Away).
@@ -67,46 +70,16 @@ The raw data is processed by `ml_project/feature_engineering.py` to generate the
     *   **ROI %**: Profitability simulation using flat betting (1X2 model only).
 *   **Validation**: Time-Series Split (5 Folds), ensuring no data leakage from future matches.
 
-## 4. Heuristic Adjuster
+## 4. Post-processing (none)
 
-A post-processing step applied to model probabilities (`ml_project/heuristic_adjuster.py`). Heuristics propose **deltas** to an accumulator rather than mutating probabilities directly; the accumulator is **capped** before being applied so no single match can have its outcome distorted by more than `MAX_TOTAL_BOOST_PER_CLASS` (default 0.15) per class.
+The model's probabilities are used as they are, apart from per-league Platt calibration (currently disabled for football, see CLAUDE.md).
 
-### Pre-heuristic calibration (always runs)
-1.  **League-aware draw shrinkage**: nudges P(Draw) 15% toward the league's historical draw rate, redistributing the delta proportionally between Home/Away.
-2.  **Draw cap**: hard-caps P(Draw) at `league_draw_rate + 0.05`. Excess redistributed proportionally to Home/Away.
-
-### H1–H6 (proposed deltas, accumulated then capped)
-
-| Heuristic | Condition | Action |
-| :--- | :--- | :--- |
-| **H1 — Rank Diff (Overall)** | Standings rank gap ≥ 5 | Boost stronger team `+0.02 × (gap/5)` capped at 0.10 |
-| **H2 — Rank Diff (Specific)** | Home-table rank vs Away-table rank gap ≥ 5 | Boost stronger team `+0.03 × (gap/5)` capped at 0.10 |
-| **H3 — Form (Overall)** | Last 5: Wins ≥ 4 → boost; Losses ≥ 4 → **fade** | Win: `+0.05` to the team. Loss: `_fade()` — 70% to opponent + 30% to Draw |
-| **H4 — Form (Specific venue)** | Home form at home / Away form at away: same W/L rules | Win: `+0.06`. Loss: `_fade()` 70/30 |
-| **H6 — Trend (L5 vs L10)** | L5 win-rate ≥ L10 + 0.30 → heating up. L5 ≤ L10 − 0.30 → cooling. Both ≥ 0.70/0.60 → consistent | Heat: `+0.04`. Cool: `_fade()` 70/30. Consistent: `+0.03` |
-
-Symmetric design: every "winning team boost" has a mirror "opposing team fade", split between the opposing outcome and Draw. Previously the fade went entirely to the opponent, producing a structural pro-home bias when away teams were on losing streaks.
-
-### O/U and value logging (separate from the cap)
-
-| Heuristic | Condition | Action |
-| :--- | :--- | :--- |
-| **H5 — Goal Fest (O/U)** | Combined avg GF > 3.5 | Boost P(Over 2.5) by `+0.05`, then renormalize O/U |
-| **H7 — Value flagging** | `adj_prob − implied_book_prob > 0.05` | Log only (no probability change) |
-
-### Application order
-
-1. Apply calibration + draw cap to `adj_1x2` directly.
-2. Look up team standings/form. Bail out early with "No Standings Data" if missing.
-3. Run H1–H6, each pushing to `delta = [Δhome, Δdraw, Δaway]`.
-4. Clip each component of `delta` to `[-0.15, +0.15]`. If anything clipped, log `Boost Cap: H+x.xx→...`.
-5. Apply `delta` to `adj_1x2`, clip negatives, normalize.
-6. Run H5 on `adj_ou` and normalize.
-7. Run H7 (logging only).
+Until 2026-10-25 a rule layer, `HeuristicAdjuster.adjust_probabilities`, post-processed them. It shrank P(Draw) toward the league draw rate and capped it, and added capped boosts for standings rank gaps, form streaks, L5-vs-L10 trend and high-scoring pairs (O/U). It was removed because replaying it exactly from the logged `Adj Logs` over the settled slates showed it was neutral (−0.0014 nats, CI [−0.006, +0.003]). Every rule family measured ≈0, and the trend rule could never fire because the `last_10` standings tables are copies of `last_5` (`scripts/experiment_heuristic_audit.py`). The `Adj Logs` CSV column remains for schema stability and is empty for club fixtures.
 
 ### Inference-time consistency
-At training, season-to-date PPG / attack strength / defense weakness are computed from full match history. At inference, `predict_matches.py` calls `HeuristicAdjuster.get_team_strength(league, team)` which reads the same fields from current standings JSON — keeping train and serve aligned on these features (no proxy-from-form-points anymore).
+At training, season-to-date PPG / attack strength / defense weakness are computed from full match history, with seasons taken from the file's own `Season` column where it has one (calendar-year leagues) and Aug→Jul otherwise. At inference, `predict_matches.py` calls `HeuristicAdjuster.get_team_strength(league, team)`, which reads the same fields from the current standings JSON, keeping train and serve aligned on these features. The class name is historical; this is all it does now.
 
 ## 5. Output
-*   **Predictions CSV**: Contains original odds, ML confidence, and heuristic-adjusted confidence.
-*   **Analysis**: Final decision (1, X, 2) is based on the highest *adjusted* probability.
+*   **Predictions CSV**: Contains original odds, final probabilities and confidence, and the raw (pre-calibration) probabilities for audit.
+*   **Analysis**: Final decision (1, X, 2) is based on the highest probability; a Draw is picked only when P(Draw) exceeds both other outcomes by 0.05.
+*   **Skipped fixtures**: a fixture is not predicted when a team does not resolve to a corpus club, or resolves to a club from another country. The run prints each one; add the name to `ml_project/team_aliases.py`.

@@ -107,10 +107,11 @@ class MatchPredictor:
         else:
             self.known_leagues = []
 
+        # Standings-derived season-to-date strength (H/A_ppg, _att, _def).
         self.adjuster = HeuristicAdjuster()
 
         # Per-league Platt calibrators (C4). Empty dict if file missing.
-        # Applied to raw probs *before* the heuristic adjuster.
+        # Applied to the raw model probabilities.
         self.calibration_data = load_calibration_data('data_sets/league_calibration.json')
         self.use_league_calibration = _load_league_calibration_flag()
         if self.calibration_data and self.use_league_calibration:
@@ -595,9 +596,9 @@ class MatchPredictor:
             probs_ou = np.array([prob_under, prob_over])
 
             # --- PER-LEAGUE PLATT CALIBRATION (C4) ---
-            # Correct systematic per-league probability bias *before* the
-            # heuristic adjuster does its work. The adjuster's domain rules
-            # then operate on already-calibrated probs.
+            # Correct systematic per-league probability bias. Disabled for
+            # football since 2026-09-13 (use_league_calibration=false), in
+            # which case this passes the raw probabilities through.
             raw_probs_1x2 = probs_1x2.copy()
             raw_probs_ou = probs_ou.copy()
             probs_1x2, applied_1x2, cal_src_1x2 = apply_platt_1x2(
@@ -607,7 +608,7 @@ class MatchPredictor:
                 probs_ou, league_name, self.calibration_data,
                 enabled=self.use_league_calibration)
 
-            # Extract O/U Odds (Moved Up)
+            # Extract O/U Odds
             try:
                 ov_str = match.get('over_2_5', '0.0')
                 un_str = match.get('under_2_5', '0.0')
@@ -616,26 +617,21 @@ class MatchPredictor:
             except:
                 ov_val, un_val = 0.0, 0.0
             
-            # --- HEURISTIC ADJUSTMENT ---
-            match_info = {
-                'League': league_name,
-                'Home Team': scraper_home,
-                'Away Team': scraper_away,
-                'Odds': {
-                    '1': b365_h,
-                    'X': b365_d,
-                    '2': b365_a,
-                    'O': ov_val,
-                    'U': un_val
-                }
-            }
-            adj_1x2, adj_ou, adj_logs = self.adjuster.adjust_probabilities(match_info, probs_1x2, probs_ou)
+            # Final probabilities are the (optionally calibrated) model output.
+            # The HeuristicAdjuster rule layer that used to post-process them
+            # (league draw shrinkage + cap, rank / form / heating boosts, a
+            # goal-fest O/U bump) was removed on 2026-10-25. Replayed exactly
+            # from `Adj Logs` over the settled slates it was neutral, -0.0014
+            # nats [-0.006, +0.003], every rule family measured ~0, and H6
+            # could never fire because the last_10 standings tables are
+            # copies of last_5 (scripts/experiment_heuristic_audit.py). The
+            # `Adj Logs` column stays for schema stability; the NT batch
+            # still writes to it.
+            adj_1x2, adj_ou, adj_logs = list(probs_1x2), list(probs_ou), []
             
-            # Select Final Predictions based on ADJUSTED probabilities
+            # Select Final Predictions
             # 1X2
             pred_1x2_idx = adj_1x2.index(max(adj_1x2))
-            # Use ADJUSTED probs for final decision
-            # Use ADJUSTED probs for final decision
             # NEW RULE: Pick Draw only if P(D) > max(P(H), P(A)) + margin
             p_h, p_d, p_a = adj_1x2
             margin = 0.05 # Conservative margin (User suggested 0.03-0.06)
@@ -704,7 +700,7 @@ class MatchPredictor:
                 'Away Win %': f"{adj_1x2[2]:.2f}",
                 'Over %': f"{adj_ou[1]:.2f}",
                 'Under %': f"{adj_ou[0]:.2f}",
-                # Raw probabilities (pre-calibration, pre-heuristic) for audit.
+                # Raw probabilities (pre-calibration) for audit.
                 'Home Win % (raw)': f"{raw_probs_1x2[0]:.2f}",
                 'Draw % (raw)': f"{raw_probs_1x2[1]:.2f}",
                 'Away Win % (raw)': f"{raw_probs_1x2[2]:.2f}",
