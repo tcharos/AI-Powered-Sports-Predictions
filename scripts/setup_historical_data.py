@@ -9,30 +9,8 @@ BASE_URL = "https://www.football-data.co.uk/mmz4281"
 TARGET_DIR = "data_sets/MatchHistory"
 
 # 1. Main Leagues (from data.zip) -> Mapped to match legacy data_sets/MatchHistory names
-MAIN_MAPPING = {
-    "E0": "ENG-Premier_League",
-    "E1": "ENG-Championship",
-    "E2": "ENG-League_1",      # Legacy: League_1
-    "E3": "ENG-League_2",      # Legacy: League_2
-    "EC": "ENG-Conference",    # Legacy: Conference
-    "D1": "GER-Bundesliga",
-    "D2": "GER-Bundesliga_2",  # Legacy: Bundesliga_2
-    "I1": "ITA-Serie_A",
-    "I2": "ITA-Serie_B",
-    "SP1": "ESP-La_Liga",      # Legacy: La_Liga
-    "SP2": "ESP-Segunda",      # Legacy: Segunda
-    "F1": "FRA-Ligue_1",
-    "F2": "FRA-Ligue_2",
-    "N1": "NED-Eredivisie",
-    "B1": "BEL-Jupiler_League",# Legacy: Jupiler_League
-    "P1": "POR-Liga_1",        # Legacy: Liga_1
-    "T1": "TUR-Ligi_1",        # Legacy: Ligi_1
-    "SC0": "SCO-Premier_League",# Legacy: Premier_League
-    "SC1": "SCO-Division_1",    # Legacy: Division_1
-    "SC2": "SCO-Division_2",    # Legacy: Division_2
-    "SC3": "SCO-Division_3",    # Legacy: Division_3
-    "G1": "GR-Super_League"     # Legacy: GR-, not GRE-
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ml_project'))
+from football_data_leagues import MAIN_MAPPING  # noqa: E402
 
 # 2. Extra Leagues (Direct URLs)
 # Mapped to: (URL_CODE, TARGET_FILENAME_BASE)

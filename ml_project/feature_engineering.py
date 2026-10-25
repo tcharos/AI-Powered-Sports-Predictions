@@ -518,7 +518,13 @@ class FeatureEngineer:
         """
         Adds season-to-date PPG, attack strength, defense weakness, and
         derived diffs. All cumulative stats are computed from games STRICTLY
-        BEFORE each match (within the same Aug→Jul season) to avoid leakage.
+        BEFORE each match (within the same season) to avoid leakage.
+
+        The season is the file's own `Season` column where it has one (the
+        extra leagues: calendar-year "2025" or "2025/2026"), else Aug→Jul.
+        An Aug→Jul key on a calendar-year league resets every table on
+        1 August, mid-season, while the serve-time standings it is meant to
+        mirror do not.
 
         Strength is normalized against the league's running average goals
         scored per team-game in the same season.
@@ -526,6 +532,11 @@ class FeatureEngineer:
         required = {'date', 'home_team', 'away_team', 'FTHG', 'FTAG', 'FTR', 'league'}
         if not required.issubset(df.columns):
             return df
+
+        season = (df['Season'] if 'Season' in df.columns
+                  else pd.Series(np.nan, index=df.index))
+        season = (season.where(season.notna()).astype(str).str.strip()
+                  .str.replace(r'\.0$', '', regex=True).where(season.notna()))
 
         home_view = pd.DataFrame({
             'date': df['date'],
@@ -535,6 +546,7 @@ class FeatureEngineer:
             'goals_for': df['FTHG'],
             'goals_against': df['FTAG'],
             'is_home': 1,
+            'season': season,
         })
         away_view = pd.DataFrame({
             'date': df['date'],
@@ -544,16 +556,19 @@ class FeatureEngineer:
             'goals_for': df['FTAG'],
             'goals_against': df['FTHG'],
             'is_home': 0,
+            'season': season,
         })
 
         team_stats = pd.concat([home_view, away_view], ignore_index=True)
         team_stats = team_stats.dropna(subset=['points'])
         team_stats = team_stats.sort_values('date').reset_index(drop=True)
 
-        # Football season key: Aug–Dec → year; Jan–Jul → year-1.
+        # Football season key: the file's Season where present, else
+        # Aug–Dec → year; Jan–Jul → year-1.
         months = team_stats['date'].dt.month
         years = team_stats['date'].dt.year
-        team_stats['season_year'] = years.where(months >= 8, years - 1)
+        by_month = years.where(months >= 8, years - 1).astype('Int64').astype(str)
+        team_stats['season_year'] = team_stats['season'].fillna(by_month)
 
         def _running_team(group):
             past = group[['points', 'goals_for', 'goals_against']].shift(1)

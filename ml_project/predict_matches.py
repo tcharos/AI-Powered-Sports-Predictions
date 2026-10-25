@@ -358,7 +358,7 @@ class MatchPredictor:
 
             # Translate Flashscore-format name to the training-time
             # league_cat value (e.g. "ENGLAND: Premier League" -> "E0",
-            # "BRAZIL: Serie A Betano" -> "Serie A"). Unaliased leagues
+            # "BRAZIL: Serie A Betano" -> "BRAZIL: Serie A"). Unaliased leagues
             # fall through unchanged and remain an unseen category for
             # the model (same behaviour as before the alias lookup).
             league_cat_value = LEAGUE_ALIASES.get(league_name, league_name)

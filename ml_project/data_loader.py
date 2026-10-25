@@ -4,6 +4,8 @@ import glob
 import os
 from typing import List, Optional
 
+from football_data_leagues import league_code_from_filename
+
 # Preference chain for the reference 1X2 price that becomes B365H/D/A and so
 # feeds IP_H/IP_D/IP_A — the model's strongest features.
 #
@@ -131,6 +133,25 @@ class DataLoader:
                 }
                 # Rename if exists
                 df = df.rename(columns=col_map)
+
+                # League label. Main-league season files before 2024/25 were
+                # written without a `Div` column, so their rows came back with
+                # league=NaN and _training_rows silently dropped them: about
+                # 70k matches from 2012-2024 never reached a model. Recover
+                # the code from the file name instead.
+                if 'league' not in df.columns:
+                    code = league_code_from_filename(filename)
+                    if code:
+                        df['league'] = code
+                # Extra-league files carry a bare league name, and those
+                # collide across countries ("Super League" is both China and
+                # Switzerland; "Superliga" both Denmark and Romania) and are
+                # inconsistently padded ("Superliga ", " J1 League"). Qualify
+                # them with the country, in Flashscore's "COUNTRY: League"
+                # form, so a slate label usually maps to itself.
+                elif 'Country' in df.columns:
+                    df['league'] = (df['Country'].astype(str).str.strip().str.upper()
+                                    + ': ' + df['league'].astype(str).str.strip())
                 
                 # Lowercase other standard columns if needed, but strict mapping is safer for required ones
                 

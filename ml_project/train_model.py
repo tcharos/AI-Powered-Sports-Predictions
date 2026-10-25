@@ -33,12 +33,20 @@ class ModelTrainer:
             'league_cat', # Re-added
             
             # H/A Specific Basic
-            'H_home_pts', 'H_home_gf', 'H_home_ga', 'H_home_sf', 'H_home_sa',
-            'A_away_pts', 'A_away_gf', 'A_away_ga', 'A_away_sf', 'A_away_sa',
-            
-            # Shots and Corners (Overall Form)
-            'H_form_sf', 'H_form_sa', 'H_form_cf', 'H_form_ca',
-            'A_form_sf', 'A_form_sa', 'A_form_cf', 'A_form_ca',
+            'H_home_pts', 'H_home_gf', 'H_home_ga',
+            'A_away_pts', 'A_away_gf', 'A_away_ga',
+
+            # NOTE: the twelve shots/corners columns (H_home_sf/sa,
+            # A_away_sf/sa, H_form_sf/sa/cf/ca, A_form_sf/sa/cf/ca) were
+            # removed on 2026-10-25. football-data publishes no shots for the
+            # extra leagues (MLS, J1, Brazil, the Nordics, ...), so requiring
+            # them dropped every one of those rows from training while the
+            # same leagues were still served — about 45% of the daily slate
+            # was predicted by a model that had never seen its league.
+            # Measured on 2012+ holdouts: dropping them and training on every
+            # league scored -0.0041 nats [-0.0062, -0.0019] against keeping
+            # them, and was no worse on the leagues that do carry shots
+            # (scripts/experiment_training_coverage.py, arm C_noshots).
 
             # Longer-horizon form (2026-09-13). The L5 columns above are noisy
             # over a 5-match sample; L10/L15 give the model a slower-moving
@@ -46,9 +54,7 @@ class ModelTrainer:
             # shift from a short streak. Built by FeatureEngineer from
             # FORM_WINDOWS and mirrored at serve time by
             # predict_matches.get_team_stats off the same corpus.
-            # Shot/corner columns are omitted here: they are absent for 23 of
-            # 44 leagues (league-clustered, ~50% of rows) and a longer window
-            # buys no extra coverage, so they would add width without signal.
+            # Shot/corner columns are omitted at every window; see below.
             'H_form_pts_l10', 'H_form_gf_l10', 'H_form_ga_l10',
             'A_form_pts_l10', 'A_form_gf_l10', 'A_form_ga_l10',
             'H_form_pts_l15', 'H_form_gf_l15', 'H_form_ga_l15',
@@ -92,7 +98,7 @@ class ModelTrainer:
         # NOTE: We need full history for correct ELO calculation, but treating the huge DF triggers OOM.
         # OPTIMIZATION:
         # 1. Create a lightweight DF for ELO calculation (2010-Present)
-        # 2. Filter the main DF early for Training (2020-Present) to save memory
+        # 2. Filter the main DF early for Training (2012-Present) to save memory
         # 3. Merge ELOs back into the Training DF
 
         # 1. Lightweight History for ELO
@@ -112,8 +118,13 @@ class ModelTrainer:
 
         # 2. Filter Main DF for Feature Engineering (Buffer)
         # We need prior data to calculate rolling features for the start of the training period.
-        buffer_date = pd.Timestamp("2019-01-01")
-        training_start = pd.Timestamp("2020-01-01")
+        # The window used to start in 2020 but in practice began in 2024:
+        # older main-league files had no league column, so _training_rows
+        # dropped them (fixed in DataLoader, 2026-10-25). With them restored,
+        # 2012+ measured -0.0029 nats [-0.0043, -0.0015] against the deployed
+        # model on 2024+ holdouts (scripts/experiment_training_coverage.py).
+        buffer_date = pd.Timestamp("2011-01-01")
+        training_start = pd.Timestamp("2012-01-01")
         print(f"Filtering data for FE since {buffer_date}...")
         df_fe = df[df['date'] >= buffer_date].copy()
         
@@ -137,7 +148,7 @@ class ModelTrainer:
         fe = FeatureEngineer()
         df_fe = fe.add_rolling_features(df_fe)
         
-        # 5. Filter for Final Training Set (2020-Present)
+        # 5. Filter for Final Training Set (2012-Present)
         print(f"Filtering final training set since {training_start}...")
         df_train = df_fe[df_fe['date'] >= training_start].copy()
         
