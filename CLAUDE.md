@@ -404,3 +404,17 @@ The minimum-viable run cadence is: daily predict/verify, weekly retrain, quarter
 ### Date handling gotcha
 
 `run_predictions.sh` and `run_verification.sh` compute `day_diff` (target − today, in days) and pass it to the spider. Scripts use MacOS `date -v` syntax with a Linux `date -d` fallback — when modifying these wrappers preserve both branches. The scraper treats `day_diff` as the source of truth, not the date string, so the date in the output filename and the day actually scraped can drift if the diff math is wrong.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `tcharos/AI-Powered-Sports-Predictions`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
